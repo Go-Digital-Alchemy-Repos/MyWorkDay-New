@@ -5,6 +5,8 @@
 **Selected Approach:** Design System + Reference Hybrid
 - **Primary References:** Asana, Linear, Notion (for productivity patterns)
 - **Design System Foundation:** Tailwind CSS utilities with custom component architecture
+- **Brand Color:** Green (#7CB342 / HSL 86 52% 48%) - Used as primary color throughout the app
+- **Logo:** DASANA "DA" symbol in brand green, used in sidebar header
 - **Rationale:** DASANA is a utility-focused productivity tool requiring consistent, efficient UI patterns with clear information hierarchy. Drawing from established project management interfaces ensures intuitive UX while Tailwind provides rapid, maintainable implementation.
 
 ## Core Design Principles

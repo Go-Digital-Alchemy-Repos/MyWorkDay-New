@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Hash,
 } from "lucide-react";
+import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
   Sidebar,
   SidebarContent,
@@ -55,9 +56,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold text-sm">
-            D
-          </div>
+          <img src={dasanaLogo} alt="DASANA" className="h-8 w-8" />
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-sidebar-foreground">
               {workspace?.name || "DASANA"}
