@@ -1,0 +1,149 @@
+import { Checkbox } from "@/components/ui/checkbox";
+import { PriorityBadge } from "@/components/priority-badge";
+import { DueDateBadge } from "@/components/due-date-badge";
+import { TagBadge } from "@/components/tag-badge";
+import { AvatarGroup } from "@/components/avatar-group";
+import { cn } from "@/lib/utils";
+import { MessageSquare, Paperclip } from "lucide-react";
+import type { TaskWithRelations, User, Tag } from "@shared/schema";
+
+interface TaskCardProps {
+  task: TaskWithRelations;
+  view?: "list" | "board";
+  onSelect?: () => void;
+  onStatusChange?: (completed: boolean) => void;
+}
+
+export function TaskCard({ task, view = "list", onSelect, onStatusChange }: TaskCardProps) {
+  const isCompleted = task.status === "done";
+  const assigneeUsers: Partial<User>[] = task.assignees?.map((a) => a.user).filter(Boolean) as Partial<User>[] || [];
+  const taskTags: Tag[] = task.tags?.map((tt) => tt.tag).filter(Boolean) as Tag[] || [];
+  const subtaskCount = task.subtasks?.length || 0;
+  const completedSubtasks = task.subtasks?.filter((s) => s.completed).length || 0;
+
+  if (view === "board") {
+    return (
+      <div
+        className={cn(
+          "group w-full rounded-lg border border-card-border bg-card p-3 hover-elevate cursor-pointer transition-all duration-150",
+          isCompleted && "opacity-60"
+        )}
+        onClick={onSelect}
+        data-testid={`task-card-${task.id}`}
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex items-start gap-2">
+            <Checkbox
+              checked={isCompleted}
+              onCheckedChange={(checked) => {
+                onStatusChange?.(checked as boolean);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-0.5"
+              data-testid={`checkbox-task-${task.id}`}
+            />
+            <span
+              className={cn(
+                "text-sm font-medium flex-1",
+                isCompleted && "line-through text-muted-foreground"
+              )}
+            >
+              {task.title}
+            </span>
+          </div>
+
+          {task.description && (
+            <p className="text-xs text-muted-foreground line-clamp-2 pl-6">
+              {task.description}
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-1.5 pl-6">
+            {taskTags.slice(0, 2).map((tag) => (
+              <TagBadge key={tag.id} name={tag.name} color={tag.color} size="sm" />
+            ))}
+            {taskTags.length > 2 && (
+              <span className="text-[10px] text-muted-foreground">+{taskTags.length - 2}</span>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pl-6 pt-1">
+            <div className="flex items-center gap-2">
+              {task.dueDate && <DueDateBadge date={task.dueDate} size="sm" />}
+              <PriorityBadge priority={task.priority as any} showLabel={false} size="sm" />
+            </div>
+            {assigneeUsers.length > 0 && (
+              <AvatarGroup users={assigneeUsers} max={2} size="sm" />
+            )}
+          </div>
+
+          {subtaskCount > 0 && (
+            <div className="flex items-center gap-1 pl-6 text-xs text-muted-foreground">
+              <span>{completedSubtasks}/{subtaskCount} subtasks</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "group grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 px-4 py-3 min-h-[52px] border-b border-border hover-elevate cursor-pointer transition-all duration-150",
+        isCompleted && "opacity-60"
+      )}
+      onClick={onSelect}
+      data-testid={`task-card-${task.id}`}
+    >
+      <Checkbox
+        checked={isCompleted}
+        onCheckedChange={(checked) => {
+          onStatusChange?.(checked as boolean);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        data-testid={`checkbox-task-${task.id}`}
+      />
+
+      <div className="flex flex-col gap-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "text-sm font-medium truncate",
+              isCompleted && "line-through text-muted-foreground"
+            )}
+          >
+            {task.title}
+          </span>
+          {subtaskCount > 0 && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              ({completedSubtasks}/{subtaskCount})
+            </span>
+          )}
+        </div>
+        {taskTags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {taskTags.slice(0, 3).map((tag) => (
+              <TagBadge key={tag.id} name={tag.name} color={tag.color} size="sm" />
+            ))}
+            {taskTags.length > 3 && (
+              <span className="text-[10px] text-muted-foreground">+{taskTags.length - 3}</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center">
+        {assigneeUsers.length > 0 && <AvatarGroup users={assigneeUsers} max={3} size="sm" />}
+      </div>
+
+      <div className="flex items-center">
+        {task.dueDate && <DueDateBadge date={task.dueDate} size="sm" />}
+      </div>
+
+      <div className="flex items-center">
+        <PriorityBadge priority={task.priority as any} showLabel={false} size="sm" />
+      </div>
+    </div>
+  );
+}
