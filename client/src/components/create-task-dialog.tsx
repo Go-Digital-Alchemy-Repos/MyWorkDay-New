@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -83,6 +84,9 @@ export function CreateTaskDialog({
       <DialogContent className="max-w-2xl" data-testid="dialog-create-task">
         <DialogHeader>
           <DialogTitle>Create Task</DialogTitle>
+          <DialogDescription>
+            Add a new task to your project
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>

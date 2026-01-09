@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   FolderKanban,
   CheckSquare,
@@ -12,9 +13,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskCard } from "@/components/task-card";
-import type { Project, Task, TaskWithRelations, Team } from "@shared/schema";
+import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import type { Project, TaskWithRelations, Team } from "@shared/schema";
 
 export default function Home() {
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+
   const { data: projects, isLoading: projectsLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
   });
@@ -26,6 +31,20 @@ export default function Home() {
   const { data: teams, isLoading: teamsLoading } = useQuery<Team[]>({
     queryKey: ["/api/teams"],
   });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest("POST", "/api/projects", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setCreateProjectOpen(false);
+    },
+  });
+
+  const handleCreateProject = (data: any) => {
+    createProjectMutation.mutate(data);
+  };
 
   const upcomingTasks = myTasks?.slice(0, 5) || [];
 
@@ -138,7 +157,12 @@ export default function Home() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <CardTitle>Recent Projects</CardTitle>
-              <Button variant="ghost" size="sm" data-testid="button-new-project">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCreateProjectOpen(true)}
+                data-testid="button-new-project"
+              >
                 <Plus className="mr-1 h-4 w-4" />
                 New
               </Button>
@@ -184,7 +208,13 @@ export default function Home() {
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <FolderKanban className="h-8 w-8 text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground">No projects yet</p>
-                  <Button variant="outline" size="sm" className="mt-3" data-testid="button-create-first-project">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => setCreateProjectOpen(true)}
+                    data-testid="button-create-first-project"
+                  >
                     <Plus className="mr-1 h-4 w-4" />
                     Create your first project
                   </Button>
@@ -194,6 +224,14 @@ export default function Home() {
           </Card>
         </div>
       </div>
+
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onSubmit={handleCreateProject}
+        teams={teams}
+        isPending={createProjectMutation.isPending}
+      />
     </div>
   );
 }

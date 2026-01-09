@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Home,
@@ -31,7 +32,9 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { CreateProjectDialog } from "@/components/create-project-dialog";
 import type { Project, Team, Workspace } from "@shared/schema";
 
 const mainNavItems = [
@@ -41,6 +44,7 @@ const mainNavItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const { data: workspace } = useQuery<Workspace>({
     queryKey: ["/api/workspaces/current"],
@@ -53,6 +57,20 @@ export function AppSidebar() {
   const { data: teams } = useQuery<Team[]>({
     queryKey: ["/api/teams"],
   });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest("POST", "/api/projects", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setCreateProjectOpen(false);
+    },
+  });
+
+  const handleCreateProject = (data: any) => {
+    createProjectMutation.mutate(data);
+  };
 
   return (
     <Sidebar>
@@ -99,6 +117,7 @@ export function AppSidebar() {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
+                onClick={() => setCreateProjectOpen(true)}
                 data-testid="button-add-project"
               >
                 <Plus className="h-3 w-3" />
@@ -240,6 +259,14 @@ export function AppSidebar() {
           </Button>
         </div>
       </SidebarFooter>
+
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onSubmit={handleCreateProject}
+        teams={teams}
+        isPending={createProjectMutation.isPending}
+      />
     </Sidebar>
   );
 }
