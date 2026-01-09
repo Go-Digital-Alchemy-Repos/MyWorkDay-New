@@ -1,0 +1,549 @@
+Asana-Modeled Project Management App (React + Service Layer + Full Task Specs)
+0) Builder Role & Hard Requirements
+
+You are a senior full-stack engineer. Build an Asana-inspired project management web app in a single repo with a structure that supports future iOS/Android via shared domain logic.
+
+Hard requirements (must implement in MVP, not placeholders):
+
+Tasks
+
+title, description (markdown)
+
+assignee(s) (at least one assignee; support multiple assignees if easy)
+
+due date
+
+priority levels: low / medium / high / urgent
+
+status: todo / in_progress / blocked / done
+
+tags
+
+ordering and moving across sections (board view drag/drop)
+
+Subtasks
+
+create/edit/complete/reorder
+
+assign to team members (optional but preferred)
+
+due date (optional but preferred)
+
+Team member assignment
+
+workspace members
+
+teams and team members
+
+project membership + visibility rules
+
+Must include a service-layer architecture (frontend + backend) with clean separation:
+
+Routes/Controllers → Services → Repositories/DB → Domain/Shared
+
+Deliverables:
+
+Working React web app + Node API + Postgres schema/migrations + seed data
+
+/docs with architecture, API, DB schema, RBAC, runbook
+
+Tests for: RBAC checks, task move ordering, task creation w/ tags & assignee
+
+1) Monorepo Structure (Single codebase)
+
+Use a single repo with:
+
+/apps/web — React + TS frontend
+
+/apps/api — Node + TS backend
+
+/packages/shared — shared types, Zod schemas, domain rules, API DTOs
+
+/docs — specs + runbook
+
+2) Service Layer Organization (MANDATORY)
+Backend layering (apps/api)
+
+Do NOT put business logic in routes. Routes call services only.
+
+Required folder structure:
+
+apps/api/src/routes/* (HTTP routing only)
+
+apps/api/src/controllers/* (parse/validate, call service, shape response)
+
+apps/api/src/services/* (business logic, transactions, orchestration)
+
+apps/api/src/repositories/* (DB access only; Prisma queries live here)
+
+apps/api/src/domain/* (server-only domain helpers if needed)
+
+apps/api/src/middleware/* (auth, RBAC, error handler)
+
+apps/api/src/utils/* (logger, errors)
+
+Pattern:
+Route → Controller → Service → Repository → DB
+Service owns authorization checks (or calls a shared RBAC module).
+
+Frontend layering (apps/web)
+
+apps/web/src/api/* (typed API client)
+
+apps/web/src/services/* (UI-facing service functions; composition, caching hints)
+
+apps/web/src/features/* (feature modules: tasks, projects, teams)
+
+apps/web/src/components/* (pure UI)
+
+apps/web/src/pages/* (routes/screens)
+
+Frontend rule: pages/components should not call fetch directly; use api client or frontend services.
+
+Shared domain layer (packages/shared)
+
+packages/shared/src/types/*
+
+packages/shared/src/schemas/* (Zod DTO validation for requests/responses)
+
+packages/shared/src/rbac/* (shared role/permission logic)
+
+packages/shared/src/domain/* (shared domain rules: priority enums, status transitions)
+
+3) Core Features (MVP must include)
+Workspaces / Teams / Projects
+
+Workspace creation
+
+Invite members (seed/mock ok)
+
+Teams: create team, add/remove members
+
+Projects:
+
+can be team-linked or standalone
+
+visibility: private vs workspace-visible
+
+project members list for private projects
+
+Sections:
+
+required for board/list grouping
+
+reorder sections
+
+Tasks (full spec)
+
+Each task must support:
+
+Title (required)
+
+Description (markdown, optional)
+
+Project + Section association
+
+Status: todo / in_progress / blocked / done
+
+Priority: low / medium / high / urgent
+
+Due date (nullable, but feature must exist)
+
+Start date (optional but recommended)
+
+Assignee(s): at minimum one assignee field (nullable), assignable from project members
+
+Tags: attach multiple tags to task
+
+Comments (markdown)
+
+Activity log entry on creation, update, move, assign, comment
+
+Ordering within section + drag/drop move across sections (board view)
+
+Subtasks (full spec)
+
+Subtasks must support:
+
+title (required)
+
+completed boolean
+
+order_index for reordering
+
+assignee_id (nullable but preferred)
+
+due_date (nullable but preferred)
+
+Subtasks are visible in task detail drawer/modal with CRUD.
+
+Tags
+
+Workspace-level tags, with name + optional color
+
+Assign/unassign tags from tasks
+
+Filter tasks by tag in project list view and My Tasks
+
+My Tasks View
+
+All tasks assigned to logged-in user across projects
+
+Filters: status, priority, due date range, tag, project
+
+Sort: due date asc/desc, priority, updated_at
+
+4) Database Schema (Postgres + Prisma)
+
+Use Prisma + migrations.
+
+Required tables (include these columns)
+
+users
+
+id uuid, email unique, name, password_hash, avatar_url?, created_at, updated_at
+
+workspaces
+
+id, name, created_by, created_at, updated_at
+
+workspace_members
+
+id, workspace_id, user_id, role (owner/admin/member/guest), status (active/invited), created_at
+
+unique(workspace_id, user_id)
+
+teams
+
+id, workspace_id, name, created_at
+
+team_members
+
+id, team_id, user_id, created_at
+
+unique(team_id, user_id)
+
+projects
+
+id, workspace_id, team_id?, name, description, visibility (private/workspace), status (active/archived), created_by, created_at, updated_at
+
+project_members
+
+id, project_id, user_id, role (admin/member/guest) optional
+
+unique(project_id, user_id)
+
+sections
+
+id, project_id, name, order_index
+
+tasks
+
+id, project_id, section_id?, title, description, status, priority,
+
+start_date?, due_date?,
+
+created_by, created_at, updated_at
+
+order_index
+
+task_assignees (required if supporting multiple assignees; recommended)
+
+id, task_id, user_id
+
+unique(task_id, user_id)
+
+(If you implement single assignee only, use assignee_id on tasks, but still keep code structured so multi-assignee can be added later.)
+
+subtasks
+
+id, task_id, title, completed, assignee_id?, due_date?, order_index, created_at, updated_at
+
+tags
+
+id, workspace_id, name, color?
+
+unique(workspace_id, name)
+
+task_tags
+
+task_id, tag_id
+
+unique(task_id, tag_id)
+
+comments
+
+id, task_id, user_id, body, created_at, updated_at
+
+activity_log
+
+id, workspace_id, actor_user_id, entity_type, entity_id, action, diff_json, created_at
+
+notifications
+
+id, user_id, type, payload_json, read_at?, created_at
+
+Index requirements
+
+tasks(project_id, section_id, order_index)
+
+tasks(due_date)
+
+task_assignees(user_id)
+
+subtasks(task_id, order_index)
+
+task_tags(tag_id)
+
+comments(task_id, created_at)
+
+5) Ordering & Drag/Drop (must work)
+
+Implement backend endpoint for atomic moves:
+
+POST /api/v1/tasks/:id/move
+
+body: { sectionId, targetIndex }
+
+server performs reorder transactionally
+
+Also implement subtask reorder:
+
+POST /api/v1/subtasks/:id/move
+
+{ taskId, targetIndex }
+
+Use integer order_index + reindex strategy:
+
+Insert at target index
+
+Shift other items
+
+Reindex within transaction for stability
+
+6) API Spec (REST) – Include Task/Subtask/Tags/Assignments
+
+Base: /api/v1
+
+Tasks
+
+POST /tasks
+
+create task with: title, description, projectId, sectionId, dueDate, priority, status, assignees[], tags[]
+
+GET /tasks?projectId=...
+
+GET /tasks/:id
+
+PATCH /tasks/:id
+
+update fields incl due date, priority, status, assignees, tags
+
+DELETE /tasks/:id
+
+POST /tasks/:id/move
+
+Subtasks
+
+POST /tasks/:id/subtasks
+
+PATCH /subtasks/:id
+
+DELETE /subtasks/:id
+
+POST /subtasks/:id/move
+
+Tags
+
+POST /workspaces/:id/tags
+
+GET /workspaces/:id/tags
+
+PATCH /tags/:id
+
+DELETE /tags/:id
+
+Assignment (if multi-assignee)
+
+POST /tasks/:id/assignees
+
+DELETE /tasks/:id/assignees/:userId
+
+My Tasks
+
+GET /tasks/my?status=&priority=&tagId=&dueFrom=&dueTo=&projectId=
+
+All request/response DTOs must be defined in /packages/shared/src/schemas and imported by both frontend and backend.
+
+7) Backend Services (MANDATORY list)
+
+Implement the following services with clear method boundaries:
+
+AuthService
+
+WorkspaceService
+
+TeamService
+
+ProjectService
+
+SectionService
+
+TaskService
+
+SubtaskService
+
+TagService
+
+CommentService
+
+NotificationService
+
+ActivityLogService
+
+RbacService (or shared RBAC module)
+
+Each service calls its corresponding repository:
+
+TaskRepository, ProjectRepository, etc.
+
+Repositories contain ONLY Prisma calls.
+
+8) Frontend Services (MANDATORY list)
+
+Implement frontend services wrapping the API client:
+
+taskService (create/update/move/assign/tag)
+
+projectService
+
+teamService
+
+workspaceService
+
+tagService
+
+Use TanStack Query hooks in each feature module:
+
+useTasks(projectId)
+
+useMyTasks(filters)
+
+useMoveTask()
+
+useCreateSubtask(), etc.
+
+9) UI Requirements (MVP)
+
+Sidebar: workspaces, teams, projects
+
+Project Detail:
+
+Tabs: List | Board | Calendar
+
+Board supports drag/drop across sections
+
+Task Detail Drawer:
+
+fields: title, description, status, priority, due date
+
+assignees selector (project members)
+
+tag selector (workspace tags)
+
+subtasks list with reorder + completion
+
+comments thread
+
+10) Seed Data (must include tags + subtasks + assignments)
+
+Seed:
+
+Demo workspace + team + project + sections
+
+Tags: “Bug”, “Feature”, “Urgent”, “Backend”, “Frontend”
+
+15 tasks with:
+
+due dates
+
+priorities
+
+assignees
+
+tags
+
+at least 5 tasks containing subtasks
+
+Demo users:
+
+owner@demo.com
+ / Password123!
+
+member@demo.com
+ / Password123!
+
+guest@demo.com
+ / Password123!
+
+11) Testing (minimum)
+
+Backend:
+
+Task creation with assignees + tags
+
+Task move reorder maintains consistent order_index
+
+Subtask reorder works
+
+RBAC denies guest editing tasks in private project
+
+Shared:
+
+RBAC helper tests
+
+priority/status schema tests
+
+12) Docs (must generate)
+
+Create /docs:
+
+ARCHITECTURE.md (layering, shared domain plan, mobile future)
+
+SERVICE_LAYER.md (exact responsibilities + examples)
+
+API.md (endpoints + DTOs)
+
+DB_SCHEMA.md (tables + indexes)
+
+RBAC.md
+
+RUNBOOK.md (Replit setup + env vars + commands)
+
+13) Build & Run Scripts
+
+Provide:
+
+pnpm dev runs api + web concurrently
+
+pnpm migrate
+
+pnpm seed
+
+pnpm test
+
+Env:
+
+DATABASE_URL
+
+JWT_SECRET
+
+REFRESH_TOKEN_SECRET
+
+API_URL
+
+APP_URL
+
+14) Final Instruction
+
+Now generate the entire codebase implementing the above MVP with the specified service layer and task/subtask/assignment/tagging/priority/due-date features fully working.
