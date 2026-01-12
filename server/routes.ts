@@ -54,9 +54,14 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
   const DEMO_USER_ID = "demo-user-id";
   const DEMO_WORKSPACE_ID = "demo-workspace-id";
+
+  // Health check endpoint for Docker/Railway
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
   app.get("/api/workspaces/current", async (req, res) => {
     try {
