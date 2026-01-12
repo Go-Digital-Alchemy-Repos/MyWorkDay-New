@@ -68,6 +68,11 @@ export default function ProjectPage() {
     queryKey: ["/api/projects", projectId, "tasks"],
     enabled: !!projectId,
   });
+  
+  const { data: childTasks = [] } = useQuery<TaskWithRelations[]>({
+    queryKey: ["/api/tasks", selectedTask?.id, "childtasks"],
+    enabled: !!selectedTask && !selectedTask.parentTaskId,
+  });
 
   const displaySections = localSections || sections;
 
@@ -95,38 +100,39 @@ export default function ProjectPage() {
     },
   });
 
-  const addSubtaskMutation = useMutation({
-    mutationFn: async ({ taskId, title }: { taskId: string; title: string }) => {
-      return apiRequest("POST", `/api/tasks/${taskId}/subtasks`, { title });
+  const addChildTaskMutation = useMutation({
+    mutationFn: async ({ parentTaskId, title }: { parentTaskId: string; title: string }) => {
+      return apiRequest("POST", `/api/tasks/${parentTaskId}/childtasks`, { title });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
       if (selectedTask) {
-        refetchSelectedTask();
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedTask.id, "childtasks"] });
       }
     },
   });
 
-  const toggleSubtaskMutation = useMutation({
-    mutationFn: async ({ subtaskId, completed }: { subtaskId: string; completed: boolean }) => {
-      return apiRequest("PATCH", `/api/subtasks/${subtaskId}`, { completed });
+  const deleteChildTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      return apiRequest("DELETE", `/api/tasks/${taskId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
       if (selectedTask) {
-        refetchSelectedTask();
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedTask.id, "childtasks"] });
       }
     },
   });
 
-  const deleteSubtaskMutation = useMutation({
-    mutationFn: async (subtaskId: string) => {
-      return apiRequest("DELETE", `/api/subtasks/${subtaskId}`);
+  const reorderChildTasksMutation = useMutation({
+    mutationFn: async ({ parentTaskId, taskId, toIndex }: { parentTaskId: string; taskId: string; toIndex: number }) => {
+      return apiRequest("PATCH", `/api/projects/${projectId}/tasks/reorder`, {
+        moves: [{ itemType: "childTask", taskId, parentTaskId, toIndex }],
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
       if (selectedTask) {
-        refetchSelectedTask();
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedTask.id, "childtasks"] });
       }
     },
   });
@@ -432,21 +438,22 @@ export default function ProjectPage() {
 
       <TaskDetailDrawer
         task={selectedTask}
+        childTasks={childTasks}
         open={!!selectedTask}
         onOpenChange={(open) => !open && setSelectedTask(null)}
-        onUpdate={(taskId, data) => {
+        onUpdate={(taskId: string, data: Partial<TaskWithRelations>) => {
           updateTaskMutation.mutate({ taskId, data });
         }}
-        onAddSubtask={(taskId, title) => {
-          addSubtaskMutation.mutate({ taskId, title });
+        onAddChildTask={(parentTaskId: string, title: string) => {
+          addChildTaskMutation.mutate({ parentTaskId, title });
         }}
-        onToggleSubtask={(subtaskId, completed) => {
-          toggleSubtaskMutation.mutate({ subtaskId, completed });
+        onDeleteChildTask={(taskId: string) => {
+          deleteChildTaskMutation.mutate(taskId);
         }}
-        onDeleteSubtask={(subtaskId) => {
-          deleteSubtaskMutation.mutate(subtaskId);
+        onReorderChildTasks={(parentTaskId: string, taskId: string, toIndex: number) => {
+          reorderChildTasksMutation.mutate({ parentTaskId, taskId, toIndex });
         }}
-        onAddComment={(taskId, body) => {
+        onAddComment={(taskId: string, body: string) => {
           addCommentMutation.mutate({ taskId, body });
         }}
       />

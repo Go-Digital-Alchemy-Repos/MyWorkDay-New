@@ -325,6 +325,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/tasks/:id/childtasks", async (req, res) => {
+    try {
+      const childTasks = await storage.getChildTasks(req.params.id);
+      res.json(childTasks);
+    } catch (error) {
+      console.error("Error fetching child tasks:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/tasks", async (req, res) => {
     try {
       const body = { ...req.body };

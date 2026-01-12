@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Calendar, Users, Tag, Flag, Layers } from "lucide-react";
+import { X, Calendar, Users, Flag, Layers, ArrowLeft } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,83 +12,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChildTaskList } from "@/components/child-task-list";
-import { SubtaskDetailDrawer } from "@/components/subtask-detail-drawer";
-import { CommentThread } from "@/components/comment-thread";
 import { StatusBadge } from "@/components/status-badge";
-import { TagBadge } from "@/components/tag-badge";
 import { AvatarGroup } from "@/components/avatar-group";
 import { format } from "date-fns";
-import type { TaskWithRelations, User, Tag as TagType, Comment } from "@shared/schema";
+import type { TaskWithRelations, User } from "@shared/schema";
 
-interface TaskDetailDrawerProps {
-  task: TaskWithRelations | null;
-  childTasks?: TaskWithRelations[];
+interface SubtaskDetailDrawerProps {
+  subtask: TaskWithRelations | null;
+  parentTaskTitle: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onUpdate?: (taskId: string, data: Partial<TaskWithRelations>) => void;
-  onAddChildTask?: (parentTaskId: string, title: string) => void;
-  onDeleteChildTask?: (taskId: string) => void;
-  onReorderChildTasks?: (parentTaskId: string, taskId: string, toIndex: number) => void;
-  onAddComment?: (taskId: string, body: string) => void;
-  availableTags?: TagType[];
+  onUpdate?: (subtaskId: string, data: Partial<TaskWithRelations>) => void;
+  onBack?: () => void;
   availableUsers?: User[];
 }
 
-export function TaskDetailDrawer({
-  task,
-  childTasks = [],
+export function SubtaskDetailDrawer({
+  subtask,
+  parentTaskTitle,
   open,
   onOpenChange,
   onUpdate,
-  onAddChildTask,
-  onDeleteChildTask,
-  onReorderChildTasks,
-  onAddComment,
-  availableTags = [],
+  onBack,
   availableUsers = [],
-}: TaskDetailDrawerProps) {
+}: SubtaskDetailDrawerProps) {
   const [editingTitle, setEditingTitle] = useState(false);
-  const [title, setTitle] = useState(task?.title || "");
-  const [description, setDescription] = useState(task?.description || "");
-  const [selectedChildTask, setSelectedChildTask] = useState<TaskWithRelations | null>(null);
-  const [childDrawerOpen, setChildDrawerOpen] = useState(false);
-  
+  const [title, setTitle] = useState(subtask?.title || "");
+  const [description, setDescription] = useState(subtask?.description || "");
+
   useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDescription(task.description || "");
+    if (subtask) {
+      setTitle(subtask.title);
+      setDescription(subtask.description || "");
     }
-  }, [task?.id]);
+  }, [subtask]);
 
-  if (!task) return null;
+  if (!subtask) return null;
 
-  const assigneeUsers: Partial<User>[] = task.assignees?.map((a) => a.user).filter(Boolean) as Partial<User>[] || [];
-  const taskTags: TagType[] = task.tags?.map((tt) => tt.tag).filter(Boolean) as TagType[] || [];
-  const comments: (Comment & { user?: User })[] = [];
-  
-  const handleChildTaskClick = (childTask: TaskWithRelations) => {
-    setSelectedChildTask(childTask);
-    setChildDrawerOpen(true);
-  };
-  
-  const handleChildTaskUpdate = (childTaskId: string, data: Partial<TaskWithRelations>) => {
-    onUpdate?.(childTaskId, data);
-    if (selectedChildTask && selectedChildTask.id === childTaskId) {
-      setSelectedChildTask({ ...selectedChildTask, ...data } as TaskWithRelations);
-    }
-  };
+  const assigneeUsers: Partial<User>[] = subtask.assignees?.map((a) => a.user).filter(Boolean) as Partial<User>[] || [];
 
   const handleTitleSave = () => {
-    if (title.trim() && title !== task.title) {
-      onUpdate?.(task.id, { title: title.trim() });
+    if (title.trim() && title !== subtask.title) {
+      onUpdate?.(subtask.id, { title: title.trim() });
     }
     setEditingTitle(false);
   };
 
   const handleDescriptionBlur = () => {
-    if (description !== task.description) {
-      onUpdate?.(task.id, { description: description || null });
+    if (description !== subtask.description) {
+      onUpdate?.(subtask.id, { description: description || null });
     }
   };
 
@@ -96,21 +68,34 @@ export function TaskDetailDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         className="w-[480px] sm:max-w-[480px] overflow-y-auto p-0"
-        data-testid="task-detail-drawer"
+        data-testid="subtask-detail-drawer"
       >
         <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">
-          <SheetDescription className="sr-only">Edit task details, add subtasks, and manage comments</SheetDescription>
+          <SheetDescription className="sr-only">Edit subtask details</SheetDescription>
           <div className="flex items-center justify-between">
-            <SheetTitle className="sr-only">Task Details</SheetTitle>
-            <StatusBadge status={task.status as any} />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onBack}
+                data-testid="button-back-to-parent"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <SheetTitle className="sr-only">Subtask Details</SheetTitle>
+              <StatusBadge status={subtask.status as any} />
+            </div>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => onOpenChange(false)}
-              data-testid="button-close-drawer"
+              data-testid="button-close-subtask-drawer"
             >
               <X className="h-4 w-4" />
             </Button>
+          </div>
+          <div className="text-xs text-muted-foreground mt-2">
+            Subtask of: {parentTaskTitle}
           </div>
         </SheetHeader>
 
@@ -124,24 +109,24 @@ export function TaskDetailDrawer({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleTitleSave();
                   if (e.key === "Escape") {
-                    setTitle(task.title);
+                    setTitle(subtask.title);
                     setEditingTitle(false);
                   }
                 }}
                 className="text-xl font-semibold h-auto py-1"
                 autoFocus
-                data-testid="input-task-title"
+                data-testid="input-subtask-title"
               />
             ) : (
               <h2
                 className="text-xl font-semibold cursor-pointer hover:text-muted-foreground transition-colors"
                 onClick={() => {
-                  setTitle(task.title);
+                  setTitle(subtask.title);
                   setEditingTitle(true);
                 }}
-                data-testid="text-task-title"
+                data-testid="text-subtask-title"
               >
-                {task.title}
+                {subtask.title}
               </h2>
             )}
 
@@ -157,7 +142,7 @@ export function TaskDetailDrawer({
                   ) : (
                     <span className="text-sm text-muted-foreground">None</span>
                   )}
-                  <Button variant="ghost" size="sm" className="h-7 text-xs" data-testid="button-add-assignee">
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" data-testid="button-add-subtask-assignee">
                     Add
                   </Button>
                 </div>
@@ -169,8 +154,8 @@ export function TaskDetailDrawer({
                   Due Date
                 </label>
                 <div className="flex items-center">
-                  {task.dueDate ? (
-                    <span className="text-sm">{format(new Date(task.dueDate), "MMM d, yyyy")}</span>
+                  {subtask.dueDate ? (
+                    <span className="text-sm">{format(new Date(subtask.dueDate), "MMM d, yyyy")}</span>
                   ) : (
                     <span className="text-sm text-muted-foreground">No due date</span>
                   )}
@@ -183,10 +168,10 @@ export function TaskDetailDrawer({
                   Priority
                 </label>
                 <Select
-                  value={task.priority}
-                  onValueChange={(value) => onUpdate?.(task.id, { priority: value })}
+                  value={subtask.priority}
+                  onValueChange={(value) => onUpdate?.(subtask.id, { priority: value })}
                 >
-                  <SelectTrigger className="w-[140px] h-8" data-testid="select-priority">
+                  <SelectTrigger className="w-[140px] h-8" data-testid="select-subtask-priority">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -204,10 +189,10 @@ export function TaskDetailDrawer({
                   Status
                 </label>
                 <Select
-                  value={task.status}
-                  onValueChange={(value) => onUpdate?.(task.id, { status: value })}
+                  value={subtask.status}
+                  onValueChange={(value) => onUpdate?.(subtask.id, { status: value })}
                 >
-                  <SelectTrigger className="w-[140px] h-8" data-testid="select-status">
+                  <SelectTrigger className="w-[140px] h-8" data-testid="select-subtask-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -231,58 +216,11 @@ export function TaskDetailDrawer({
               onBlur={handleDescriptionBlur}
               placeholder="Add a description..."
               className="min-h-[100px] resize-none text-sm"
-              data-testid="textarea-description"
+              data-testid="textarea-subtask-description"
             />
           </div>
-
-          <Separator />
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Tag className="h-3.5 w-3.5" />
-              Tags
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {taskTags.map((tag) => (
-                <TagBadge key={tag.id} name={tag.name} color={tag.color} />
-              ))}
-              {taskTags.length === 0 && (
-                <span className="text-sm text-muted-foreground">No tags</span>
-              )}
-              <Button variant="ghost" size="sm" className="h-6 text-xs" data-testid="button-add-tag">
-                Add tag
-              </Button>
-            </div>
-          </div>
-
-          <Separator />
-
-          <ChildTaskList
-            childTasks={childTasks}
-            onAdd={(title) => onAddChildTask?.(task.id, title)}
-            onClick={handleChildTaskClick}
-            onDelete={onDeleteChildTask}
-            onReorder={(taskId, toIndex) => onReorderChildTasks?.(task.id, taskId, toIndex)}
-          />
-
-          <Separator />
-
-          <CommentThread
-            comments={comments}
-            onAdd={(body) => onAddComment?.(task.id, body)}
-          />
         </div>
       </SheetContent>
-      
-      <SubtaskDetailDrawer
-        subtask={selectedChildTask}
-        parentTaskTitle={task.title}
-        open={childDrawerOpen}
-        onOpenChange={setChildDrawerOpen}
-        onUpdate={handleChildTaskUpdate}
-        onBack={() => setChildDrawerOpen(false)}
-        availableUsers={availableUsers}
-      />
     </Sheet>
   );
 }
