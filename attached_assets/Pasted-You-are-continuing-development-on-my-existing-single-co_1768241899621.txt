@@ -1,0 +1,174 @@
+You are continuing development on my existing single-codebase React + Node project management app. DO NOT rewrite the app. Make incremental changes only. This prompt is ONLY about Sub-Tasks and the missing “Add New Section” button in List View (because it’s tightly related to organizing tasks). Ignore Calendar for this prompt.
+
+===============================================================================
+PRIMARY GOALS (MUST COMPLETE)
+===============================================================================
+A) Sub-tasks must have FULL task capabilities (same fields/features as parent tasks)
+B) Sub-tasks must have their OWN detail management view (a second-level slide-out page/panel)
+C) Drag & drop sorting must work for:
+   - parent tasks (within section + between sections)
+   - subtasks (within their parent only; no cross-parent movement)
+D) List View must have an “Add New Section” option (same as Board view)
+
+Sub-tasks depth limit:
+- Sub-tasks are the deepest level. Sub-tasks cannot have sub-tasks.
+
+===============================================================================
+1) DATA MODEL / DB (REQUIRED)
+===============================================================================
+Update the tasks model to support parent/child relationship:
+
+Add/ensure fields exist:
+- parentTaskId: nullable foreign key referencing tasks.id
+- orderIndex: number for ordering within a list
+- sectionId: task section/column the task belongs to
+- projectId
+
+Rules:
+- A task with parentTaskId = null is a parent task
+- A task with parentTaskId != null is a sub-task
+- Enforce max depth: parentTaskId may only reference a task whose parentTaskId is null (no 3rd level)
+- When a parent task changes sectionId, all its subtasks must also update sectionId to match automatically
+
+Indexes:
+- (projectId, sectionId, orderIndex)
+- (parentTaskId, orderIndex)
+
+===============================================================================
+2) BACKEND API (REQUIRED)
+===============================================================================
+Follow existing service/controller patterns. Add/extend endpoints minimally.
+
+Create sub-task:
+POST /api/projects/:projectId/tasks/:taskId/subtasks
+Body supports ALL standard task fields:
+- title (required)
+- description
+- assigneeId
+- status/statusId
+- priority
+- tags
+- dueDate
+Return the created subtask.
+
+Fetch tasks with subtasks:
+GET /api/projects/:projectId/tasks
+Must return parent tasks with their subtasks (either nested or flat + parentTaskId, but frontend must be able to render nested reliably).
+Include ALL fields needed for full editing in detail panels.
+
+Update task or sub-task (same endpoint):
+PATCH /api/projects/:projectId/tasks/:anyTaskId
+Must work for both parent and sub-task updates, including:
+- title, description, assigneeId, status, priority, tags, dueDate
+Must NOT allow changing parentTaskId (sub-task cannot become parent via edit).
+
+Reorder/move:
+PATCH /api/projects/:projectId/tasks/reorder
+Supports:
+- moving parent tasks within a section (reorder)
+- moving parent tasks across sections (move + reorder)
+- reordering subtasks within a single parent task
+
+Validation rules:
+- Subtasks can ONLY reorder among siblings under the same parentTaskId
+- Subtasks cannot be moved to another parentTaskId
+- Subtasks cannot be moved across sections directly
+- If parent task moves sections, server updates all its subtasks’ sectionId in the same transaction
+
+Ensure server recomputes orderIndex for the impacted list(s) to keep stable ordering.
+
+===============================================================================
+3) FRONTEND UI (REQUIRED): SUBTASKS HAVE FULL FEATURES
+===============================================================================
+IMPORTANT: Subtasks must use the SAME form controls/components as parent tasks
+Do NOT create a watered-down subtask UI.
+
+A) Parent Task Detail Panel/Page
+- Add a “Subtasks” section/panel within the parent task detail view:
+  - list subtasks with compact summary (title, status, priority, assignee, due date, tags)
+  - “+ Add Subtask” button
+  - quick add supports title + optional assignee/status, then opens subtask detail after creation
+
+B) Subtask Detail Panel/Page (SECOND LEVEL)
+When a user clicks a subtask from the parent task detail, open a dedicated subtask detail view that allows FULL editing:
+
+Must include:
+- Title
+- Full Description editor (same as parent task)
+- Assignee selector
+- Status selector
+- Priority selector
+- Tags (same tagging UI as parent)
+- Due date picker
+- Any other standard task fields that exist for parent tasks (attachments/comments/checklists if your app has them)
+
+Depth limit enforcement:
+- Subtask detail view must NOT show “Add subtask”
+- No UI anywhere should allow creating a subtask under a subtask
+
+Routing requirement (choose the approach that matches existing patterns):
+Option 1 (preferred if app is route-based):
+- /projects/:projectId/tasks/:taskId (parent)
+- /projects/:projectId/tasks/:taskId/subtasks/:subtaskId (subtask)
+Option 2 (state-based slide-out):
+- Use existing slide-out panel manager; implement a second-level panel with Back button to parent.
+
+Back navigation:
+- Include a clear “Back to Task” action that returns to the parent task detail view/panel.
+
+Deep link:
+- Subtask detail must load properly if the user refreshes the page on the subtask URL.
+
+===============================================================================
+4) FRONTEND UI (REQUIRED): LIST VIEW “ADD NEW SECTION”
+===============================================================================
+List View must include the same “Add New Section” ability as Board view.
+Implement:
+- A visible “+ Add Section” button in List View header (or wherever Board view has it)
+- Uses the same create-section flow and backend endpoint Board view uses
+- On creation, List View updates immediately and shows the new empty section
+
+Do not duplicate logic; reuse existing section creation components/services used by Board view.
+
+===============================================================================
+5) DRAG & DROP (REQUIRED)
+===============================================================================
+Use the existing DnD approach already in the app; if none exists, use @dnd-kit ONLY.
+
+Parent tasks:
+- draggable within section
+- draggable between sections (Board + List views)
+
+Subtasks:
+- draggable ONLY within their parent task’s subtasks list
+- cannot be dragged into sections
+- cannot be dragged to other parent tasks
+- cannot be dragged to become a parent task
+
+UX rules:
+- Use a drag handle (grip icon) for tasks/subtasks
+- Optimistic UI update on drop
+- Persist changes via reorder endpoint on drag end
+- On server error, revert UI and show toast
+
+===============================================================================
+6) ACCEPTANCE CRITERIA (MUST DEMO VIA MANUAL STEPS)
+===============================================================================
+After implementation, the following must work:
+
+1) Create subtask from parent task detail view
+2) Click subtask -> opens subtask detail panel/page (second level)
+3) Subtask detail has the same editable fields as parent (assignee/status/priority/description/tags/due date)
+4) Subtask cannot create another subtask (no 3rd level)
+5) Subtasks reorder via drag within the parent task subtasks list
+6) Parent task drag between sections works (Board + List), and parent’s subtasks stay attached
+7) List View shows “+ Add Section” and creates a new section like Board
+
+===============================================================================
+7) OUTPUT (REQUIRED)
+===============================================================================
+When finished, output:
+- Short summary of what changed
+- List of key files modified/added
+- How to manually test each acceptance criterion (steps 1–7)
+- Any migration notes

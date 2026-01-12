@@ -231,6 +231,11 @@ export async function registerRoutes(
 
         if (itemType === "task") {
           await storage.moveTask(taskId, toSectionId, toIndex);
+        } else if (itemType === "childTask") {
+          if (!parentTaskId) {
+            return res.status(400).json({ error: "parentTaskId required for child task reordering" });
+          }
+          await storage.reorderChildTasks(parentTaskId, taskId, toIndex);
         } else if (itemType === "subtask") {
           if (!parentTaskId) {
             return res.status(400).json({ error: "parentTaskId required for subtask moves" });
@@ -341,6 +346,42 @@ export async function registerRoutes(
         return res.status(400).json({ error: error.errors });
       }
       console.error("Error creating task:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/childtasks", async (req, res) => {
+    try {
+      const parentTaskId = req.params.taskId;
+      const parentTask = await storage.getTask(parentTaskId);
+      if (!parentTask) {
+        return res.status(404).json({ error: "Parent task not found" });
+      }
+      if (parentTask.parentTaskId) {
+        return res.status(400).json({ error: "Cannot create subtask of a subtask (max depth is 2 levels)" });
+      }
+      
+      const body = { ...req.body };
+      const data = insertTaskSchema.parse({
+        ...body,
+        projectId: parentTask.projectId,
+        sectionId: parentTask.sectionId,
+        createdBy: DEMO_USER_ID,
+      });
+      
+      const task = await storage.createChildTask(parentTaskId, data);
+      
+      if (body.assigneeId) {
+        await storage.addTaskAssignee({ taskId: task.id, userId: body.assigneeId });
+      }
+      
+      const taskWithRelations = await storage.getTaskWithRelations(task.id);
+      res.status(201).json(taskWithRelations);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating child task:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

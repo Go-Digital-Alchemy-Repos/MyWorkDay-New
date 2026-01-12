@@ -60,10 +60,13 @@ export interface IStorage {
   getTaskWithRelations(id: string): Promise<TaskWithRelations | undefined>;
   getTasksByProject(projectId: string): Promise<TaskWithRelations[]>;
   getTasksByUser(userId: string): Promise<TaskWithRelations[]>;
+  getChildTasks(parentTaskId: string): Promise<TaskWithRelations[]>;
   createTask(task: InsertTask): Promise<Task>;
+  createChildTask(parentTaskId: string, task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task | undefined>;
   deleteTask(id: string): Promise<void>;
   moveTask(id: string, sectionId: string, targetIndex: number): Promise<void>;
+  reorderChildTasks(parentTaskId: string, taskId: string, toIndex: number): Promise<void>;
   
   getTaskAssignees(taskId: string): Promise<(TaskAssignee & { user?: User })[]>;
   addTaskAssignee(assignee: InsertTaskAssignee): Promise<TaskAssignee>;
@@ -222,7 +225,10 @@ export class DatabaseStorage implements IStorage {
     
     for (const section of sectionsList) {
       const sectionTasks = await db.select().from(tasks)
-        .where(eq(tasks.sectionId, section.id))
+        .where(and(
+          eq(tasks.sectionId, section.id),
+          sql`${tasks.parentTaskId} IS NULL`
+        ))
         .orderBy(asc(tasks.orderIndex));
       
       const tasksWithRelations: TaskWithRelations[] = [];
@@ -270,15 +276,43 @@ export class DatabaseStorage implements IStorage {
     const subtasksList = await this.getSubtasksByTask(id);
     const section = task.sectionId ? await this.getSection(task.sectionId) : undefined;
     const project = await this.getProject(task.projectId);
+    
+    const childTasksList = await this.getChildTasks(id);
 
     return {
       ...task,
       assignees,
       tags: taskTagsList,
       subtasks: subtasksList,
+      childTasks: childTasksList,
       section,
       project,
     };
+  }
+  
+  async getChildTasks(parentTaskId: string): Promise<TaskWithRelations[]> {
+    const childTasksList = await db.select().from(tasks)
+      .where(eq(tasks.parentTaskId, parentTaskId))
+      .orderBy(asc(tasks.orderIndex));
+    
+    const result: TaskWithRelations[] = [];
+    for (const task of childTasksList) {
+      const assignees = await this.getTaskAssignees(task.id);
+      const taskTagsList = await this.getTaskTags(task.id);
+      const section = task.sectionId ? await this.getSection(task.sectionId) : undefined;
+      const project = await this.getProject(task.projectId);
+      
+      result.push({
+        ...task,
+        assignees,
+        tags: taskTagsList,
+        subtasks: [],
+        childTasks: [],
+        section,
+        project,
+      });
+    }
+    return result;
   }
 
   async getTasksByProject(projectId: string): Promise<TaskWithRelations[]> {
@@ -318,10 +352,39 @@ export class DatabaseStorage implements IStorage {
 
   async createTask(insertTask: InsertTask): Promise<Task> {
     const existingTasks = insertTask.sectionId 
-      ? await db.select().from(tasks).where(eq(tasks.sectionId, insertTask.sectionId))
-      : await db.select().from(tasks).where(eq(tasks.projectId, insertTask.projectId));
+      ? await db.select().from(tasks).where(and(
+          eq(tasks.sectionId, insertTask.sectionId),
+          sql`${tasks.parentTaskId} IS NULL`
+        ))
+      : await db.select().from(tasks).where(and(
+          eq(tasks.projectId, insertTask.projectId),
+          sql`${tasks.parentTaskId} IS NULL`
+        ));
     const orderIndex = insertTask.orderIndex ?? existingTasks.length;
     const [task] = await db.insert(tasks).values({ ...insertTask, orderIndex }).returning();
+    return task;
+  }
+  
+  async createChildTask(parentTaskId: string, insertTask: InsertTask): Promise<Task> {
+    const parentTask = await this.getTask(parentTaskId);
+    if (!parentTask) {
+      throw new Error("Parent task not found");
+    }
+    if (parentTask.parentTaskId) {
+      throw new Error("Cannot create subtask of a subtask (max depth is 2 levels)");
+    }
+    
+    const existingChildren = await db.select().from(tasks)
+      .where(eq(tasks.parentTaskId, parentTaskId));
+    const orderIndex = insertTask.orderIndex ?? existingChildren.length;
+    
+    const [task] = await db.insert(tasks).values({
+      ...insertTask,
+      parentTaskId,
+      sectionId: parentTask.sectionId,
+      projectId: parentTask.projectId,
+      orderIndex,
+    }).returning();
     return task;
   }
 
@@ -331,6 +394,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteTask(id: string): Promise<void> {
+    const childTasksList = await db.select().from(tasks).where(eq(tasks.parentTaskId, id));
+    for (const childTask of childTasksList) {
+      await db.delete(taskAssignees).where(eq(taskAssignees.taskId, childTask.id));
+      await db.delete(taskTags).where(eq(taskTags.taskId, childTask.id));
+      await db.delete(comments).where(eq(comments.taskId, childTask.id));
+    }
+    await db.delete(tasks).where(eq(tasks.parentTaskId, id));
+    
     await db.delete(subtasks).where(eq(subtasks.taskId, id));
     await db.delete(taskAssignees).where(eq(taskAssignees.taskId, id));
     await db.delete(taskTags).where(eq(taskTags.taskId, id));
@@ -343,7 +414,10 @@ export class DatabaseStorage implements IStorage {
     if (!task) return;
 
     const tasksInSection = await db.select().from(tasks)
-      .where(eq(tasks.sectionId, sectionId))
+      .where(and(
+        eq(tasks.sectionId, sectionId),
+        sql`${tasks.parentTaskId} IS NULL`
+      ))
       .orderBy(asc(tasks.orderIndex));
 
     const filtered = tasksInSection.filter(t => t.id !== id);
@@ -352,6 +426,28 @@ export class DatabaseStorage implements IStorage {
     for (let i = 0; i < filtered.length; i++) {
       await db.update(tasks)
         .set({ sectionId, orderIndex: i, updatedAt: new Date() })
+        .where(eq(tasks.id, filtered[i].id));
+    }
+    
+    await db.update(tasks)
+      .set({ sectionId, updatedAt: new Date() })
+      .where(eq(tasks.parentTaskId, id));
+  }
+  
+  async reorderChildTasks(parentTaskId: string, taskId: string, toIndex: number): Promise<void> {
+    const childTask = await this.getTask(taskId);
+    if (!childTask || childTask.parentTaskId !== parentTaskId) return;
+
+    const childTasksList = await db.select().from(tasks)
+      .where(eq(tasks.parentTaskId, parentTaskId))
+      .orderBy(asc(tasks.orderIndex));
+
+    const filtered = childTasksList.filter(t => t.id !== taskId);
+    filtered.splice(toIndex, 0, childTask);
+
+    for (let i = 0; i < filtered.length; i++) {
+      await db.update(tasks)
+        .set({ orderIndex: i, updatedAt: new Date() })
         .where(eq(tasks.id, filtered[i].id));
     }
   }

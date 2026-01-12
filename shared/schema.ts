@@ -130,6 +130,7 @@ export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").references(() => projects.id).notNull(),
   sectionId: varchar("section_id").references(() => sections.id),
+  parentTaskId: varchar("parent_task_id"),
   title: text("title").notNull(),
   description: text("description"),
   status: text("status").notNull().default("todo"),
@@ -143,6 +144,7 @@ export const tasks = pgTable("tasks", {
 }, (table) => [
   index("tasks_project_section_order").on(table.projectId, table.sectionId, table.orderIndex),
   index("tasks_due_date").on(table.dueDate),
+  index("tasks_parent_order").on(table.parentTaskId, table.orderIndex),
 ]);
 
 // Task Assignees table (for multiple assignees)
@@ -326,6 +328,14 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   createdByUser: one(users, {
     fields: [tasks.createdBy],
     references: [users.id],
+  }),
+  parentTask: one(tasks, {
+    fields: [tasks.parentTaskId],
+    references: [tasks.id],
+    relationName: "parentChild",
+  }),
+  childTasks: many(tasks, {
+    relationName: "parentChild",
   }),
   assignees: many(taskAssignees),
   subtasks: many(subtasks),
@@ -525,6 +535,8 @@ export type TaskWithRelations = Task & {
   assignees?: (TaskAssignee & { user?: User })[];
   tags?: (TaskTag & { tag?: Tag })[];
   subtasks?: Subtask[];
+  childTasks?: TaskWithRelations[];
+  parentTask?: Task;
   section?: Section;
   project?: Project;
 };
