@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import { insertTaskSchema, insertSectionSchema, insertSubtaskSchema, insertCommentSchema, insertTagSchema, insertProjectSchema, insertWorkspaceSchema, insertTeamSchema, insertWorkspaceMemberSchema, insertTeamMemberSchema, insertActivityLogSchema, insertClientSchema, insertClientContactSchema, insertClientInviteSchema } from "@shared/schema";
+import { insertTaskSchema, insertSectionSchema, insertSubtaskSchema, insertCommentSchema, insertTagSchema, insertProjectSchema, insertWorkspaceSchema, insertTeamSchema, insertWorkspaceMemberSchema, insertTeamMemberSchema, insertActivityLogSchema, insertClientSchema, insertClientContactSchema, insertClientInviteSchema, insertTimeEntrySchema, insertActiveTimerSchema, TimeEntry, ActiveTimer } from "@shared/schema";
 import { 
   isS3Configured, 
   validateFile, 
@@ -40,6 +40,14 @@ import {
   emitClientContactDeleted,
   emitClientInviteSent,
   emitClientInviteRevoked,
+  emitTimerStarted,
+  emitTimerPaused,
+  emitTimerResumed,
+  emitTimerStopped,
+  emitTimerUpdated,
+  emitTimeEntryCreated,
+  emitTimeEntryUpdated,
+  emitTimeEntryDeleted,
 } from "./realtime/events";
 
 export async function registerRoutes(
@@ -1421,6 +1429,534 @@ export async function registerRoutes(
         return res.status(400).json({ error: error.errors });
       }
       console.error("Error creating project for client:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // TIME TRACKING - ACTIVE TIMER
+  // =============================================================================
+
+  // Get current user's active timer
+  app.get("/api/timer/current", async (req, res) => {
+    try {
+      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      res.json(timer || null);
+    } catch (error) {
+      console.error("Error fetching active timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Start a new timer
+  app.post("/api/timer/start", async (req, res) => {
+    try {
+      // Check if user already has an active timer
+      const existingTimer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      if (existingTimer) {
+        return res.status(400).json({ 
+          error: "You already have an active timer. Stop it before starting a new one.",
+          activeTimer: existingTimer
+        });
+      }
+
+      const now = new Date();
+      const data = insertActiveTimerSchema.parse({
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        clientId: req.body.clientId || null,
+        projectId: req.body.projectId || null,
+        taskId: req.body.taskId || null,
+        description: req.body.description || null,
+        status: 'running',
+        elapsedSeconds: 0,
+        lastStartedAt: now,
+      });
+
+      const timer = await storage.createActiveTimer(data);
+      
+      // Get enriched timer with relations
+      const enrichedTimer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      
+      // Emit real-time event
+      emitTimerStarted({
+        id: timer.id,
+        userId: timer.userId,
+        workspaceId: timer.workspaceId,
+        clientId: timer.clientId,
+        projectId: timer.projectId,
+        taskId: timer.taskId,
+        description: timer.description,
+        status: timer.status as 'running' | 'paused',
+        elapsedSeconds: timer.elapsedSeconds,
+        lastStartedAt: timer.lastStartedAt || now,
+        createdAt: timer.createdAt,
+      }, DEMO_WORKSPACE_ID);
+
+      res.status(201).json(enrichedTimer);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error starting timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Pause the timer
+  app.post("/api/timer/pause", async (req, res) => {
+    try {
+      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      if (!timer) {
+        return res.status(404).json({ error: "No active timer found" });
+      }
+      if (timer.status !== 'running') {
+        return res.status(400).json({ error: "Timer is not running" });
+      }
+
+      // Calculate elapsed time since last started
+      const now = new Date();
+      const lastStarted = timer.lastStartedAt || timer.createdAt;
+      const additionalSeconds = Math.floor((now.getTime() - lastStarted.getTime()) / 1000);
+      const newElapsedSeconds = timer.elapsedSeconds + additionalSeconds;
+
+      const updated = await storage.updateActiveTimer(timer.id, {
+        status: 'paused',
+        elapsedSeconds: newElapsedSeconds,
+      });
+
+      // Emit real-time event
+      emitTimerPaused(timer.id, DEMO_USER_ID, newElapsedSeconds, DEMO_WORKSPACE_ID);
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error pausing timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Resume the timer
+  app.post("/api/timer/resume", async (req, res) => {
+    try {
+      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      if (!timer) {
+        return res.status(404).json({ error: "No active timer found" });
+      }
+      if (timer.status !== 'paused') {
+        return res.status(400).json({ error: "Timer is not paused" });
+      }
+
+      const now = new Date();
+      const updated = await storage.updateActiveTimer(timer.id, {
+        status: 'running',
+        lastStartedAt: now,
+      });
+
+      // Emit real-time event
+      emitTimerResumed(timer.id, DEMO_USER_ID, now, DEMO_WORKSPACE_ID);
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error resuming timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Update timer details (client, project, task, description)
+  app.patch("/api/timer/current", async (req, res) => {
+    try {
+      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      if (!timer) {
+        return res.status(404).json({ error: "No active timer found" });
+      }
+
+      const allowedUpdates: Partial<ActiveTimer> = {};
+      if ('clientId' in req.body) allowedUpdates.clientId = req.body.clientId;
+      if ('projectId' in req.body) allowedUpdates.projectId = req.body.projectId;
+      if ('taskId' in req.body) allowedUpdates.taskId = req.body.taskId;
+      if ('description' in req.body) allowedUpdates.description = req.body.description;
+
+      const updated = await storage.updateActiveTimer(timer.id, allowedUpdates);
+
+      // Emit real-time event
+      emitTimerUpdated(timer.id, DEMO_USER_ID, allowedUpdates as any, DEMO_WORKSPACE_ID);
+
+      // Return enriched timer
+      const enrichedTimer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      res.json(enrichedTimer);
+    } catch (error) {
+      console.error("Error updating timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Stop and finalize timer (creates time entry or discards)
+  app.post("/api/timer/stop", async (req, res) => {
+    try {
+      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      if (!timer) {
+        return res.status(404).json({ error: "No active timer found" });
+      }
+
+      // Calculate final elapsed time if running
+      let finalElapsedSeconds = timer.elapsedSeconds;
+      if (timer.status === 'running') {
+        const now = new Date();
+        const lastStarted = timer.lastStartedAt || timer.createdAt;
+        const additionalSeconds = Math.floor((now.getTime() - lastStarted.getTime()) / 1000);
+        finalElapsedSeconds += additionalSeconds;
+      }
+
+      const { discard, scope, description, clientId, projectId, taskId } = req.body;
+
+      let timeEntryId: string | null = null;
+
+      // Create time entry unless discarding
+      if (!discard && finalElapsedSeconds > 0) {
+        const endTime = new Date();
+        const startTime = new Date(endTime.getTime() - (finalElapsedSeconds * 1000));
+        
+        const timeEntry = await storage.createTimeEntry({
+          workspaceId: DEMO_WORKSPACE_ID,
+          userId: DEMO_USER_ID,
+          clientId: clientId !== undefined ? clientId : timer.clientId,
+          projectId: projectId !== undefined ? projectId : timer.projectId,
+          taskId: taskId !== undefined ? taskId : timer.taskId,
+          description: description !== undefined ? description : timer.description,
+          startTime,
+          endTime,
+          durationSeconds: finalElapsedSeconds,
+          scope: scope || 'in_scope',
+          isManual: false,
+        });
+
+        timeEntryId = timeEntry.id;
+
+        // Emit time entry created event
+        emitTimeEntryCreated({
+          id: timeEntry.id,
+          workspaceId: timeEntry.workspaceId,
+          userId: timeEntry.userId,
+          clientId: timeEntry.clientId,
+          projectId: timeEntry.projectId,
+          taskId: timeEntry.taskId,
+          description: timeEntry.description,
+          startTime: timeEntry.startTime,
+          endTime: timeEntry.endTime,
+          durationSeconds: timeEntry.durationSeconds,
+          scope: timeEntry.scope as 'in_scope' | 'out_of_scope',
+          isManual: timeEntry.isManual,
+          createdAt: timeEntry.createdAt,
+        }, DEMO_WORKSPACE_ID);
+      }
+
+      // Delete active timer
+      await storage.deleteActiveTimer(timer.id);
+
+      // Emit timer stopped event
+      emitTimerStopped(timer.id, DEMO_USER_ID, timeEntryId, DEMO_WORKSPACE_ID);
+
+      res.json({ 
+        success: true, 
+        timeEntryId,
+        discarded: discard || finalElapsedSeconds === 0,
+        durationSeconds: finalElapsedSeconds
+      });
+    } catch (error) {
+      console.error("Error stopping timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Discard timer without saving
+  app.delete("/api/timer/current", async (req, res) => {
+    try {
+      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      if (!timer) {
+        return res.status(404).json({ error: "No active timer found" });
+      }
+
+      await storage.deleteActiveTimer(timer.id);
+
+      // Emit timer stopped event (discarded)
+      emitTimerStopped(timer.id, DEMO_USER_ID, null, DEMO_WORKSPACE_ID);
+
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error discarding timer:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // TIME TRACKING - TIME ENTRIES
+  // =============================================================================
+
+  // Get time entries for workspace (with optional filters)
+  app.get("/api/time-entries", async (req, res) => {
+    try {
+      const { userId, clientId, projectId, taskId, scope, startDate, endDate } = req.query;
+      
+      const filters: any = {};
+      if (userId) filters.userId = userId as string;
+      if (clientId) filters.clientId = clientId as string;
+      if (projectId) filters.projectId = projectId as string;
+      if (taskId) filters.taskId = taskId as string;
+      if (scope) filters.scope = scope as 'in_scope' | 'out_of_scope';
+      if (startDate) filters.startDate = new Date(startDate as string);
+      if (endDate) filters.endDate = new Date(endDate as string);
+
+      const entries = await storage.getTimeEntriesByWorkspace(DEMO_WORKSPACE_ID, filters);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching time entries:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Get current user's time entries
+  app.get("/api/time-entries/my", async (req, res) => {
+    try {
+      const entries = await storage.getTimeEntriesByUser(DEMO_USER_ID, DEMO_WORKSPACE_ID);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching user time entries:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Get single time entry
+  app.get("/api/time-entries/:id", async (req, res) => {
+    try {
+      const entry = await storage.getTimeEntry(req.params.id);
+      if (!entry) {
+        return res.status(404).json({ error: "Time entry not found" });
+      }
+      res.json(entry);
+    } catch (error) {
+      console.error("Error fetching time entry:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Create manual time entry
+  app.post("/api/time-entries", async (req, res) => {
+    try {
+      const { startTime, endTime, durationSeconds, ...rest } = req.body;
+      
+      // Calculate duration from start/end if not provided
+      let duration = durationSeconds;
+      let start = startTime ? new Date(startTime) : new Date();
+      let end = endTime ? new Date(endTime) : null;
+      
+      if (!duration && start && end) {
+        duration = Math.floor((end.getTime() - start.getTime()) / 1000);
+      } else if (duration && !end) {
+        end = new Date(start.getTime() + (duration * 1000));
+      }
+
+      const data = insertTimeEntrySchema.parse({
+        ...rest,
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        startTime: start,
+        endTime: end,
+        durationSeconds: duration || 0,
+        isManual: true,
+        scope: rest.scope || 'in_scope',
+      });
+
+      const entry = await storage.createTimeEntry(data);
+
+      // Emit real-time event
+      emitTimeEntryCreated({
+        id: entry.id,
+        workspaceId: entry.workspaceId,
+        userId: entry.userId,
+        clientId: entry.clientId,
+        projectId: entry.projectId,
+        taskId: entry.taskId,
+        description: entry.description,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        durationSeconds: entry.durationSeconds,
+        scope: entry.scope as 'in_scope' | 'out_of_scope',
+        isManual: entry.isManual,
+        createdAt: entry.createdAt,
+      }, DEMO_WORKSPACE_ID);
+
+      res.status(201).json(entry);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating time entry:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Update time entry
+  app.patch("/api/time-entries/:id", async (req, res) => {
+    try {
+      const entry = await storage.getTimeEntry(req.params.id);
+      if (!entry) {
+        return res.status(404).json({ error: "Time entry not found" });
+      }
+
+      const { startTime, endTime, durationSeconds, ...rest } = req.body;
+      
+      const updates: any = { ...rest };
+      if (startTime) updates.startTime = new Date(startTime);
+      if (endTime) updates.endTime = new Date(endTime);
+      if (durationSeconds !== undefined) updates.durationSeconds = durationSeconds;
+
+      const updated = await storage.updateTimeEntry(req.params.id, updates);
+
+      // Emit real-time event
+      emitTimeEntryUpdated(req.params.id, DEMO_WORKSPACE_ID, updates);
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating time entry:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Delete time entry
+  app.delete("/api/time-entries/:id", async (req, res) => {
+    try {
+      const entry = await storage.getTimeEntry(req.params.id);
+      if (!entry) {
+        return res.status(404).json({ error: "Time entry not found" });
+      }
+
+      await storage.deleteTimeEntry(req.params.id);
+
+      // Emit real-time event
+      emitTimeEntryDeleted(req.params.id, DEMO_WORKSPACE_ID);
+
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting time entry:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // TIME TRACKING - REPORTING
+  // =============================================================================
+
+  // Get time tracking summary/report
+  app.get("/api/time-entries/report/summary", async (req, res) => {
+    try {
+      const { startDate, endDate, groupBy } = req.query;
+      
+      const filters: any = {};
+      if (startDate) filters.startDate = new Date(startDate as string);
+      if (endDate) filters.endDate = new Date(endDate as string);
+
+      const entries = await storage.getTimeEntriesByWorkspace(DEMO_WORKSPACE_ID, filters);
+
+      // Calculate totals
+      let totalSeconds = 0;
+      let inScopeSeconds = 0;
+      let outOfScopeSeconds = 0;
+
+      const byClient: Record<string, { name: string; seconds: number }> = {};
+      const byProject: Record<string, { name: string; clientName: string | null; seconds: number }> = {};
+      const byUser: Record<string, { name: string; seconds: number }> = {};
+
+      for (const entry of entries) {
+        totalSeconds += entry.durationSeconds;
+        if (entry.scope === 'in_scope') {
+          inScopeSeconds += entry.durationSeconds;
+        } else {
+          outOfScopeSeconds += entry.durationSeconds;
+        }
+
+        // Group by client
+        if (entry.clientId && entry.client) {
+          if (!byClient[entry.clientId]) {
+            byClient[entry.clientId] = { name: entry.client.displayName || entry.client.companyName, seconds: 0 };
+          }
+          byClient[entry.clientId].seconds += entry.durationSeconds;
+        }
+
+        // Group by project
+        if (entry.projectId && entry.project) {
+          if (!byProject[entry.projectId]) {
+            byProject[entry.projectId] = { 
+              name: entry.project.name, 
+              clientName: entry.client?.displayName || entry.client?.companyName || null,
+              seconds: 0 
+            };
+          }
+          byProject[entry.projectId].seconds += entry.durationSeconds;
+        }
+
+        // Group by user
+        if (entry.userId && entry.user) {
+          if (!byUser[entry.userId]) {
+            byUser[entry.userId] = { name: entry.user.name || entry.user.email, seconds: 0 };
+          }
+          byUser[entry.userId].seconds += entry.durationSeconds;
+        }
+      }
+
+      res.json({
+        totalSeconds,
+        inScopeSeconds,
+        outOfScopeSeconds,
+        entryCount: entries.length,
+        byClient: Object.entries(byClient).map(([id, data]) => ({ id, ...data })),
+        byProject: Object.entries(byProject).map(([id, data]) => ({ id, ...data })),
+        byUser: Object.entries(byUser).map(([id, data]) => ({ id, ...data })),
+      });
+    } catch (error) {
+      console.error("Error generating time report:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Export time entries as CSV
+  app.get("/api/time-entries/export/csv", async (req, res) => {
+    try {
+      const { startDate, endDate, clientId, projectId } = req.query;
+      
+      const filters: any = {};
+      if (startDate) filters.startDate = new Date(startDate as string);
+      if (endDate) filters.endDate = new Date(endDate as string);
+      if (clientId) filters.clientId = clientId as string;
+      if (projectId) filters.projectId = projectId as string;
+
+      const entries = await storage.getTimeEntriesByWorkspace(DEMO_WORKSPACE_ID, filters);
+
+      // Build CSV
+      const headers = ['Date', 'Start Time', 'End Time', 'Duration (hours)', 'Client', 'Project', 'Task', 'Description', 'Scope', 'User', 'Entry Type'];
+      const rows = entries.map(entry => {
+        const duration = (entry.durationSeconds / 3600).toFixed(2);
+        return [
+          entry.startTime.toISOString().split('T')[0],
+          entry.startTime.toISOString().split('T')[1].slice(0, 8),
+          entry.endTime?.toISOString().split('T')[1].slice(0, 8) || '',
+          duration,
+          entry.client?.displayName || entry.client?.companyName || '',
+          entry.project?.name || '',
+          entry.task?.title || '',
+          entry.description || '',
+          entry.scope,
+          entry.user?.name || entry.user?.email || '',
+          entry.isManual ? 'Manual' : 'Timer',
+        ];
+      });
+
+      const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="time-entries-${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csv);
+    } catch (error) {
+      console.error("Error exporting time entries:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
