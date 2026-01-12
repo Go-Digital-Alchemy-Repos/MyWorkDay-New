@@ -9,7 +9,7 @@ DASANA is a fully functional Asana-inspired project management application built
 - **Demo Mode**: Using hardcoded demo user ID (demo-user-id) and workspace ID (demo-workspace-id)
 
 ## Tech Stack
-- **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, React Query (TanStack Query v5)
+- **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, React Query (TanStack Query v5), FullCalendar
 - **Backend**: Express.js, TypeScript
 - **Database**: PostgreSQL with Drizzle ORM
 - **Routing**: Wouter (frontend)
@@ -46,6 +46,7 @@ DASANA is a fully functional Asana-inspired project management application built
   - create-task-dialog.tsx: Task creation form
   - Badge components: priority-badge, status-badge, due-date-badge, tag-badge
   - avatar-group.tsx: Assignee display
+  - project-calendar.tsx: FullCalendar integration with filtering and drag-to-reschedule
 
 ### Backend Structure (server/)
 - **routes.ts**: API endpoints
@@ -73,6 +74,7 @@ DASANA is a fully functional Asana-inspired project management application built
 ### Tasks
 - GET /api/tasks/my - Get tasks assigned to current user
 - GET /api/projects/:projectId/tasks - List project tasks
+- GET /api/projects/:projectId/calendar-events - Get tasks for calendar view (supports start/end date range, includeSubtasks toggle)
 - GET /api/tasks/:id - Get task with relations
 - POST /api/tasks - Create task
 - PATCH /api/tasks/:id - Update task
@@ -111,5 +113,6 @@ Following design_guidelines.md with:
 
 ## User Preferences
 - Professional, clean Asana-like design
-- Board view as primary view with list view option
+- Board view as primary view with list view and calendar view options
+- Calendar view displays tasks with due dates using FullCalendar, with filtering and drag-to-reschedule
 - My Tasks view with date-based grouping (overdue, today, tomorrow, upcoming)
