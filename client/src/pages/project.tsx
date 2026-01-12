@@ -166,6 +166,34 @@ export default function ProjectPage() {
     },
   });
 
+  const createSectionMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const nextOrderIndex = sections?.length || 0;
+      return apiRequest("POST", "/api/sections", { projectId, name, orderIndex: nextOrderIndex });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
+      toast({
+        title: "Section created",
+        description: "New section has been added to the project.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to create section",
+        description: "The section could not be created. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAddSection = useCallback(() => {
+    const sectionName = prompt("Enter section name:");
+    if (sectionName && sectionName.trim()) {
+      createSectionMutation.mutate(sectionName.trim());
+    }
+  }, [createSectionMutation]);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveTaskId(event.active.id as string);
   }, []);
@@ -374,6 +402,7 @@ export default function ProjectPage() {
                 <Button
                   variant="outline"
                   className="w-full h-12 border-dashed justify-center"
+                  onClick={handleAddSection}
                   data-testid="button-add-section"
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -420,6 +449,15 @@ export default function ProjectPage() {
                 </div>
               </div>
             ))}
+            <Button
+              variant="outline"
+              className="w-full h-12 border-dashed justify-center"
+              onClick={handleAddSection}
+              data-testid="button-add-section-list"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Section
+            </Button>
           </div>
         )}
 
