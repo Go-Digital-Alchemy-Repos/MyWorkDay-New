@@ -15,65 +15,103 @@ import {
   taskTags,
 } from "@shared/schema";
 import { sql } from "drizzle-orm";
+import { hashPassword } from "./auth";
 
-const DEMO_USER_ID = "demo-user-id";
 const DEMO_WORKSPACE_ID = "demo-workspace-id";
 
 async function seed() {
   console.log("Seeding database...");
 
-  await db.execute(sql`TRUNCATE TABLE activity_log, notifications, comments, task_tags, tags, subtasks, task_assignees, tasks, sections, project_members, projects, team_members, teams, workspace_members, workspaces, users CASCADE`);
+  await db.execute(sql`TRUNCATE TABLE comment_mentions, app_settings, client_user_access, invitations, activity_log, notifications, comments, task_tags, tags, subtasks, task_assignees, tasks, sections, project_members, projects, team_members, teams, workspace_members, workspaces, users CASCADE`);
 
-  const [owner] = await db.insert(users).values({
-    id: DEMO_USER_ID,
-    email: "owner@demo.com",
-    name: "Demo Owner",
-    passwordHash: "$2a$10$somehash",
+  const adminPasswordHash = await hashPassword("admin123");
+  const userPasswordHash = await hashPassword("password123");
+
+  const [admin] = await db.insert(users).values({
+    id: "admin-user-id",
+    email: "admin@dasana.com",
+    name: "Admin User",
+    firstName: "Admin",
+    lastName: "User",
+    passwordHash: adminPasswordHash,
+    role: "admin",
+    isActive: true,
   }).returning();
 
   const [sarah] = await db.insert(users).values({
     id: "sarah-user-id",
-    email: "sarah@demo.com",
+    email: "sarah@dasana.com",
     name: "Sarah Chen",
-    passwordHash: "$2a$10$somehash",
+    firstName: "Sarah",
+    lastName: "Chen",
+    passwordHash: userPasswordHash,
+    role: "employee",
+    isActive: true,
   }).returning();
 
   const [marcus] = await db.insert(users).values({
     id: "marcus-user-id",
-    email: "marcus@demo.com",
+    email: "marcus@dasana.com",
     name: "Marcus Johnson",
-    passwordHash: "$2a$10$somehash",
+    firstName: "Marcus",
+    lastName: "Johnson",
+    passwordHash: userPasswordHash,
+    role: "employee",
+    isActive: true,
   }).returning();
 
   const [emily] = await db.insert(users).values({
     id: "emily-user-id",
-    email: "emily@demo.com",
+    email: "emily@dasana.com",
     name: "Emily Rodriguez",
-    passwordHash: "$2a$10$somehash",
+    firstName: "Emily",
+    lastName: "Rodriguez",
+    passwordHash: userPasswordHash,
+    role: "employee",
+    isActive: true,
   }).returning();
 
   const [alex] = await db.insert(users).values({
     id: "alex-user-id",
-    email: "alex@demo.com",
+    email: "alex@dasana.com",
     name: "Alex Kim",
-    passwordHash: "$2a$10$somehash",
+    firstName: "Alex",
+    lastName: "Kim",
+    passwordHash: userPasswordHash,
+    role: "employee",
+    isActive: true,
   }).returning();
 
   const [jordan] = await db.insert(users).values({
     id: "jordan-user-id",
-    email: "jordan@demo.com",
+    email: "jordan@dasana.com",
     name: "Jordan Taylor",
-    passwordHash: "$2a$10$somehash",
+    firstName: "Jordan",
+    lastName: "Taylor",
+    passwordHash: userPasswordHash,
+    role: "employee",
+    isActive: true,
+  }).returning();
+
+  const [clientUser] = await db.insert(users).values({
+    id: "client-user-id",
+    email: "client@example.com",
+    name: "Client User",
+    firstName: "Client",
+    lastName: "User",
+    passwordHash: userPasswordHash,
+    role: "client",
+    isActive: true,
   }).returning();
 
   const [workspace] = await db.insert(workspaces).values({
     id: DEMO_WORKSPACE_ID,
     name: "DASANA Workspace",
-    createdBy: owner.id,
+    createdBy: admin.id,
   }).returning();
 
   await db.insert(workspaceMembers).values([
-    { workspaceId: workspace.id, userId: owner.id, role: "owner", status: "active" },
+    { workspaceId: workspace.id, userId: admin.id, role: "owner", status: "active" },
     { workspaceId: workspace.id, userId: sarah.id, role: "admin", status: "active" },
     { workspaceId: workspace.id, userId: marcus.id, role: "member", status: "active" },
     { workspaceId: workspace.id, userId: emily.id, role: "member", status: "active" },
@@ -97,10 +135,10 @@ async function seed() {
   }).returning();
 
   await db.insert(teamMembers).values([
-    { teamId: engineeringTeam.id, userId: owner.id },
+    { teamId: engineeringTeam.id, userId: admin.id },
     { teamId: engineeringTeam.id, userId: sarah.id },
     { teamId: engineeringTeam.id, userId: marcus.id },
-    { teamId: designTeam.id, userId: owner.id },
+    { teamId: designTeam.id, userId: admin.id },
     { teamId: designTeam.id, userId: emily.id },
     { teamId: marketingTeam.id, userId: alex.id },
     { teamId: marketingTeam.id, userId: jordan.id },
@@ -114,7 +152,7 @@ async function seed() {
     visibility: "workspace",
     status: "active",
     color: "#3B82F6",
-    createdBy: owner.id,
+    createdBy: admin.id,
   }).returning();
 
   const [websiteRedesign] = await db.insert(projects).values({
@@ -125,7 +163,7 @@ async function seed() {
     visibility: "workspace",
     status: "active",
     color: "#8B5CF6",
-    createdBy: owner.id,
+    createdBy: admin.id,
   }).returning();
 
   const [mobileApp] = await db.insert(projects).values({
@@ -136,7 +174,7 @@ async function seed() {
     visibility: "private",
     status: "active",
     color: "#10B981",
-    createdBy: owner.id,
+    createdBy: admin.id,
   }).returning();
 
   const [marketingCampaign] = await db.insert(projects).values({
@@ -173,12 +211,12 @@ async function seed() {
   }).returning();
 
   await db.insert(projectMembers).values([
-    { projectId: productLaunch.id, userId: owner.id, role: "admin" },
+    { projectId: productLaunch.id, userId: admin.id, role: "admin" },
     { projectId: productLaunch.id, userId: sarah.id, role: "member" },
     { projectId: productLaunch.id, userId: marcus.id, role: "member" },
-    { projectId: websiteRedesign.id, userId: owner.id, role: "admin" },
+    { projectId: websiteRedesign.id, userId: admin.id, role: "admin" },
     { projectId: websiteRedesign.id, userId: emily.id, role: "member" },
-    { projectId: mobileApp.id, userId: owner.id, role: "admin" },
+    { projectId: mobileApp.id, userId: admin.id, role: "admin" },
     { projectId: mobileApp.id, userId: sarah.id, role: "member" },
     { projectId: mobileApp.id, userId: marcus.id, role: "member" },
     { projectId: marketingCampaign.id, userId: alex.id, role: "admin" },
@@ -186,7 +224,7 @@ async function seed() {
     { projectId: apiIntegration.id, userId: sarah.id, role: "admin" },
     { projectId: apiIntegration.id, userId: marcus.id, role: "member" },
     { projectId: userResearch.id, userId: emily.id, role: "admin" },
-    { projectId: userResearch.id, userId: owner.id, role: "member" },
+    { projectId: userResearch.id, userId: admin.id, role: "member" },
   ]);
 
   const [backlogSection] = await db.insert(sections).values({
@@ -313,7 +351,7 @@ async function seed() {
     status: "todo",
     priority: "high",
     dueDate: tomorrow,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 0,
   }).returning();
 
@@ -325,7 +363,7 @@ async function seed() {
     status: "in_progress",
     priority: "urgent",
     dueDate: today,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 0,
   }).returning();
 
@@ -337,7 +375,7 @@ async function seed() {
     status: "todo",
     priority: "medium",
     dueDate: nextWeek,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 1,
   }).returning();
 
@@ -349,7 +387,7 @@ async function seed() {
     status: "done",
     priority: "high",
     dueDate: yesterday,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 0,
   }).returning();
 
@@ -361,7 +399,7 @@ async function seed() {
     status: "todo",
     priority: "low",
     dueDate: null,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 0,
   }).returning();
 
@@ -385,7 +423,7 @@ async function seed() {
     status: "todo",
     priority: "medium",
     dueDate: nextWeek,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 2,
   }).returning();
 
@@ -421,7 +459,7 @@ async function seed() {
     status: "blocked",
     priority: "medium",
     dueDate: today,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 0,
   }).returning();
 
@@ -541,7 +579,7 @@ async function seed() {
     status: "done",
     priority: "high",
     dueDate: twoDaysAgo,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 1,
   }).returning();
 
@@ -565,23 +603,23 @@ async function seed() {
     status: "todo",
     priority: "low",
     dueDate: null,
-    createdBy: owner.id,
+    createdBy: admin.id,
     orderIndex: 1,
   }).returning();
 
   await db.insert(taskAssignees).values([
-    { taskId: task1.id, userId: owner.id },
-    { taskId: task2.id, userId: owner.id },
+    { taskId: task1.id, userId: admin.id },
+    { taskId: task2.id, userId: admin.id },
     { taskId: task2.id, userId: sarah.id },
     { taskId: task3.id, userId: marcus.id },
-    { taskId: task4.id, userId: owner.id },
-    { taskId: task5.id, userId: owner.id },
+    { taskId: task4.id, userId: admin.id },
+    { taskId: task5.id, userId: admin.id },
     { taskId: task6.id, userId: marcus.id },
-    { taskId: task7.id, userId: owner.id },
+    { taskId: task7.id, userId: admin.id },
     { taskId: task7.id, userId: sarah.id },
     { taskId: task8.id, userId: emily.id },
     { taskId: task9.id, userId: emily.id },
-    { taskId: task10.id, userId: owner.id },
+    { taskId: task10.id, userId: admin.id },
     { taskId: task10.id, userId: emily.id },
     { taskId: task11.id, userId: sarah.id },
     { taskId: task11.id, userId: marcus.id },
@@ -594,9 +632,9 @@ async function seed() {
     { taskId: task17.id, userId: marcus.id },
     { taskId: task18.id, userId: emily.id },
     { taskId: task19.id, userId: emily.id },
-    { taskId: task20.id, userId: owner.id },
+    { taskId: task20.id, userId: admin.id },
     { taskId: task21.id, userId: marcus.id },
-    { taskId: task22.id, userId: owner.id },
+    { taskId: task22.id, userId: admin.id },
   ]);
 
   await db.insert(taskTags).values([
@@ -649,23 +687,21 @@ async function seed() {
     { taskId: task13.id, title: "Distribute test builds", completed: true, orderIndex: 1 },
     { taskId: task13.id, title: "Collect feedback", completed: false, orderIndex: 2 },
     { taskId: task14.id, title: "Define target audience", completed: false, orderIndex: 0 },
-    { taskId: task14.id, title: "Set conversion goals", completed: false, orderIndex: 1 },
-    { taskId: task14.id, title: "Determine budget allocation", completed: false, orderIndex: 2 },
-    { taskId: task16.id, title: "Create Stripe account", completed: true, orderIndex: 0 },
-    { taskId: task16.id, title: "Implement payment flow", completed: false, orderIndex: 1 },
-    { taskId: task16.id, title: "Add webhook handlers", completed: false, orderIndex: 2 },
-    { taskId: task16.id, title: "Test with sandbox", completed: false, orderIndex: 3 },
-    { taskId: task18.id, title: "Create interview guide", completed: true, orderIndex: 0 },
-    { taskId: task18.id, title: "Schedule interviews", completed: true, orderIndex: 1 },
-    { taskId: task18.id, title: "Conduct interviews", completed: false, orderIndex: 2 },
-    { taskId: task18.id, title: "Analyze findings", completed: false, orderIndex: 3 },
-    { taskId: task21.id, title: "Write task service tests", completed: true, orderIndex: 0 },
-    { taskId: task21.id, title: "Write project service tests", completed: false, orderIndex: 1 },
-    { taskId: task21.id, title: "Write user service tests", completed: false, orderIndex: 2 },
+    { taskId: task14.id, title: "Set budget", completed: false, orderIndex: 1 },
+    { taskId: task14.id, title: "Create timeline", completed: false, orderIndex: 2 },
   ]);
 
   console.log("Database seeded successfully!");
-  console.log("Created 6 users, 6 projects, 22 tasks with subtasks");
+  console.log("\n=== LOGIN CREDENTIALS ===");
+  console.log("Admin:    admin@dasana.com / admin123");
+  console.log("Employee: sarah@dasana.com / password123");
+  console.log("Client:   client@example.com / password123");
+  console.log("==========================\n");
+
+  process.exit(0);
 }
 
-seed().catch(console.error).finally(() => process.exit(0));
+seed().catch((err) => {
+  console.error("Seed error:", err);
+  process.exit(1);
+});

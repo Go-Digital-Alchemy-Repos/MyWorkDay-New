@@ -4,9 +4,14 @@
 DASANA is a fully functional Asana-inspired project management application built with React, Express, and PostgreSQL. It features workspaces, teams, clients (CRM module), projects, sections, tasks with subtasks, tags, comments, and activity tracking.
 
 ## Current State
-- **Status**: MVP Complete
+- **Status**: MVP Complete with Authentication
 - **Last Updated**: January 2026
-- **Demo Mode**: Using hardcoded demo user ID (demo-user-id) and workspace ID (demo-workspace-id)
+- **Authentication**: Session-based login with Passport.js (Local Strategy)
+
+### Login Credentials (Seeded)
+- **Admin**: admin@dasana.com / admin123
+- **Employee**: sarah@dasana.com / password123  
+- **Client**: client@example.com / password123
 
 ## Tech Stack
 - **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, React Query (TanStack Query v5), FullCalendar

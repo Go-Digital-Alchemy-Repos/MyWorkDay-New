@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeSocketIO } from "./realtime/socket";
+import { setupAuth } from "./auth";
 
 const app = express();
 const httpServer = createServer(app);
@@ -25,6 +26,9 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Setup authentication middleware (session + passport)
+setupAuth(app);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

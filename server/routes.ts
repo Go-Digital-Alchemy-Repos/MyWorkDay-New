@@ -1,8 +1,17 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertSectionSchema, insertSubtaskSchema, insertCommentSchema, insertTagSchema, insertProjectSchema, insertWorkspaceSchema, insertTeamSchema, insertWorkspaceMemberSchema, insertTeamMemberSchema, insertActivityLogSchema, insertClientSchema, insertClientContactSchema, insertClientInviteSchema, insertTimeEntrySchema, insertActiveTimerSchema, TimeEntry, ActiveTimer } from "@shared/schema";
+import { requireAuth } from "./auth";
+
+function getCurrentUserId(req: Request): string {
+  return req.user?.id || "demo-user-id";
+}
+
+function getCurrentWorkspaceId(_req: Request): string {
+  return "demo-workspace-id";
+}
 import { 
   isS3Configured, 
   validateFile, 
@@ -54,13 +63,19 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
-  const DEMO_USER_ID = "demo-user-id";
-  const DEMO_WORKSPACE_ID = "demo-workspace-id";
+
+  // Protect all /api routes except /api/auth/*
+  app.use("/api", (req, res, next) => {
+    if (req.path.startsWith("/auth")) {
+      return next();
+    }
+    return requireAuth(req, res, next);
+  });
 
   app.get("/api/workspaces/current", async (req, res) => {
     try {
-      const workspace = await storage.getWorkspace(DEMO_WORKSPACE_ID);
+      const workspaceId = getCurrentWorkspaceId(req);
+      const workspace = await storage.getWorkspace(workspaceId);
       if (!workspace) {
         return res.status(404).json({ error: "Workspace not found" });
       }
@@ -86,14 +101,15 @@ export async function registerRoutes(
 
   app.post("/api/workspaces", async (req, res) => {
     try {
+      const userId = getCurrentUserId(req);
       const data = insertWorkspaceSchema.parse({
         ...req.body,
-        createdBy: DEMO_USER_ID,
+        createdBy: userId,
       });
       const workspace = await storage.createWorkspace(data);
       await storage.addWorkspaceMember({
         workspaceId: workspace.id,
-        userId: DEMO_USER_ID,
+        userId: userId,
         role: "owner",
         status: "active",
       });
@@ -136,7 +152,7 @@ export async function registerRoutes(
 
   app.get("/api/projects", async (req, res) => {
     try {
-      const projects = await storage.getProjectsByWorkspace(DEMO_WORKSPACE_ID);
+      const projects = await storage.getProjectsByWorkspace(getCurrentWorkspaceId(req));
       res.json(projects);
     } catch (error) {
       console.error("Error fetching projects:", error);
@@ -147,7 +163,7 @@ export async function registerRoutes(
   app.get("/api/projects/unassigned", async (req, res) => {
     try {
       const searchQuery = typeof req.query.q === 'string' ? req.query.q : undefined;
-      const projects = await storage.getUnassignedProjects(DEMO_WORKSPACE_ID, searchQuery);
+      const projects = await storage.getUnassignedProjects(getCurrentWorkspaceId(req), searchQuery);
       res.json(projects);
     } catch (error) {
       console.error("Error fetching unassigned projects:", error);
@@ -172,8 +188,8 @@ export async function registerRoutes(
     try {
       const data = insertProjectSchema.parse({
         ...req.body,
-        workspaceId: DEMO_WORKSPACE_ID,
-        createdBy: DEMO_USER_ID,
+        workspaceId: getCurrentWorkspaceId(req),
+        createdBy: getCurrentUserId(req),
       });
       const project = await storage.createProject(data);
       
@@ -249,7 +265,7 @@ export async function registerRoutes(
 
   app.get("/api/teams", async (req, res) => {
     try {
-      const teams = await storage.getTeamsByWorkspace(DEMO_WORKSPACE_ID);
+      const teams = await storage.getTeamsByWorkspace(getCurrentWorkspaceId(req));
       res.json(teams);
     } catch (error) {
       console.error("Error fetching teams:", error);
@@ -274,7 +290,7 @@ export async function registerRoutes(
     try {
       const data = insertTeamSchema.parse({
         ...req.body,
-        workspaceId: DEMO_WORKSPACE_ID,
+        workspaceId: getCurrentWorkspaceId(req),
       });
       const team = await storage.createTeam(data);
       res.status(201).json(team);
@@ -507,7 +523,7 @@ export async function registerRoutes(
 
   app.get("/api/tasks/my", async (req, res) => {
     try {
-      const tasks = await storage.getTasksByUser(DEMO_USER_ID);
+      const tasks = await storage.getTasksByUser(getCurrentUserId(req));
       res.json(tasks);
     } catch (error) {
       console.error("Error fetching my tasks:", error);
@@ -546,11 +562,11 @@ export async function registerRoutes(
       }
       const data = insertTaskSchema.parse({
         ...body,
-        createdBy: DEMO_USER_ID,
+        createdBy: getCurrentUserId(req),
       });
       const task = await storage.createTask(data);
       
-      await storage.addTaskAssignee({ taskId: task.id, userId: DEMO_USER_ID });
+      await storage.addTaskAssignee({ taskId: task.id, userId: getCurrentUserId(req) });
       
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
       
@@ -585,7 +601,7 @@ export async function registerRoutes(
         ...body,
         projectId: parentTask.projectId,
         sectionId: parentTask.sectionId,
-        createdBy: DEMO_USER_ID,
+        createdBy: getCurrentUserId(req),
       });
       
       const task = await storage.createChildTask(parentTaskId, data);
@@ -875,7 +891,7 @@ export async function registerRoutes(
       const data = insertCommentSchema.parse({
         ...req.body,
         taskId: req.params.taskId,
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
       });
       const comment = await storage.createComment(data);
       res.status(201).json(comment);
@@ -915,7 +931,7 @@ export async function registerRoutes(
     try {
       const data = insertActivityLogSchema.parse({
         ...req.body,
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
       });
       const log = await storage.createActivityLog(data);
       res.status(201).json(log);
@@ -1006,7 +1022,7 @@ export async function registerRoutes(
       const attachment = await storage.createTaskAttachment({
         taskId,
         projectId,
-        uploadedByUserId: DEMO_USER_ID,
+        uploadedByUserId: getCurrentUserId(req),
         originalFileName: data.fileName,
         mimeType: data.mimeType,
         fileSizeBytes: data.fileSizeBytes,
@@ -1138,7 +1154,7 @@ export async function registerRoutes(
 
   app.get("/api/clients", async (req, res) => {
     try {
-      const clients = await storage.getClientsByWorkspace(DEMO_WORKSPACE_ID);
+      const clients = await storage.getClientsByWorkspace(getCurrentWorkspaceId(req));
       res.json(clients);
     } catch (error) {
       console.error("Error fetching clients:", error);
@@ -1163,7 +1179,7 @@ export async function registerRoutes(
     try {
       const data = insertClientSchema.parse({
         ...req.body,
-        workspaceId: DEMO_WORKSPACE_ID,
+        workspaceId: getCurrentWorkspaceId(req),
       });
       const client = await storage.createClient(data);
       
@@ -1175,7 +1191,7 @@ export async function registerRoutes(
         status: client.status,
         workspaceId: client.workspaceId,
         createdAt: client.createdAt!,
-      }, DEMO_WORKSPACE_ID);
+      }, getCurrentWorkspaceId(req));
       
       res.status(201).json(client);
     } catch (error) {
@@ -1412,8 +1428,8 @@ export async function registerRoutes(
       
       const data = insertProjectSchema.parse({
         ...req.body,
-        workspaceId: DEMO_WORKSPACE_ID,
-        createdBy: DEMO_USER_ID,
+        workspaceId: getCurrentWorkspaceId(req),
+        createdBy: getCurrentUserId(req),
         clientId: clientId,
       });
       
@@ -1440,7 +1456,7 @@ export async function registerRoutes(
   // Get current user's active timer
   app.get("/api/timer/current", async (req, res) => {
     try {
-      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const timer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       res.json(timer || null);
     } catch (error) {
       console.error("Error fetching active timer:", error);
@@ -1452,7 +1468,7 @@ export async function registerRoutes(
   app.post("/api/timer/start", async (req, res) => {
     try {
       // Check if user already has an active timer
-      const existingTimer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const existingTimer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       if (existingTimer) {
         return res.status(400).json({ 
           error: "You already have an active timer. Stop it before starting a new one.",
@@ -1462,8 +1478,8 @@ export async function registerRoutes(
 
       const now = new Date();
       const data = insertActiveTimerSchema.parse({
-        workspaceId: DEMO_WORKSPACE_ID,
-        userId: DEMO_USER_ID,
+        workspaceId: getCurrentWorkspaceId(req),
+        userId: getCurrentUserId(req),
         clientId: req.body.clientId || null,
         projectId: req.body.projectId || null,
         taskId: req.body.taskId || null,
@@ -1476,7 +1492,7 @@ export async function registerRoutes(
       const timer = await storage.createActiveTimer(data);
       
       // Get enriched timer with relations
-      const enrichedTimer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const enrichedTimer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       
       // Emit real-time event
       emitTimerStarted({
@@ -1491,7 +1507,7 @@ export async function registerRoutes(
         elapsedSeconds: timer.elapsedSeconds,
         lastStartedAt: timer.lastStartedAt || now,
         createdAt: timer.createdAt,
-      }, DEMO_WORKSPACE_ID);
+      }, getCurrentWorkspaceId(req));
 
       res.status(201).json(enrichedTimer);
     } catch (error) {
@@ -1506,7 +1522,7 @@ export async function registerRoutes(
   // Pause the timer
   app.post("/api/timer/pause", async (req, res) => {
     try {
-      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const timer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       if (!timer) {
         return res.status(404).json({ error: "No active timer found" });
       }
@@ -1526,7 +1542,7 @@ export async function registerRoutes(
       });
 
       // Emit real-time event
-      emitTimerPaused(timer.id, DEMO_USER_ID, newElapsedSeconds, DEMO_WORKSPACE_ID);
+      emitTimerPaused(timer.id, getCurrentUserId(req), newElapsedSeconds, getCurrentWorkspaceId(req));
 
       res.json(updated);
     } catch (error) {
@@ -1538,7 +1554,7 @@ export async function registerRoutes(
   // Resume the timer
   app.post("/api/timer/resume", async (req, res) => {
     try {
-      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const timer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       if (!timer) {
         return res.status(404).json({ error: "No active timer found" });
       }
@@ -1553,7 +1569,7 @@ export async function registerRoutes(
       });
 
       // Emit real-time event
-      emitTimerResumed(timer.id, DEMO_USER_ID, now, DEMO_WORKSPACE_ID);
+      emitTimerResumed(timer.id, getCurrentUserId(req), now, getCurrentWorkspaceId(req));
 
       res.json(updated);
     } catch (error) {
@@ -1565,7 +1581,7 @@ export async function registerRoutes(
   // Update timer details (client, project, task, description)
   app.patch("/api/timer/current", async (req, res) => {
     try {
-      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const timer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       if (!timer) {
         return res.status(404).json({ error: "No active timer found" });
       }
@@ -1579,10 +1595,10 @@ export async function registerRoutes(
       const updated = await storage.updateActiveTimer(timer.id, allowedUpdates);
 
       // Emit real-time event
-      emitTimerUpdated(timer.id, DEMO_USER_ID, allowedUpdates as any, DEMO_WORKSPACE_ID);
+      emitTimerUpdated(timer.id, getCurrentUserId(req), allowedUpdates as any, getCurrentWorkspaceId(req));
 
       // Return enriched timer
-      const enrichedTimer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const enrichedTimer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       res.json(enrichedTimer);
     } catch (error) {
       console.error("Error updating timer:", error);
@@ -1593,7 +1609,7 @@ export async function registerRoutes(
   // Stop and finalize timer (creates time entry or discards)
   app.post("/api/timer/stop", async (req, res) => {
     try {
-      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const timer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       if (!timer) {
         return res.status(404).json({ error: "No active timer found" });
       }
@@ -1617,8 +1633,8 @@ export async function registerRoutes(
         const startTime = new Date(endTime.getTime() - (finalElapsedSeconds * 1000));
         
         const timeEntry = await storage.createTimeEntry({
-          workspaceId: DEMO_WORKSPACE_ID,
-          userId: DEMO_USER_ID,
+          workspaceId: getCurrentWorkspaceId(req),
+          userId: getCurrentUserId(req),
           clientId: clientId !== undefined ? clientId : timer.clientId,
           projectId: projectId !== undefined ? projectId : timer.projectId,
           taskId: taskId !== undefined ? taskId : timer.taskId,
@@ -1647,14 +1663,14 @@ export async function registerRoutes(
           scope: timeEntry.scope as 'in_scope' | 'out_of_scope',
           isManual: timeEntry.isManual,
           createdAt: timeEntry.createdAt,
-        }, DEMO_WORKSPACE_ID);
+        }, getCurrentWorkspaceId(req));
       }
 
       // Delete active timer
       await storage.deleteActiveTimer(timer.id);
 
       // Emit timer stopped event
-      emitTimerStopped(timer.id, DEMO_USER_ID, timeEntryId, DEMO_WORKSPACE_ID);
+      emitTimerStopped(timer.id, getCurrentUserId(req), timeEntryId, getCurrentWorkspaceId(req));
 
       res.json({ 
         success: true, 
@@ -1671,7 +1687,7 @@ export async function registerRoutes(
   // Discard timer without saving
   app.delete("/api/timer/current", async (req, res) => {
     try {
-      const timer = await storage.getActiveTimerByUser(DEMO_USER_ID);
+      const timer = await storage.getActiveTimerByUser(getCurrentUserId(req));
       if (!timer) {
         return res.status(404).json({ error: "No active timer found" });
       }
@@ -1679,7 +1695,7 @@ export async function registerRoutes(
       await storage.deleteActiveTimer(timer.id);
 
       // Emit timer stopped event (discarded)
-      emitTimerStopped(timer.id, DEMO_USER_ID, null, DEMO_WORKSPACE_ID);
+      emitTimerStopped(timer.id, getCurrentUserId(req), null, getCurrentWorkspaceId(req));
 
       res.status(204).send();
     } catch (error) {
@@ -1706,7 +1722,7 @@ export async function registerRoutes(
       if (startDate) filters.startDate = new Date(startDate as string);
       if (endDate) filters.endDate = new Date(endDate as string);
 
-      const entries = await storage.getTimeEntriesByWorkspace(DEMO_WORKSPACE_ID, filters);
+      const entries = await storage.getTimeEntriesByWorkspace(getCurrentWorkspaceId(req), filters);
       res.json(entries);
     } catch (error) {
       console.error("Error fetching time entries:", error);
@@ -1717,7 +1733,7 @@ export async function registerRoutes(
   // Get current user's time entries
   app.get("/api/time-entries/my", async (req, res) => {
     try {
-      const entries = await storage.getTimeEntriesByUser(DEMO_USER_ID, DEMO_WORKSPACE_ID);
+      const entries = await storage.getTimeEntriesByUser(getCurrentUserId(req), getCurrentWorkspaceId(req));
       res.json(entries);
     } catch (error) {
       console.error("Error fetching user time entries:", error);
@@ -1757,8 +1773,8 @@ export async function registerRoutes(
 
       const data = insertTimeEntrySchema.parse({
         ...rest,
-        workspaceId: DEMO_WORKSPACE_ID,
-        userId: DEMO_USER_ID,
+        workspaceId: getCurrentWorkspaceId(req),
+        userId: getCurrentUserId(req),
         startTime: start,
         endTime: end,
         durationSeconds: duration || 0,
@@ -1783,7 +1799,7 @@ export async function registerRoutes(
         scope: entry.scope as 'in_scope' | 'out_of_scope',
         isManual: entry.isManual,
         createdAt: entry.createdAt,
-      }, DEMO_WORKSPACE_ID);
+      }, getCurrentWorkspaceId(req));
 
       res.status(201).json(entry);
     } catch (error) {
@@ -1813,7 +1829,7 @@ export async function registerRoutes(
       const updated = await storage.updateTimeEntry(req.params.id, updates);
 
       // Emit real-time event
-      emitTimeEntryUpdated(req.params.id, DEMO_WORKSPACE_ID, updates);
+      emitTimeEntryUpdated(req.params.id, getCurrentWorkspaceId(req), updates);
 
       res.json(updated);
     } catch (error) {
@@ -1833,7 +1849,7 @@ export async function registerRoutes(
       await storage.deleteTimeEntry(req.params.id);
 
       // Emit real-time event
-      emitTimeEntryDeleted(req.params.id, DEMO_WORKSPACE_ID);
+      emitTimeEntryDeleted(req.params.id, getCurrentWorkspaceId(req));
 
       res.status(204).send();
     } catch (error) {
@@ -1855,7 +1871,7 @@ export async function registerRoutes(
       if (startDate) filters.startDate = new Date(startDate as string);
       if (endDate) filters.endDate = new Date(endDate as string);
 
-      const entries = await storage.getTimeEntriesByWorkspace(DEMO_WORKSPACE_ID, filters);
+      const entries = await storage.getTimeEntriesByWorkspace(getCurrentWorkspaceId(req), filters);
 
       // Calculate totals
       let totalSeconds = 0;
@@ -1929,7 +1945,7 @@ export async function registerRoutes(
       if (clientId) filters.clientId = clientId as string;
       if (projectId) filters.projectId = projectId as string;
 
-      const entries = await storage.getTimeEntriesByWorkspace(DEMO_WORKSPACE_ID, filters);
+      const entries = await storage.getTimeEntriesByWorkspace(getCurrentWorkspaceId(req), filters);
 
       // Build CSV
       const headers = ['Date', 'Start Time', 'End Time', 'Duration (hours)', 'Client', 'Project', 'Task', 'Description', 'Scope', 'User', 'Entry Type'];
