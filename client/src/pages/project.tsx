@@ -16,7 +16,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   LayoutGrid,
   List,
-  Calendar,
+  Calendar as CalendarIcon,
   Plus,
   MoreHorizontal,
   ChevronLeft,
@@ -30,6 +30,7 @@ import { SectionColumn } from "@/components/section-column";
 import { TaskCard } from "@/components/task-card";
 import { TaskDetailDrawer } from "@/components/task-detail-drawer";
 import { CreateTaskDialog } from "@/components/create-task-dialog";
+import { ProjectCalendar } from "@/components/project-calendar";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Project, SectionWithTasks, TaskWithRelations, Section } from "@shared/schema";
@@ -368,7 +369,7 @@ export default function ProjectPage() {
                 List
               </TabsTrigger>
               <TabsTrigger value="calendar" className="gap-1.5" data-testid="tab-calendar">
-                <Calendar className="h-3.5 w-3.5" />
+                <CalendarIcon className="h-3.5 w-3.5" />
                 Calendar
               </TabsTrigger>
             </TabsList>
@@ -461,16 +462,16 @@ export default function ProjectPage() {
           </div>
         )}
 
-        {view === "calendar" && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-1">Calendar View</h3>
-              <p className="text-sm text-muted-foreground">
-                Calendar view coming soon
-              </p>
-            </div>
-          </div>
+        {view === "calendar" && projectId && sections && (
+          <ProjectCalendar
+            projectId={projectId}
+            sections={sections.map(s => ({ id: s.id, projectId: s.projectId, name: s.name, orderIndex: s.orderIndex, createdAt: s.createdAt }))}
+            onTaskSelect={handleTaskSelect}
+            onDateClick={(date) => {
+              setSelectedSectionId(sections[0]?.id);
+              setCreateTaskOpen(true);
+            }}
+          />
         )}
       </div>
 

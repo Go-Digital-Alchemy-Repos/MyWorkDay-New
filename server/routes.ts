@@ -313,6 +313,86 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/projects/:projectId/calendar-events", async (req, res) => {
+    try {
+      const { start, end, includeSubtasks } = req.query;
+      const tasks = await storage.getTasksByProject(req.params.projectId);
+      
+      const startDate = start ? new Date(start as string) : null;
+      const endDate = end ? new Date(end as string) : null;
+      const includeChildTasks = includeSubtasks !== "false";
+      
+      interface CalendarEvent {
+        id: string;
+        title: string;
+        dueDate: Date | null;
+        parentTaskId: string | null;
+        status: string;
+        priority: string;
+        sectionId: string | null;
+        projectId: string;
+        assignees: any[];
+        tags: any[];
+        isSubtask: boolean;
+      }
+      
+      const events: CalendarEvent[] = [];
+      
+      for (const task of tasks) {
+        if (task.dueDate) {
+          const taskDate = new Date(task.dueDate);
+          const inRange = (!startDate || taskDate >= startDate) && (!endDate || taskDate <= endDate);
+          
+          if (inRange) {
+            events.push({
+              id: task.id,
+              title: task.title,
+              dueDate: task.dueDate,
+              parentTaskId: task.parentTaskId,
+              status: task.status,
+              priority: task.priority,
+              sectionId: task.sectionId,
+              projectId: task.projectId,
+              assignees: task.assignees || [],
+              tags: task.tags || [],
+              isSubtask: !!task.parentTaskId,
+            });
+          }
+        }
+        
+        if (includeChildTasks && task.childTasks) {
+          for (const childTask of task.childTasks) {
+            if (childTask.dueDate) {
+              const childDate = new Date(childTask.dueDate);
+              const inRange = (!startDate || childDate >= startDate) && (!endDate || childDate <= endDate);
+              
+              if (inRange) {
+                events.push({
+                  id: childTask.id,
+                  title: childTask.title,
+                  dueDate: childTask.dueDate,
+                  parentTaskId: childTask.parentTaskId,
+                  status: childTask.status,
+                  priority: childTask.priority,
+                  sectionId: childTask.sectionId,
+                  projectId: childTask.projectId,
+                  assignees: childTask.assignees || [],
+                  tags: childTask.tags || [],
+                  isSubtask: true,
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching calendar events:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/tasks/my", async (req, res) => {
     try {
       const tasks = await storage.getTasksByUser(DEMO_USER_ID);
