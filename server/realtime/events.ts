@@ -21,6 +21,8 @@ import {
   CLIENT_EVENTS,
   CLIENT_CONTACT_EVENTS,
   CLIENT_INVITE_EVENTS,
+  TIMER_EVENTS,
+  TIME_ENTRY_EVENTS,
   ProjectCreatedPayload,
   ProjectUpdatedPayload,
   ProjectDeletedPayload,
@@ -48,6 +50,16 @@ import {
   ClientContactDeletedPayload,
   ClientInviteSentPayload,
   ClientInviteRevokedPayload,
+  TimerPayload,
+  TimerStartedPayload,
+  TimerPausedPayload,
+  TimerResumedPayload,
+  TimerStoppedPayload,
+  TimerUpdatedPayload,
+  TimeEntryPayload,
+  TimeEntryCreatedPayload,
+  TimeEntryUpdatedPayload,
+  TimeEntryDeletedPayload,
 } from '@shared/events';
 import { log } from '../index';
 
@@ -406,4 +418,80 @@ export function emitClientInviteRevoked(inviteId: string, clientId: string, work
   const payload: ClientInviteRevokedPayload = { inviteId, clientId, workspaceId };
   emitToClient(clientId, CLIENT_INVITE_EVENTS.REVOKED, payload);
   log(`Emitted ${CLIENT_INVITE_EVENTS.REVOKED} for invite ${inviteId}`, 'events');
+}
+
+// =============================================================================
+// TIME TRACKING EVENTS
+// =============================================================================
+
+/**
+ * Emit when a timer is started.
+ */
+export function emitTimerStarted(timer: TimerPayload, workspaceId: string): void {
+  const payload: TimerStartedPayload = { timer, userId: timer.userId };
+  emitToWorkspace(workspaceId, TIMER_EVENTS.STARTED, payload);
+  log(`Emitted ${TIMER_EVENTS.STARTED} for timer ${timer.id}`, 'events');
+}
+
+/**
+ * Emit when a timer is paused.
+ */
+export function emitTimerPaused(timerId: string, userId: string, elapsedSeconds: number, workspaceId: string): void {
+  const payload: TimerPausedPayload = { timerId, userId, elapsedSeconds };
+  emitToWorkspace(workspaceId, TIMER_EVENTS.PAUSED, payload);
+  log(`Emitted ${TIMER_EVENTS.PAUSED} for timer ${timerId}`, 'events');
+}
+
+/**
+ * Emit when a timer is resumed.
+ */
+export function emitTimerResumed(timerId: string, userId: string, lastStartedAt: Date, workspaceId: string): void {
+  const payload: TimerResumedPayload = { timerId, userId, lastStartedAt };
+  emitToWorkspace(workspaceId, TIMER_EVENTS.RESUMED, payload);
+  log(`Emitted ${TIMER_EVENTS.RESUMED} for timer ${timerId}`, 'events');
+}
+
+/**
+ * Emit when a timer is stopped.
+ */
+export function emitTimerStopped(timerId: string, userId: string, timeEntryId: string | null, workspaceId: string): void {
+  const payload: TimerStoppedPayload = { timerId, userId, timeEntryId };
+  emitToWorkspace(workspaceId, TIMER_EVENTS.STOPPED, payload);
+  log(`Emitted ${TIMER_EVENTS.STOPPED} for timer ${timerId}`, 'events');
+}
+
+/**
+ * Emit when a timer is updated (description, client, project, task changed).
+ */
+export function emitTimerUpdated(timerId: string, userId: string, updates: Partial<TimerPayload>, workspaceId: string): void {
+  const payload: TimerUpdatedPayload = { timerId, userId, updates };
+  emitToWorkspace(workspaceId, TIMER_EVENTS.UPDATED, payload);
+  log(`Emitted ${TIMER_EVENTS.UPDATED} for timer ${timerId}`, 'events');
+}
+
+/**
+ * Emit when a time entry is created (from timer or manual entry).
+ */
+export function emitTimeEntryCreated(timeEntry: TimeEntryPayload, workspaceId: string): void {
+  const payload: TimeEntryCreatedPayload = { timeEntry, workspaceId };
+  emitToWorkspace(workspaceId, TIME_ENTRY_EVENTS.CREATED, payload);
+  log(`Emitted ${TIME_ENTRY_EVENTS.CREATED} for time entry ${timeEntry.id}`, 'events');
+}
+
+/**
+ * Emit when a time entry is updated.
+ */
+export function emitTimeEntryUpdated(timeEntryId: string, workspaceId: string, updates: Partial<TimeEntryPayload>): void {
+  const payload: TimeEntryUpdatedPayload = { timeEntryId, workspaceId, updates };
+  emitToWorkspace(workspaceId, TIME_ENTRY_EVENTS.UPDATED, payload);
+  log(`Emitted ${TIME_ENTRY_EVENTS.UPDATED} for time entry ${timeEntryId}`, 'events');
+}
+
+/**
+ * Emit when a time entry is deleted.
+ */
+export function emitTimeEntryDeleted(timeEntryId: string, workspaceId: string): void {
+  const payload: TimeEntryDeletedPayload = { timeEntryId, workspaceId };
+  emitToWorkspace(workspaceId, TIME_ENTRY_EVENTS.DELETED, payload);
+  log(`Emitted ${TIME_ENTRY_EVENTS.DELETED} for time entry ${timeEntryId}`, 'events');
 }

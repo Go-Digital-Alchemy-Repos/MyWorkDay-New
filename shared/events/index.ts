@@ -372,6 +372,99 @@ export interface LeaveWorkspacePayload {
 }
 
 // =============================================================================
+// TIME TRACKING EVENTS
+// =============================================================================
+
+export const TIMER_EVENTS = {
+  STARTED: 'timer:started',
+  PAUSED: 'timer:paused',
+  RESUMED: 'timer:resumed',
+  STOPPED: 'timer:stopped',
+  UPDATED: 'timer:updated',
+} as const;
+
+export const TIME_ENTRY_EVENTS = {
+  CREATED: 'timeEntry:created',
+  UPDATED: 'timeEntry:updated',
+  DELETED: 'timeEntry:deleted',
+} as const;
+
+export interface TimerPayload {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  clientId: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  description: string | null;
+  status: 'running' | 'paused';
+  elapsedSeconds: number;
+  lastStartedAt: Date;
+  createdAt: Date;
+}
+
+export interface TimerStartedPayload {
+  timer: TimerPayload;
+  userId: string;
+}
+
+export interface TimerPausedPayload {
+  timerId: string;
+  userId: string;
+  elapsedSeconds: number;
+}
+
+export interface TimerResumedPayload {
+  timerId: string;
+  userId: string;
+  lastStartedAt: Date;
+}
+
+export interface TimerStoppedPayload {
+  timerId: string;
+  userId: string;
+  timeEntryId: string | null; // Created time entry ID, null if discarded
+}
+
+export interface TimerUpdatedPayload {
+  timerId: string;
+  userId: string;
+  updates: Partial<TimerPayload>;
+}
+
+export interface TimeEntryPayload {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  clientId: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  description: string | null;
+  startTime: Date;
+  endTime: Date | null;
+  durationSeconds: number;
+  scope: 'in_scope' | 'out_of_scope';
+  isManual: boolean;
+  createdAt: Date;
+}
+
+export interface TimeEntryCreatedPayload {
+  timeEntry: TimeEntryPayload;
+  workspaceId: string;
+}
+
+export interface TimeEntryUpdatedPayload {
+  timeEntryId: string;
+  workspaceId: string;
+  updates: Partial<TimeEntryPayload>;
+}
+
+export interface TimeEntryDeletedPayload {
+  timeEntryId: string;
+  workspaceId: string;
+}
+
+// =============================================================================
 // ALL EVENTS TYPE (for type-safe event handling)
 // =============================================================================
 
@@ -404,6 +497,15 @@ export type ServerToClientEvents = {
   [CLIENT_CONTACT_EVENTS.DELETED]: (payload: ClientContactDeletedPayload) => void;
   [CLIENT_INVITE_EVENTS.SENT]: (payload: ClientInviteSentPayload) => void;
   [CLIENT_INVITE_EVENTS.REVOKED]: (payload: ClientInviteRevokedPayload) => void;
+  // Time tracking events
+  [TIMER_EVENTS.STARTED]: (payload: TimerStartedPayload) => void;
+  [TIMER_EVENTS.PAUSED]: (payload: TimerPausedPayload) => void;
+  [TIMER_EVENTS.RESUMED]: (payload: TimerResumedPayload) => void;
+  [TIMER_EVENTS.STOPPED]: (payload: TimerStoppedPayload) => void;
+  [TIMER_EVENTS.UPDATED]: (payload: TimerUpdatedPayload) => void;
+  [TIME_ENTRY_EVENTS.CREATED]: (payload: TimeEntryCreatedPayload) => void;
+  [TIME_ENTRY_EVENTS.UPDATED]: (payload: TimeEntryUpdatedPayload) => void;
+  [TIME_ENTRY_EVENTS.DELETED]: (payload: TimeEntryDeletedPayload) => void;
 };
 
 export type ClientToServerEvents = {
