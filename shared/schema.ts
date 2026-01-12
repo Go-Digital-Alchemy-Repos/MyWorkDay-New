@@ -54,6 +54,17 @@ export const ClientInviteStatus = {
   ACCEPTED: "accepted",
 } as const;
 
+// Time Tracking enums
+export const TimeEntryScope = {
+  IN_SCOPE: "in_scope",
+  OUT_OF_SCOPE: "out_of_scope",
+} as const;
+
+export const TimerStatus = {
+  RUNNING: "running",
+  PAUSED: "paused",
+} as const;
+
 // Users table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -175,6 +186,58 @@ export const clientInvites = pgTable("client_invites", {
 }, (table) => [
   index("client_invites_client_idx").on(table.clientId),
   index("client_invites_contact_idx").on(table.contactId),
+]);
+
+// =============================================================================
+// TIME TRACKING TABLES
+// =============================================================================
+
+/**
+ * Time Entries table - records of time spent on tasks
+ * Supports both timer-based and manual entries
+ */
+export const timeEntries = pgTable("time_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  projectId: varchar("project_id").references(() => projects.id),
+  taskId: varchar("task_id").references(() => tasks.id),
+  description: text("description"),
+  scope: text("scope").notNull().default("in_scope"),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time"),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  isManual: boolean("is_manual").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("time_entries_user_idx").on(table.userId),
+  index("time_entries_client_idx").on(table.clientId),
+  index("time_entries_project_idx").on(table.projectId),
+  index("time_entries_task_idx").on(table.taskId),
+  index("time_entries_date_idx").on(table.startTime),
+]);
+
+/**
+ * Active Timers table - tracks currently running timers
+ * Each user can have only one active timer at a time
+ */
+export const activeTimers = pgTable("active_timers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  projectId: varchar("project_id").references(() => projects.id),
+  taskId: varchar("task_id").references(() => tasks.id),
+  description: text("description"),
+  status: text("status").notNull().default("running"),
+  elapsedSeconds: integer("elapsed_seconds").notNull().default(0),
+  lastStartedAt: timestamp("last_started_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("active_timers_user_unique").on(table.userId),
 ]);
 
 // Projects table
@@ -568,6 +631,53 @@ export const clientInvitesRelations = relations(clientInvites, ({ one }) => ({
   }),
 }));
 
+// Time Tracking Relations
+export const timeEntriesRelations = relations(timeEntries, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [timeEntries.workspaceId],
+    references: [workspaces.id],
+  }),
+  user: one(users, {
+    fields: [timeEntries.userId],
+    references: [users.id],
+  }),
+  client: one(clients, {
+    fields: [timeEntries.clientId],
+    references: [clients.id],
+  }),
+  project: one(projects, {
+    fields: [timeEntries.projectId],
+    references: [projects.id],
+  }),
+  task: one(tasks, {
+    fields: [timeEntries.taskId],
+    references: [tasks.id],
+  }),
+}));
+
+export const activeTimersRelations = relations(activeTimers, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [activeTimers.workspaceId],
+    references: [workspaces.id],
+  }),
+  user: one(users, {
+    fields: [activeTimers.userId],
+    references: [users.id],
+  }),
+  client: one(clients, {
+    fields: [activeTimers.clientId],
+    references: [clients.id],
+  }),
+  project: one(projects, {
+    fields: [activeTimers.projectId],
+    references: [projects.id],
+  }),
+  task: one(tasks, {
+    fields: [activeTimers.taskId],
+    references: [tasks.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -679,6 +789,19 @@ export const insertClientInviteSchema = createInsertSchema(clientInvites).omit({
   updatedAt: true,
 });
 
+// Time Tracking Insert Schemas
+export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertActiveTimerSchema = createInsertSchema(activeTimers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -741,6 +864,13 @@ export type InsertClientContact = z.infer<typeof insertClientContactSchema>;
 export type ClientInvite = typeof clientInvites.$inferSelect;
 export type InsertClientInvite = z.infer<typeof insertClientInviteSchema>;
 
+// Time Tracking Types
+export type TimeEntry = typeof timeEntries.$inferSelect;
+export type InsertTimeEntry = z.infer<typeof insertTimeEntrySchema>;
+
+export type ActiveTimer = typeof activeTimers.$inferSelect;
+export type InsertActiveTimer = z.infer<typeof insertActiveTimerSchema>;
+
 // Extended types for frontend use
 export type TaskAttachmentWithUser = TaskAttachment & {
   uploadedByUser?: User;
@@ -783,4 +913,19 @@ export type ClientWithRelations = Client & {
 export type ClientContactWithRelations = ClientContact & {
   client?: Client;
   invites?: ClientInvite[];
+};
+
+// Time Tracking extended types
+export type TimeEntryWithRelations = TimeEntry & {
+  user?: User;
+  client?: Client;
+  project?: Project;
+  task?: Task;
+};
+
+export type ActiveTimerWithRelations = ActiveTimer & {
+  user?: User;
+  client?: Client;
+  project?: Project;
+  task?: Task;
 };
