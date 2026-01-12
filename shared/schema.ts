@@ -65,16 +65,44 @@ export const TimerStatus = {
   PAUSED: "paused",
 } as const;
 
+// User role enum (Admin, Employee, Client)
+export const UserRole = {
+  ADMIN: "admin",
+  EMPLOYEE: "employee",
+  CLIENT: "client",
+} as const;
+
+// Invitation status enum
+export const InvitationStatus = {
+  PENDING: "pending",
+  ACCEPTED: "accepted",
+  EXPIRED: "expired",
+  REVOKED: "revoked",
+} as const;
+
+// Client access level enum (for client portal users)
+export const ClientAccessLevel = {
+  VIEWER: "viewer",
+  COLLABORATOR: "collaborator",
+} as const;
+
 // Users table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
-  passwordHash: text("password_hash").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  passwordHash: text("password_hash"),
   avatarUrl: text("avatar_url"),
+  role: text("role").notNull().default("employee"),
+  isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("users_role_idx").on(table.role),
+  index("users_active_idx").on(table.isActive),
+]);
 
 // Workspaces table
 export const workspaces = pgTable("workspaces", {
@@ -407,6 +435,77 @@ export const taskAttachments = pgTable("task_attachments", {
   index("task_attachments_project").on(table.projectId),
 ]);
 
+// =============================================================================
+// USER MANAGEMENT & AUTH TABLES
+// =============================================================================
+
+/**
+ * Invitations table - for inviting admin/employee/client users
+ * Tokens are hashed before storage for security
+ */
+export const invitations = pgTable("invitations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("employee"),
+  clientId: varchar("client_id").references(() => clients.id),
+  tokenHash: text("token_hash").notNull(),
+  status: text("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("invitations_email_idx").on(table.email),
+  index("invitations_workspace_idx").on(table.workspaceId),
+  index("invitations_status_idx").on(table.status),
+]);
+
+/**
+ * Client User Access table - grants client portal users access to specific clients
+ * Only users with role='client' should have records here
+ */
+export const clientUserAccess = pgTable("client_user_access", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  accessLevel: text("access_level").notNull().default("viewer"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("client_user_access_unique").on(table.clientId, table.userId),
+  index("client_user_access_user_idx").on(table.userId),
+]);
+
+/**
+ * App Settings table - stores encrypted global settings (e.g., Mailgun config)
+ * Values are encrypted server-side using APP_ENCRYPTION_KEY
+ */
+export const appSettings = pgTable("app_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  key: varchar("key", { length: 255 }).notNull(),
+  valueEncrypted: text("value_encrypted").notNull(),
+  updatedByUserId: varchar("updated_by_user_id").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("app_settings_workspace_key_unique").on(table.workspaceId, table.key),
+]);
+
+/**
+ * Comment Mentions table - tracks @mentions in task comments
+ * Links mentioned users to comments for notifications
+ */
+export const commentMentions = pgTable("comment_mentions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  commentId: varchar("comment_id").references(() => comments.id).notNull(),
+  mentionedUserId: varchar("mentioned_user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("comment_mentions_comment_idx").on(table.commentId),
+  index("comment_mentions_user_idx").on(table.mentionedUserId, table.createdAt),
+]);
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   workspaceMembers: many(workspaceMembers),
@@ -414,6 +513,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   projectMembers: many(projectMembers),
   taskAssignees: many(taskAssignees),
   comments: many(comments),
+  clientUserAccess: many(clientUserAccess),
+  invitationsCreated: many(invitations),
+  commentMentions: many(commentMentions),
 }));
 
 export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
@@ -678,6 +780,62 @@ export const activeTimersRelations = relations(activeTimers, ({ one }) => ({
   }),
 }));
 
+// =============================================================================
+// USER MANAGEMENT & AUTH RELATIONS
+// =============================================================================
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [invitations.workspaceId],
+    references: [workspaces.id],
+  }),
+  client: one(clients, {
+    fields: [invitations.clientId],
+    references: [clients.id],
+  }),
+  createdBy: one(users, {
+    fields: [invitations.createdByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const clientUserAccessRelations = relations(clientUserAccess, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [clientUserAccess.workspaceId],
+    references: [workspaces.id],
+  }),
+  client: one(clients, {
+    fields: [clientUserAccess.clientId],
+    references: [clients.id],
+  }),
+  user: one(users, {
+    fields: [clientUserAccess.userId],
+    references: [users.id],
+  }),
+}));
+
+export const appSettingsRelations = relations(appSettings, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [appSettings.workspaceId],
+    references: [workspaces.id],
+  }),
+  updatedBy: one(users, {
+    fields: [appSettings.updatedByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const commentMentionsRelations = relations(commentMentions, ({ one }) => ({
+  comment: one(comments, {
+    fields: [commentMentions.commentId],
+    references: [comments.id],
+  }),
+  mentionedUser: one(users, {
+    fields: [commentMentions.mentionedUserId],
+    references: [users.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -800,6 +958,37 @@ export const insertActiveTimerSchema = createInsertSchema(activeTimers).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+});
+
+// User Management & Auth Insert Schemas
+export const insertInvitationSchema = createInsertSchema(invitations).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  role: z.enum([UserRole.ADMIN, UserRole.EMPLOYEE, UserRole.CLIENT]).default(UserRole.EMPLOYEE),
+  status: z.enum([InvitationStatus.PENDING, InvitationStatus.ACCEPTED, InvitationStatus.EXPIRED, InvitationStatus.REVOKED]).default(InvitationStatus.PENDING),
+});
+
+export const insertClientUserAccessSchema = createInsertSchema(clientUserAccess).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  accessLevel: z.enum([ClientAccessLevel.VIEWER, ClientAccessLevel.COLLABORATOR]).default(ClientAccessLevel.VIEWER),
+});
+
+export const insertAppSettingSchema = createInsertSchema(appSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertCommentMentionSchema = createInsertSchema(commentMentions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Enhanced user insert schema with role validation
+export const insertUserWithRoleSchema = insertUserSchema.extend({
+  role: z.enum([UserRole.ADMIN, UserRole.EMPLOYEE, UserRole.CLIENT]).default(UserRole.EMPLOYEE),
 });
 
 // Types
@@ -928,4 +1117,34 @@ export type ActiveTimerWithRelations = ActiveTimer & {
   client?: Client;
   project?: Project;
   task?: Task;
+};
+
+// User Management & Auth Types
+export type Invitation = typeof invitations.$inferSelect;
+export type InsertInvitation = z.infer<typeof insertInvitationSchema>;
+
+export type ClientUserAccess = typeof clientUserAccess.$inferSelect;
+export type InsertClientUserAccess = z.infer<typeof insertClientUserAccessSchema>;
+
+export type AppSetting = typeof appSettings.$inferSelect;
+export type InsertAppSetting = z.infer<typeof insertAppSettingSchema>;
+
+export type CommentMention = typeof commentMentions.$inferSelect;
+export type InsertCommentMention = z.infer<typeof insertCommentMentionSchema>;
+
+// User Management extended types
+export type InvitationWithRelations = Invitation & {
+  workspace?: Workspace;
+  client?: Client;
+  createdBy?: User;
+};
+
+export type UserWithAccess = User & {
+  clientAccess?: (ClientUserAccess & { client?: Client })[];
+  workspaceMemberships?: WorkspaceMember[];
+};
+
+export type CommentWithMentions = Comment & {
+  user?: User;
+  mentions?: (CommentMention & { mentionedUser?: User })[];
 };

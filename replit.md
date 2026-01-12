@@ -19,7 +19,7 @@ DASANA is a fully functional Asana-inspired project management application built
 ## Project Architecture
 
 ### Database Schema (shared/schema.ts)
-- **users**: User accounts with email, name, avatar
+- **users**: User accounts with email, name, avatar, role (admin/employee/client), firstName, lastName, isActive
 - **workspaces**: Top-level organization unit
 - **workspaceMembers**: User membership in workspaces (owner, admin, member, guest)
 - **teams**: Groups within workspaces
@@ -39,6 +39,17 @@ DASANA is a fully functional Asana-inspired project management application built
 - **activityLog**: Audit trail for changes
 - **timeEntries**: Time tracking entries with duration, scope, client/project/task references
 - **activeTimers**: Currently running timers (one per user, enforced by unique index)
+
+#### User Management & Auth Tables (NEW)
+- **invitations**: User onboarding with token-based invites (pending/accepted/expired/revoked status)
+- **clientUserAccess**: Grants client portal users access to specific clients (viewer/collaborator level)
+- **appSettings**: Encrypted global settings storage (e.g., Mailgun API config) per workspace
+- **commentMentions**: Tracks @mentions in task comments for notification purposes
+
+#### User Roles (UserRole enum)
+- **admin**: Full workspace access, can manage users and global settings
+- **employee**: Standard org member with normal project/task access
+- **client**: Restricted to assigned clients only via clientUserAccess table
 
 ### Frontend Structure (client/src/)
 - **pages/**: Route components (home.tsx, my-tasks.tsx, project.tsx, clients.tsx, client-detail.tsx, time-tracking.tsx)

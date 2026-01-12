@@ -1,0 +1,297 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY:
+1) User Management + Authorization foundations with 3 user types (Admin, Employee, Client) using the tenant + access model described below
+2) Comments with @mentions (chronological stacking) on Project > Task > Comments with email notifications
+3) Admin “Global Settings” area to configure Mailgun credentials (stored securely)
+
+CRITICAL CONSTRAINTS
+- Preserve ALL existing features (Clients → Projects → Tasks/Subtasks, Time Tracking, Attachments+S3, realtime sockets, etc.)
+- React frontend remains under /client, Express backend under /server
+- Use Drizzle for NEW schema/migrations if possible; do not remove existing ORM if present
+- Realtime Socket.IO is already used: ALL socket emit logic MUST go through /server/src/realtime/events.ts (no direct io.emit elsewhere)
+- Do not break existing routes; add new routes as needed
+
+===============================================================================
+A) TENANCY + ROLES (MANDATORY MODEL)
+===============================================================================
+We have a single “Organization” (workspace) concept (even if only one org in dev).
+Users can be Admin, Employee, or Client.
+
+- Admin/Employee are organization members (org-scoped)
+- Client users are external portal users that are granted access to one or more CRM Clients (client-scoped)
+
+Core rules:
+- Admin: full org access + user management + settings
+- Employee: can manage CRM (clients/projects/tasks) and their own time entries; no global settings or user management
+- Client: can access ONLY the client accounts they are granted; no time tracking and no internal admin areas
+
+We will integrate Better Auth later if needed, but for THIS prompt implement a working auth/session system in the simplest way that fits existing app patterns WITHOUT tearing things apart. If Better Auth is already partially integrated, build on it; if not, implement a minimal JWT auth to unblock role checks, with a clear adapter layer so Better Auth can replace it later.
+
+===============================================================================
+B) DATABASE / SCHEMA (ADD-ONLY, NO DROPS)
+===============================================================================
+Create/extend tables (Drizzle migrations). Only add columns if missing.
+
+1) users
+- id (uuid)
+- email (unique, lowercase)
+- passwordHash (nullable if invite not accepted yet)
+- firstName, lastName
+- role (enum: admin, employee, client)
+- isActive (boolean default true)
+- createdAt, updatedAt
+
+2) organizations
+- id (uuid)
+- name
+- createdAt, updatedAt
+
+3) organization_members
+- id (uuid)
+- organizationId (fk)
+- userId (fk)
+- orgRole (enum: admin, employee)  // for internal users
+- createdAt
+Unique (organizationId, userId)
+
+4) client_user_access  (THIS IS CRITICAL)
+- id (uuid)
+- organizationId (fk)
+- clientId (fk -> clients.id)
+- userId (fk -> users.id)          // role must be client
+- accessLevel (enum: viewer, collaborator) default viewer
+- createdAt
+Unique (clientId, userId)
+
+5) invitations (for employee + client portal onboarding)
+- id (uuid)
+- organizationId (fk)
+- email (lowercase)
+- role (enum: admin, employee, client)
+- clientId (nullable; used when inviting a client user for a specific CRM client)
+- tokenHash (store hash only)
+- expiresAt
+- usedAt (nullable)
+- createdByUserId (fk)
+- createdAt
+
+6) app_settings (global settings, org-scoped)
+- id (uuid)
+- organizationId (fk)
+- key (varchar)  // e.g. "mailgun"
+- valueEncrypted (text) // encrypted JSON blob
+- updatedByUserId (fk)
+- updatedAt
+Unique (organizationId, key)
+
+Encryption:
+- Add env var APP_ENCRYPTION_KEY
+- Encrypt/decrypt app_settings.valueEncrypted server-side only
+- Never send secrets to client except masked indicators (e.g. “configured: yes/no”)
+
+Add organizationId to existing domain tables if not present where needed for scoping:
+- clients.organizationId
+- projects.organizationId
+- tasks.organizationId
+- time_entries.organizationId
+(If already present, do not duplicate.)
+
+Dev bootstrap:
+- Ensure there is a default organization created on startup/migration if none exists.
+- Provide a one-time bootstrap for first admin creation (CLI script or guarded endpoint).
+
+===============================================================================
+C) AUTH + SESSION (MANDATORY)
+===============================================================================
+Implement a minimal, stable auth layer that supports:
+- email/password login
+- session persistence
+- role + org context on each request
+
+Endpoints (paths can be /api/v1/auth/*):
+- POST /api/v1/auth/login { email, password } -> returns access token; store in localStorage (temporary) OR cookie if already used
+- POST /api/v1/auth/logout
+- GET  /api/v1/auth/me -> returns { user, role, organizationId, clientAccessClientIds[] }
+
+Invite-only registration:
+- POST /api/v1/auth/accept-invite { token, firstName, lastName, password }
+  - validates tokenHash + expiresAt
+  - creates user if needed
+  - sets role from invitation
+  - if role is admin/employee: create org membership
+  - if role is client: create client_user_access for invitation.clientId
+  - marks invite usedAt
+  - logs in user
+
+Middleware:
+- requireAuth
+- requireRoleAdmin (admin only)
+- requireOrgMember (admin/employee only)
+- requireClientAccess(clientId) (client portal access; also usable for employees if you later restrict them)
+
+Do NOT break existing APIs. Add these checks gradually only on NEW endpoints and on the most sensitive existing endpoints (settings, user management, mailgun config). For CRM objects, implement scoping checks but keep a safe dev fallback if app currently runs without auth.
+
+===============================================================================
+D) USER MANAGEMENT UI + APIs (MANDATORY)
+===============================================================================
+Admin-only screens:
+- /settings/users (or similar)
+  - list users
+  - create/invite users (employee or client)
+  - deactivate/reactivate
+  - view client access mapping for client users (which clients they can access)
+
+APIs (admin-only):
+- GET  /api/v1/users
+- PATCH /api/v1/users/:id (role change allowed ONLY if not breaking invariants; deactivate)
+- POST /api/v1/invitations
+  Body:
+  {
+    email,
+    role: "employee" | "client",
+    clientId?: string,          // required when role=client
+    expiresInDays?: number
+  }
+- GET /api/v1/invitations
+- POST /api/v1/invitations/:id/resend
+- DELETE /api/v1/invitations/:id (revoke)
+
+If inviting a client user:
+- require clientId
+- create invitation tied to that clientId
+
+===============================================================================
+E) CLIENT PORTAL ACCESS (MANDATORY BEHAVIOR)
+===============================================================================
+When a user.role = client:
+- Navigation must hide: Time Tracking (internal), Admin settings, User management
+- Clients page should show ONLY the clients they have access to (client_user_access)
+- Projects/tasks shown only under permitted client(s)
+
+Employees:
+- Can see all clients/projects by default (org-wide) for now.
+
+===============================================================================
+F) COMMENTS WITH @MENTIONS + EMAIL NOTIFICATIONS (MANDATORY)
+===============================================================================
+We need chronological stacking comments on Task level (Project > Task > Comments).
+
+1) Schema
+Create:
+task_comments
+- id (uuid)
+- organizationId
+- clientId
+- projectId
+- taskId
+- authorUserId
+- body (text)
+- createdAt
+
+comment_mentions
+- id (uuid)
+- commentId (fk)
+- mentionedUserId (fk)
+- createdAt
+
+Indexes:
+- (taskId, createdAt)
+- (mentionedUserId, createdAt)
+
+2) API
+- GET  /api/v1/tasks/:taskId/comments (chronological ascending)
+- POST /api/v1/tasks/:taskId/comments { body }
+  - parse @mentions (see below)
+  - create comment
+  - create mention rows
+  - emit realtime events
+  - send email notifications to mentioned users
+
+Permissions:
+- Admin/Employee can comment on any task in org
+- Client can comment ONLY on tasks that belong to clients they have access to (client_user_access)
+
+3) Mention parsing rules
+Support @mention by:
+- @email (exact match) OR @FirstLast (username slug if you already have one)
+Implement safest version:
+- Require @email mentions to avoid ambiguity
+- If UI provides an autocomplete user picker, store mentions via userId and insert “@Display Name” text but still record exact mentionedUserId
+
+4) Email notifications (Mailgun)
+When a user is mentioned:
+- Send an email:
+  Subject: “You were mentioned in a task comment”
+  Body includes:
+  - who mentioned them
+  - client / project / task name
+  - snippet of comment
+  - link to open task (deep link)
+Rate limiting:
+- Do not send duplicate emails for the same user in the same comment.
+- If multiple mentions, send one email per mentioned user per comment.
+
+5) Realtime events
+Emit via /server/src/realtime/events.ts only:
+- comment:created -> { taskId, comment }
+- mention:created -> { taskId, commentId, mentionedUserId }
+Clients should update comment list instantly without refresh.
+
+===============================================================================
+G) GLOBAL SETTINGS: MAILGUN CONFIG (ADMIN ONLY)
+===============================================================================
+Add admin UI page: /settings/integrations/mailgun
+
+Fields:
+- Mailgun Domain
+- Mailgun API Key
+- From Email (e.g. notifications@yourdomain.com)
+- Optional: Reply-To
+
+Behavior:
+- Admin can Save settings.
+- Store encrypted in app_settings key="mailgun" (never expose full key).
+- Show status “Configured: Yes/No”, and show masked key like “key-****abcd”.
+- Provide “Send Test Email” button that emails the current admin user.
+
+APIs (admin-only):
+- GET  /api/v1/settings/mailgun (returns masked + configured flag)
+- PUT  /api/v1/settings/mailgun (saves encrypted)
+- POST /api/v1/settings/mailgun/test (send test email)
+
+Mailgun sending:
+- Create MailService abstraction
+- If mailgun not configured, log a warning and skip sending (do not crash)
+
+===============================================================================
+H) DOCUMENTATION (MANDATORY)
+===============================================================================
+Create/update READMEs:
+- /server/src/api/README-AUTH-USERS.md
+- /server/src/api/README-COMMENTS.md
+- /server/src/api/README-SETTINGS-MAILGUN.md
+- /client/src/pages/settings/README.md (where settings live)
+Add inline comments for:
+- encryption logic
+- mention parsing
+- permission middleware
+
+===============================================================================
+I) ACCEPTANCE CRITERIA (MUST WORK)
+===============================================================================
+1) Admin can create an invite for an Employee, employee accepts invite and can log in
+2) Admin can create an invite for a Client tied to a specific CRM clientId; client accepts and can see ONLY that client account
+3) Client user cannot access Time Tracking or Admin Settings
+4) Task comments show in chronological order and update in realtime across two browser windows
+5) @email mention sends email via Mailgun once Mailgun is configured
+6) Admin can configure Mailgun in settings and send a test email
+7) Existing app functionality remains intact (projects/tasks/time tracking/attachments still work)
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+When done, output:
+- Summary of changes
+- Migrations added (no drops)
+- New routes/endpoints
+- Socket events added (events.ts only)
+- Manual test steps for acceptance criteria
