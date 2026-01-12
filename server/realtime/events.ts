@@ -11,13 +11,16 @@
  * - Type safety with shared event contracts
  */
 
-import { emitToProject } from './socket';
+import { emitToProject, emitToClient, emitToWorkspace } from './socket';
 import {
   PROJECT_EVENTS,
   SECTION_EVENTS,
   TASK_EVENTS,
   SUBTASK_EVENTS,
   ATTACHMENT_EVENTS,
+  CLIENT_EVENTS,
+  CLIENT_CONTACT_EVENTS,
+  CLIENT_INVITE_EVENTS,
   ProjectCreatedPayload,
   ProjectUpdatedPayload,
   ProjectDeletedPayload,
@@ -36,6 +39,14 @@ import {
   SubtaskReorderedPayload,
   AttachmentAddedPayload,
   AttachmentDeletedPayload,
+  ClientCreatedPayload,
+  ClientUpdatedPayload,
+  ClientDeletedPayload,
+  ClientContactCreatedPayload,
+  ClientContactUpdatedPayload,
+  ClientContactDeletedPayload,
+  ClientInviteSentPayload,
+  ClientInviteRevokedPayload,
 } from '@shared/events';
 import { log } from '../index';
 
@@ -261,4 +272,103 @@ export function emitAttachmentDeleted(
   const payload: AttachmentDeletedPayload = { attachmentId, taskId, subtaskId, projectId };
   emitToProject(projectId, ATTACHMENT_EVENTS.DELETED, payload);
   log(`Emitted ${ATTACHMENT_EVENTS.DELETED} for attachment ${attachmentId}`, 'events');
+}
+
+// =============================================================================
+// CLIENT EVENTS (CRM Module)
+// =============================================================================
+
+/**
+ * Emit when a new client is created.
+ */
+export function emitClientCreated(client: ClientCreatedPayload['client'], workspaceId: string): void {
+  const payload: ClientCreatedPayload = { client, workspaceId };
+  emitToWorkspace(workspaceId, CLIENT_EVENTS.CREATED, payload);
+  log(`Emitted ${CLIENT_EVENTS.CREATED} for client ${client.id}`, 'events');
+}
+
+/**
+ * Emit when a client is updated.
+ */
+export function emitClientUpdated(clientId: string, workspaceId: string, updates: ClientUpdatedPayload['updates']): void {
+  const payload: ClientUpdatedPayload = { clientId, workspaceId, updates };
+  emitToWorkspace(workspaceId, CLIENT_EVENTS.UPDATED, payload);
+  emitToClient(clientId, CLIENT_EVENTS.UPDATED, payload);
+  log(`Emitted ${CLIENT_EVENTS.UPDATED} for client ${clientId}`, 'events');
+}
+
+/**
+ * Emit when a client is deleted.
+ */
+export function emitClientDeleted(clientId: string, workspaceId: string): void {
+  const payload: ClientDeletedPayload = { clientId, workspaceId };
+  emitToWorkspace(workspaceId, CLIENT_EVENTS.DELETED, payload);
+  emitToClient(clientId, CLIENT_EVENTS.DELETED, payload);
+  log(`Emitted ${CLIENT_EVENTS.DELETED} for client ${clientId}`, 'events');
+}
+
+// =============================================================================
+// CLIENT CONTACT EVENTS
+// =============================================================================
+
+/**
+ * Emit when a new client contact is created.
+ */
+export function emitClientContactCreated(
+  contact: ClientContactCreatedPayload['contact'],
+  clientId: string,
+  workspaceId: string
+): void {
+  const payload: ClientContactCreatedPayload = { contact, clientId, workspaceId };
+  emitToClient(clientId, CLIENT_CONTACT_EVENTS.CREATED, payload);
+  log(`Emitted ${CLIENT_CONTACT_EVENTS.CREATED} for contact ${contact.id}`, 'events');
+}
+
+/**
+ * Emit when a client contact is updated.
+ */
+export function emitClientContactUpdated(
+  contactId: string,
+  clientId: string,
+  workspaceId: string,
+  updates: ClientContactUpdatedPayload['updates']
+): void {
+  const payload: ClientContactUpdatedPayload = { contactId, clientId, workspaceId, updates };
+  emitToClient(clientId, CLIENT_CONTACT_EVENTS.UPDATED, payload);
+  log(`Emitted ${CLIENT_CONTACT_EVENTS.UPDATED} for contact ${contactId}`, 'events');
+}
+
+/**
+ * Emit when a client contact is deleted.
+ */
+export function emitClientContactDeleted(contactId: string, clientId: string, workspaceId: string): void {
+  const payload: ClientContactDeletedPayload = { contactId, clientId, workspaceId };
+  emitToClient(clientId, CLIENT_CONTACT_EVENTS.DELETED, payload);
+  log(`Emitted ${CLIENT_CONTACT_EVENTS.DELETED} for contact ${contactId}`, 'events');
+}
+
+// =============================================================================
+// CLIENT INVITE EVENTS (Placeholder for future auth integration)
+// =============================================================================
+
+/**
+ * Emit when a client invite is sent.
+ */
+export function emitClientInviteSent(
+  invite: ClientInviteSentPayload['invite'],
+  clientId: string,
+  workspaceId: string
+): void {
+  const payload: ClientInviteSentPayload = { invite, clientId, workspaceId };
+  emitToClient(clientId, CLIENT_INVITE_EVENTS.SENT, payload);
+  log(`Emitted ${CLIENT_INVITE_EVENTS.SENT} for invite ${invite.id}`, 'events');
+}
+
+/**
+ * Emit when a client invite is revoked.
+ */
+export function emitClientInviteRevoked(inviteId: string, clientId: string, workspaceId: string): void {
+  const payload: ClientInviteRevokedPayload = { inviteId, clientId, workspaceId };
+  emitToClient(clientId, CLIENT_INVITE_EVENTS.REVOKED, payload);
+  log(`Emitted ${CLIENT_INVITE_EVENTS.REVOKED} for invite ${inviteId}`, 'events');
 }

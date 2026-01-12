@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-import { insertTaskSchema, insertSectionSchema, insertSubtaskSchema, insertCommentSchema, insertTagSchema, insertProjectSchema, insertWorkspaceSchema, insertTeamSchema, insertWorkspaceMemberSchema, insertTeamMemberSchema, insertActivityLogSchema } from "@shared/schema";
+import { insertTaskSchema, insertSectionSchema, insertSubtaskSchema, insertCommentSchema, insertTagSchema, insertProjectSchema, insertWorkspaceSchema, insertTeamSchema, insertWorkspaceMemberSchema, insertTeamMemberSchema, insertActivityLogSchema, insertClientSchema, insertClientContactSchema, insertClientInviteSchema } from "@shared/schema";
 import { 
   isS3Configured, 
   validateFile, 
@@ -31,6 +31,14 @@ import {
   emitSubtaskDeleted,
   emitAttachmentAdded,
   emitAttachmentDeleted,
+  emitClientCreated,
+  emitClientUpdated,
+  emitClientDeleted,
+  emitClientContactCreated,
+  emitClientContactUpdated,
+  emitClientContactDeleted,
+  emitClientInviteSent,
+  emitClientInviteRevoked,
 } from "./realtime/events";
 
 export async function registerRoutes(
@@ -1060,6 +1068,273 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting attachment:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // CLIENT (CRM) ROUTES
+  // =============================================================================
+
+  app.get("/api/clients", async (req, res) => {
+    try {
+      const clients = await storage.getClientsByWorkspace(DEMO_WORKSPACE_ID);
+      res.json(clients);
+    } catch (error) {
+      console.error("Error fetching clients:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/clients/:id", async (req, res) => {
+    try {
+      const client = await storage.getClientWithContacts(req.params.id);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      res.json(client);
+    } catch (error) {
+      console.error("Error fetching client:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/clients", async (req, res) => {
+    try {
+      const data = insertClientSchema.parse({
+        ...req.body,
+        workspaceId: DEMO_WORKSPACE_ID,
+      });
+      const client = await storage.createClient(data);
+      
+      // Emit real-time event
+      emitClientCreated({
+        id: client.id,
+        companyName: client.companyName,
+        displayName: client.displayName,
+        status: client.status,
+        workspaceId: client.workspaceId,
+        createdAt: client.createdAt!,
+      }, DEMO_WORKSPACE_ID);
+      
+      res.status(201).json(client);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating client:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/clients/:id", async (req, res) => {
+    try {
+      const client = await storage.updateClient(req.params.id, req.body);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      // Emit real-time event
+      emitClientUpdated(client.id, client.workspaceId, req.body);
+      
+      res.json(client);
+    } catch (error) {
+      console.error("Error updating client:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/clients/:id", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.id);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      await storage.deleteClient(req.params.id);
+      
+      // Emit real-time event
+      emitClientDeleted(req.params.id, client.workspaceId);
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // CLIENT CONTACT ROUTES
+  // =============================================================================
+
+  app.get("/api/clients/:clientId/contacts", async (req, res) => {
+    try {
+      const contacts = await storage.getContactsByClient(req.params.clientId);
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/contacts", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      const data = insertClientContactSchema.parse({
+        ...req.body,
+        clientId: req.params.clientId,
+      });
+      const contact = await storage.createClientContact(data);
+      
+      // Emit real-time event
+      emitClientContactCreated({
+        id: contact.id,
+        clientId: contact.clientId,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: contact.email,
+        isPrimary: contact.isPrimary ?? false,
+        createdAt: contact.createdAt!,
+      }, contact.clientId, client.workspaceId);
+      
+      res.status(201).json(contact);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating contact:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/clients/:clientId/contacts/:contactId", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      const contact = await storage.updateClientContact(req.params.contactId, req.body);
+      if (!contact) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      
+      // Emit real-time event
+      emitClientContactUpdated(contact.id, contact.clientId, client.workspaceId, req.body);
+      
+      res.json(contact);
+    } catch (error) {
+      console.error("Error updating contact:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/clients/:clientId/contacts/:contactId", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      await storage.deleteClientContact(req.params.contactId);
+      
+      // Emit real-time event
+      emitClientContactDeleted(req.params.contactId, req.params.clientId, client.workspaceId);
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // CLIENT INVITE ROUTES (Placeholder for future auth integration)
+  // =============================================================================
+
+  app.get("/api/clients/:clientId/invites", async (req, res) => {
+    try {
+      const invites = await storage.getInvitesByClient(req.params.clientId);
+      res.json(invites);
+    } catch (error) {
+      console.error("Error fetching invites:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/invites", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      const contact = await storage.getClientContact(req.body.contactId);
+      if (!contact || contact.clientId !== req.params.clientId) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      
+      const data = insertClientInviteSchema.parse({
+        ...req.body,
+        clientId: req.params.clientId,
+        email: contact.email,
+        status: "pending",
+      });
+      const invite = await storage.createClientInvite(data);
+      
+      // Emit real-time event
+      emitClientInviteSent({
+        id: invite.id,
+        clientId: invite.clientId,
+        contactId: invite.contactId,
+        email: invite.email,
+        status: invite.status,
+        createdAt: invite.createdAt!,
+      }, invite.clientId, client.workspaceId);
+      
+      res.status(201).json(invite);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating invite:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/clients/:clientId/invites/:inviteId", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      
+      await storage.deleteClientInvite(req.params.inviteId);
+      
+      // Emit real-time event
+      emitClientInviteRevoked(req.params.inviteId, req.params.clientId, client.workspaceId);
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error revoking invite:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // PROJECTS BY CLIENT
+  // =============================================================================
+
+  app.get("/api/clients/:clientId/projects", async (req, res) => {
+    try {
+      const projects = await storage.getProjectsByClient(req.params.clientId);
+      res.json(projects);
+    } catch (error) {
+      console.error("Error fetching client projects:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

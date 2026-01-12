@@ -60,6 +60,34 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
       log(`Client ${socket.id} left room: ${roomName}`, 'socket.io');
     });
 
+    // Handle joining a client room (for CRM features)
+    socket.on(ROOM_EVENTS.JOIN_CLIENT, ({ clientId }) => {
+      const roomName = `client:${clientId}`;
+      socket.join(roomName);
+      log(`Client ${socket.id} joined room: ${roomName}`, 'socket.io');
+    });
+
+    // Handle leaving a client room
+    socket.on(ROOM_EVENTS.LEAVE_CLIENT, ({ clientId }) => {
+      const roomName = `client:${clientId}`;
+      socket.leave(roomName);
+      log(`Client ${socket.id} left room: ${roomName}`, 'socket.io');
+    });
+
+    // Handle joining a workspace room (for workspace-wide updates)
+    socket.on(ROOM_EVENTS.JOIN_WORKSPACE, ({ workspaceId }) => {
+      const roomName = `workspace:${workspaceId}`;
+      socket.join(roomName);
+      log(`Client ${socket.id} joined room: ${roomName}`, 'socket.io');
+    });
+
+    // Handle leaving a workspace room
+    socket.on(ROOM_EVENTS.LEAVE_WORKSPACE, ({ workspaceId }) => {
+      const roomName = `workspace:${workspaceId}`;
+      socket.leave(roomName);
+      log(`Client ${socket.id} left room: ${roomName}`, 'socket.io');
+    });
+
     // Handle client disconnection
     socket.on('disconnect', (reason) => {
       log(`Client disconnected: ${socket.id} (${reason})`, 'socket.io');
@@ -97,5 +125,23 @@ export function emitToProject(
   payload: unknown
 ): void {
   const roomName = `project:${projectId}`;
+  getIO().to(roomName).emit(event as any, payload);
+}
+
+export function emitToClient(
+  clientId: string,
+  event: string,
+  payload: unknown
+): void {
+  const roomName = `client:${clientId}`;
+  getIO().to(roomName).emit(event as any, payload);
+}
+
+export function emitToWorkspace(
+  workspaceId: string,
+  event: string,
+  payload: unknown
+): void {
+  const roomName = `workspace:${workspaceId}`;
   getIO().to(roomName).emit(event as any, payload);
 }

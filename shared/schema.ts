@@ -40,6 +40,20 @@ export const ProjectStatus = {
   ARCHIVED: "archived",
 } as const;
 
+// Client-related enums
+export const ClientStatus = {
+  ACTIVE: "active",
+  PROSPECT: "prospect",
+  INACTIVE: "inactive",
+} as const;
+
+export const ClientInviteStatus = {
+  DRAFT: "draft",
+  SENT: "sent",
+  REVOKED: "revoked",
+  ACCEPTED: "accepted",
+} as const;
+
 // Users table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -90,11 +104,86 @@ export const teamMembers = pgTable("team_members", {
   uniqueIndex("team_members_unique").on(table.teamId, table.userId),
 ]);
 
+// =============================================================================
+// CLIENT MANAGEMENT TABLES
+// =============================================================================
+
+/**
+ * Clients table - represents companies/organizations that are clients
+ * This is the core of the CRM module
+ */
+export const clients = pgTable("clients", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  companyName: text("company_name").notNull(),
+  displayName: text("display_name"),
+  website: text("website"),
+  industry: text("industry"),
+  phone: text("phone"),
+  email: text("email"),
+  addressLine1: text("address_line_1"),
+  addressLine2: text("address_line_2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  country: text("country"),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("clients_workspace_idx").on(table.workspaceId),
+  index("clients_status_idx").on(table.status),
+]);
+
+/**
+ * Client Contacts table - represents people at client companies
+ */
+export const clientContacts = pgTable("client_contacts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  title: text("title"),
+  email: text("email"),
+  phone: text("phone"),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("client_contacts_client_idx").on(table.clientId),
+]);
+
+/**
+ * Client Invites table - PLACEHOLDER for future Better Auth integration
+ * Tracks invitation intent for client portal access
+ * Note: tokenPlaceholder is a placeholder field - real token generation 
+ * will be implemented when Better Auth is integrated
+ */
+export const clientInvites = pgTable("client_invites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  contactId: varchar("contact_id").references(() => clientContacts.id).notNull(),
+  email: text("email").notNull(),
+  roleHint: text("role_hint").default("client"),
+  status: text("status").notNull().default("draft"),
+  tokenPlaceholder: text("token_placeholder"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("client_invites_client_idx").on(table.clientId),
+  index("client_invites_contact_idx").on(table.contactId),
+]);
+
 // Projects table
+// Note: clientId is nullable for backward compatibility with existing projects
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   workspaceId: varchar("workspace_id").references(() => workspaces.id).notNull(),
   teamId: varchar("team_id").references(() => teams.id),
+  clientId: varchar("client_id").references(() => clients.id),
   name: text("name").notNull(),
   description: text("description"),
   visibility: text("visibility").notNull().default("workspace"),
@@ -103,7 +192,9 @@ export const projects = pgTable("projects", {
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("projects_client_idx").on(table.clientId),
+]);
 
 // Project Members table
 export const projectMembers = pgTable("project_members", {
@@ -313,6 +404,10 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
     fields: [projects.teamId],
     references: [teams.id],
   }),
+  client: one(clients, {
+    fields: [projects.clientId],
+    references: [clients.id],
+  }),
   createdByUser: one(users, {
     fields: [projects.createdBy],
     references: [users.id],
@@ -436,6 +531,43 @@ export const commentsRelations = relations(comments, ({ one }) => ({
   }),
 }));
 
+// =============================================================================
+// CLIENT MANAGEMENT RELATIONS
+// =============================================================================
+
+export const clientsRelations = relations(clients, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [clients.workspaceId],
+    references: [workspaces.id],
+  }),
+  contacts: many(clientContacts),
+  invites: many(clientInvites),
+  projects: many(projects),
+}));
+
+export const clientContactsRelations = relations(clientContacts, ({ one, many }) => ({
+  client: one(clients, {
+    fields: [clientContacts.clientId],
+    references: [clients.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [clientContacts.workspaceId],
+    references: [workspaces.id],
+  }),
+  invites: many(clientInvites),
+}));
+
+export const clientInvitesRelations = relations(clientInvites, ({ one }) => ({
+  client: one(clients, {
+    fields: [clientInvites.clientId],
+    references: [clients.id],
+  }),
+  contact: one(clientContacts, {
+    fields: [clientInvites.contactId],
+    references: [clientContacts.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -528,6 +660,25 @@ export const insertTaskAttachmentSchema = createInsertSchema(taskAttachments).om
   updatedAt: true,
 });
 
+// Client Insert Schemas
+export const insertClientSchema = createInsertSchema(clients).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertClientContactSchema = createInsertSchema(clientContacts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertClientInviteSchema = createInsertSchema(clientInvites).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -580,6 +731,16 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type TaskAttachment = typeof taskAttachments.$inferSelect;
 export type InsertTaskAttachment = z.infer<typeof insertTaskAttachmentSchema>;
 
+// Client Types
+export type Client = typeof clients.$inferSelect;
+export type InsertClient = z.infer<typeof insertClientSchema>;
+
+export type ClientContact = typeof clientContacts.$inferSelect;
+export type InsertClientContact = z.infer<typeof insertClientContactSchema>;
+
+export type ClientInvite = typeof clientInvites.$inferSelect;
+export type InsertClientInvite = z.infer<typeof insertClientInviteSchema>;
+
 // Extended types for frontend use
 export type TaskAttachmentWithUser = TaskAttachment & {
   uploadedByUser?: User;
@@ -600,8 +761,26 @@ export type ProjectWithRelations = Project & {
   sections?: Section[];
   members?: (ProjectMember & { user?: User })[];
   team?: Team;
+  client?: Client;
 };
 
 export type SectionWithTasks = Section & {
   tasks?: TaskWithRelations[];
+};
+
+export type ClientWithContacts = Client & {
+  contacts?: ClientContact[];
+  projects?: Project[];
+};
+
+// Client extended types
+export type ClientWithRelations = Client & {
+  contacts?: ClientContact[];
+  projects?: Project[];
+  invites?: ClientInvite[];
+};
+
+export type ClientContactWithRelations = ClientContact & {
+  client?: Client;
+  invites?: ClientInvite[];
 };

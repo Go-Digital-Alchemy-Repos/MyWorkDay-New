@@ -11,6 +11,9 @@ import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import MyTasks from "@/pages/my-tasks";
 import ProjectPage from "@/pages/project";
+import ClientsPage from "@/pages/clients";
+import ClientDetailPage from "@/pages/client-detail";
+import TimeTrackingPage from "@/pages/time-tracking";
 
 function Router() {
   return (
@@ -18,6 +21,9 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/my-tasks" component={MyTasks} />
       <Route path="/projects/:id" component={ProjectPage} />
+      <Route path="/clients" component={ClientsPage} />
+      <Route path="/clients/:id" component={ClientDetailPage} />
+      <Route path="/time-tracking" component={TimeTrackingPage} />
       <Route component={NotFound} />
     </Switch>
   );

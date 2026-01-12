@@ -223,12 +223,120 @@ export interface AttachmentDeletedPayload {
 }
 
 // =============================================================================
-// ROOM EVENTS (for joining/leaving project rooms)
+// CLIENT EVENTS (CRM Module)
+// =============================================================================
+
+export const CLIENT_EVENTS = {
+  CREATED: 'client:created',
+  UPDATED: 'client:updated',
+  DELETED: 'client:deleted',
+} as const;
+
+export interface ClientPayload {
+  id: string;
+  companyName: string;
+  displayName: string | null;
+  status: string;
+  workspaceId: string;
+  createdAt: Date;
+}
+
+export interface ClientCreatedPayload {
+  client: ClientPayload;
+  workspaceId: string;
+}
+
+export interface ClientUpdatedPayload {
+  clientId: string;
+  workspaceId: string;
+  updates: Partial<ClientPayload>;
+}
+
+export interface ClientDeletedPayload {
+  clientId: string;
+  workspaceId: string;
+}
+
+// =============================================================================
+// CLIENT CONTACT EVENTS
+// =============================================================================
+
+export const CLIENT_CONTACT_EVENTS = {
+  CREATED: 'clientContact:created',
+  UPDATED: 'clientContact:updated',
+  DELETED: 'clientContact:deleted',
+} as const;
+
+export interface ClientContactPayload {
+  id: string;
+  clientId: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  isPrimary: boolean;
+  createdAt: Date;
+}
+
+export interface ClientContactCreatedPayload {
+  contact: ClientContactPayload;
+  clientId: string;
+  workspaceId: string;
+}
+
+export interface ClientContactUpdatedPayload {
+  contactId: string;
+  clientId: string;
+  workspaceId: string;
+  updates: Partial<ClientContactPayload>;
+}
+
+export interface ClientContactDeletedPayload {
+  contactId: string;
+  clientId: string;
+  workspaceId: string;
+}
+
+// =============================================================================
+// CLIENT INVITE EVENTS (Placeholder for future auth integration)
+// =============================================================================
+
+export const CLIENT_INVITE_EVENTS = {
+  SENT: 'clientInvite:sent',
+  REVOKED: 'clientInvite:revoked',
+} as const;
+
+export interface ClientInvitePayload {
+  id: string;
+  clientId: string;
+  contactId: string;
+  email: string;
+  status: string;
+  createdAt: Date;
+}
+
+export interface ClientInviteSentPayload {
+  invite: ClientInvitePayload;
+  clientId: string;
+  workspaceId: string;
+}
+
+export interface ClientInviteRevokedPayload {
+  inviteId: string;
+  clientId: string;
+  workspaceId: string;
+}
+
+// =============================================================================
+// ROOM EVENTS (for joining/leaving project and client rooms)
 // =============================================================================
 
 export const ROOM_EVENTS = {
   JOIN_PROJECT: 'room:join:project',
   LEAVE_PROJECT: 'room:leave:project',
+  JOIN_CLIENT: 'room:join:client',
+  LEAVE_CLIENT: 'room:leave:client',
+  JOIN_WORKSPACE: 'room:join:workspace',
+  LEAVE_WORKSPACE: 'room:leave:workspace',
 } as const;
 
 export interface JoinProjectPayload {
@@ -237,6 +345,22 @@ export interface JoinProjectPayload {
 
 export interface LeaveProjectPayload {
   projectId: string;
+}
+
+export interface JoinClientPayload {
+  clientId: string;
+}
+
+export interface LeaveClientPayload {
+  clientId: string;
+}
+
+export interface JoinWorkspacePayload {
+  workspaceId: string;
+}
+
+export interface LeaveWorkspacePayload {
+  workspaceId: string;
 }
 
 // =============================================================================
@@ -262,9 +386,22 @@ export type ServerToClientEvents = {
   [SUBTASK_EVENTS.REORDERED]: (payload: SubtaskReorderedPayload) => void;
   [ATTACHMENT_EVENTS.ADDED]: (payload: AttachmentAddedPayload) => void;
   [ATTACHMENT_EVENTS.DELETED]: (payload: AttachmentDeletedPayload) => void;
+  // Client events
+  [CLIENT_EVENTS.CREATED]: (payload: ClientCreatedPayload) => void;
+  [CLIENT_EVENTS.UPDATED]: (payload: ClientUpdatedPayload) => void;
+  [CLIENT_EVENTS.DELETED]: (payload: ClientDeletedPayload) => void;
+  [CLIENT_CONTACT_EVENTS.CREATED]: (payload: ClientContactCreatedPayload) => void;
+  [CLIENT_CONTACT_EVENTS.UPDATED]: (payload: ClientContactUpdatedPayload) => void;
+  [CLIENT_CONTACT_EVENTS.DELETED]: (payload: ClientContactDeletedPayload) => void;
+  [CLIENT_INVITE_EVENTS.SENT]: (payload: ClientInviteSentPayload) => void;
+  [CLIENT_INVITE_EVENTS.REVOKED]: (payload: ClientInviteRevokedPayload) => void;
 };
 
 export type ClientToServerEvents = {
   [ROOM_EVENTS.JOIN_PROJECT]: (payload: JoinProjectPayload) => void;
   [ROOM_EVENTS.LEAVE_PROJECT]: (payload: LeaveProjectPayload) => void;
+  [ROOM_EVENTS.JOIN_CLIENT]: (payload: JoinClientPayload) => void;
+  [ROOM_EVENTS.LEAVE_CLIENT]: (payload: LeaveClientPayload) => void;
+  [ROOM_EVENTS.JOIN_WORKSPACE]: (payload: JoinWorkspacePayload) => void;
+  [ROOM_EVENTS.LEAVE_WORKSPACE]: (payload: LeaveWorkspacePayload) => void;
 };

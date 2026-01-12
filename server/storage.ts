@@ -16,9 +16,14 @@ import {
   type ActivityLog, type InsertActivityLog,
   type TaskAttachment, type InsertTaskAttachment,
   type TaskWithRelations, type SectionWithTasks, type TaskAttachmentWithUser,
+  type Client, type InsertClient,
+  type ClientContact, type InsertClientContact,
+  type ClientInvite, type InsertClientInvite,
+  type ClientWithContacts,
   users, workspaces, workspaceMembers, teams, teamMembers,
   projects, projectMembers, sections, tasks, taskAssignees,
   subtasks, tags, taskTags, comments, activityLog, taskAttachments,
+  clients, clientContacts, clientInvites,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, inArray, gte, lte, sql } from "drizzle-orm";
@@ -104,6 +109,31 @@ export interface IStorage {
   createTaskAttachment(attachment: InsertTaskAttachment): Promise<TaskAttachment>;
   updateTaskAttachment(id: string, attachment: Partial<InsertTaskAttachment>): Promise<TaskAttachment | undefined>;
   deleteTaskAttachment(id: string): Promise<void>;
+  
+  // Client (CRM) methods
+  getClient(id: string): Promise<Client | undefined>;
+  getClientWithContacts(id: string): Promise<ClientWithContacts | undefined>;
+  getClientsByWorkspace(workspaceId: string): Promise<ClientWithContacts[]>;
+  createClient(client: InsertClient): Promise<Client>;
+  updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined>;
+  deleteClient(id: string): Promise<void>;
+  
+  // Client Contact methods
+  getClientContact(id: string): Promise<ClientContact | undefined>;
+  getContactsByClient(clientId: string): Promise<ClientContact[]>;
+  createClientContact(contact: InsertClientContact): Promise<ClientContact>;
+  updateClientContact(id: string, contact: Partial<InsertClientContact>): Promise<ClientContact | undefined>;
+  deleteClientContact(id: string): Promise<void>;
+  
+  // Client Invite methods (placeholder for future auth)
+  getClientInvite(id: string): Promise<ClientInvite | undefined>;
+  getInvitesByClient(clientId: string): Promise<ClientInvite[]>;
+  createClientInvite(invite: InsertClientInvite): Promise<ClientInvite>;
+  updateClientInvite(id: string, invite: Partial<InsertClientInvite>): Promise<ClientInvite | undefined>;
+  deleteClientInvite(id: string): Promise<void>;
+  
+  // Projects by client
+  getProjectsByClient(clientId: string): Promise<Project[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -641,6 +671,142 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTaskAttachment(id: string): Promise<void> {
     await db.delete(taskAttachments).where(eq(taskAttachments.id, id));
+  }
+
+  // =============================================================================
+  // CLIENT (CRM) METHODS
+  // =============================================================================
+
+  async getClient(id: string): Promise<Client | undefined> {
+    const [client] = await db.select().from(clients).where(eq(clients.id, id));
+    return client || undefined;
+  }
+
+  async getClientWithContacts(id: string): Promise<ClientWithContacts | undefined> {
+    const client = await this.getClient(id);
+    if (!client) return undefined;
+    
+    const contacts = await this.getContactsByClient(id);
+    const clientProjects = await this.getProjectsByClient(id);
+    
+    return { ...client, contacts, projects: clientProjects };
+  }
+
+  async getClientsByWorkspace(workspaceId: string): Promise<ClientWithContacts[]> {
+    const clientsList = await db.select()
+      .from(clients)
+      .where(eq(clients.workspaceId, workspaceId))
+      .orderBy(asc(clients.companyName));
+    
+    const result: ClientWithContacts[] = [];
+    for (const client of clientsList) {
+      const contacts = await this.getContactsByClient(client.id);
+      const clientProjects = await this.getProjectsByClient(client.id);
+      result.push({ ...client, contacts, projects: clientProjects });
+    }
+    return result;
+  }
+
+  async createClient(insertClient: InsertClient): Promise<Client> {
+    const [client] = await db.insert(clients).values(insertClient).returning();
+    return client;
+  }
+
+  async updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined> {
+    const [updated] = await db.update(clients)
+      .set({ ...client, updatedAt: new Date() })
+      .where(eq(clients.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteClient(id: string): Promise<void> {
+    // Delete related contacts and invites first
+    await db.delete(clientInvites).where(eq(clientInvites.clientId, id));
+    await db.delete(clientContacts).where(eq(clientContacts.clientId, id));
+    // Update projects to remove client reference
+    await db.update(projects).set({ clientId: null }).where(eq(projects.clientId, id));
+    // Delete the client
+    await db.delete(clients).where(eq(clients.id, id));
+  }
+
+  // =============================================================================
+  // CLIENT CONTACT METHODS
+  // =============================================================================
+
+  async getClientContact(id: string): Promise<ClientContact | undefined> {
+    const [contact] = await db.select().from(clientContacts).where(eq(clientContacts.id, id));
+    return contact || undefined;
+  }
+
+  async getContactsByClient(clientId: string): Promise<ClientContact[]> {
+    return db.select()
+      .from(clientContacts)
+      .where(eq(clientContacts.clientId, clientId))
+      .orderBy(desc(clientContacts.isPrimary), asc(clientContacts.firstName));
+  }
+
+  async createClientContact(insertContact: InsertClientContact): Promise<ClientContact> {
+    const [contact] = await db.insert(clientContacts).values(insertContact).returning();
+    return contact;
+  }
+
+  async updateClientContact(id: string, contact: Partial<InsertClientContact>): Promise<ClientContact | undefined> {
+    const [updated] = await db.update(clientContacts)
+      .set({ ...contact, updatedAt: new Date() })
+      .where(eq(clientContacts.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteClientContact(id: string): Promise<void> {
+    // Delete related invites first
+    await db.delete(clientInvites).where(eq(clientInvites.contactId, id));
+    await db.delete(clientContacts).where(eq(clientContacts.id, id));
+  }
+
+  // =============================================================================
+  // CLIENT INVITE METHODS (placeholder for future auth integration)
+  // =============================================================================
+
+  async getClientInvite(id: string): Promise<ClientInvite | undefined> {
+    const [invite] = await db.select().from(clientInvites).where(eq(clientInvites.id, id));
+    return invite || undefined;
+  }
+
+  async getInvitesByClient(clientId: string): Promise<ClientInvite[]> {
+    return db.select()
+      .from(clientInvites)
+      .where(eq(clientInvites.clientId, clientId))
+      .orderBy(desc(clientInvites.createdAt));
+  }
+
+  async createClientInvite(insertInvite: InsertClientInvite): Promise<ClientInvite> {
+    const [invite] = await db.insert(clientInvites).values(insertInvite).returning();
+    return invite;
+  }
+
+  async updateClientInvite(id: string, invite: Partial<InsertClientInvite>): Promise<ClientInvite | undefined> {
+    const [updated] = await db.update(clientInvites)
+      .set({ ...invite, updatedAt: new Date() })
+      .where(eq(clientInvites.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteClientInvite(id: string): Promise<void> {
+    await db.delete(clientInvites).where(eq(clientInvites.id, id));
+  }
+
+  // =============================================================================
+  // PROJECTS BY CLIENT
+  // =============================================================================
+
+  async getProjectsByClient(clientId: string): Promise<Project[]> {
+    return db.select()
+      .from(projects)
+      .where(eq(projects.clientId, clientId))
+      .orderBy(asc(projects.name));
   }
 }
 

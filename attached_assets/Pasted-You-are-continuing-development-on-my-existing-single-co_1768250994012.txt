@@ -1,0 +1,227 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY Client Management and nesting Projects under Clients, while preserving ALL existing functionality (projects, board/list/calendar views, tasks/subtasks, attachments+S3, drag/drop, socket realtime updates, current routes). 
+
+CRITICAL:
+- Existing projects must continue to work without breaking old URLs.
+- We are adding Clients as a new top-level workflow; Projects become associated with a Client.
+- Realtime updates (Socket.IO) must be added for all new Client/Contact actions using ONLY /server/src/realtime/events.ts (no direct io.emit elsewhere).
+- Use Drizzle for new tables and migrations if possible. If old code uses another ORM, do not remove it; use Drizzle for NEW schema and queries.
+- Keep Express backend code under /server and React frontend under /client.
+- Add documentation (README + code comments) for the new Client system.
+
+===============================================================================
+GOAL
+===============================================================================
+Add:
+1) A “Clients” module (basic CRM)
+2) A “Client Contacts” module within each client
+3) Nest Projects under a Client (project.clientId required for new projects)
+4) Update navigation to include: Clients, Projects, Time Tracking
+5) Preserve existing Project-centric workflows with backward compatibility
+
+Time Tracking will be defined in the NEXT prompt; do not implement time tracking logic yet beyond nav placeholder.
+
+===============================================================================
+1) DATABASE / SCHEMA (MANDATORY)
+===============================================================================
+Add new tables with Drizzle migrations:
+
+A) clients
+- id (uuid)
+- organizationId (uuid, nullable for now if orgs not implemented yet; otherwise required)
+- companyName (required)
+- displayName (nullable, default companyName)
+- website (nullable)
+- industry (nullable)
+- phone (nullable)
+- email (nullable)  // general company email
+- addressLine1 (nullable)
+- addressLine2 (nullable)
+- city (nullable)
+- state (nullable)
+- postalCode (nullable)
+- country (nullable)
+- status (enum: active, prospect, inactive) default active
+- notes (text, nullable)
+- tags (optional: json/array or join table if already used elsewhere)
+- createdAt, updatedAt
+
+B) client_contacts
+- id (uuid)
+- clientId (fk -> clients.id)
+- organizationId (same scoping approach as clients)
+- firstName (nullable)
+- lastName (nullable)
+- title (nullable)
+- email (nullable, but recommended)
+- phone (nullable)
+- isPrimary (boolean default false)
+- notes (text, nullable)
+- createdAt, updatedAt
+
+C) client_invites (PLACEHOLDER ONLY; no auth implementation yet)
+- id (uuid)
+- clientId (fk)
+- contactId (fk)
+- email (required)
+- roleHint (string, e.g., "client")  // placeholder for future Better Auth roles
+- status (enum: draft, sent, revoked, accepted) default draft
+- tokenPlaceholder (nullable) // DO NOT implement real tokens yet; just a placeholder
+- createdAt, updatedAt
+Purpose: track invite intent and UI flow now; later we’ll wire this into Better Auth org/invite system.
+
+Modify existing schema:
+D) projects table
+- Add clientId (uuid nullable initially for migration safety)
+- Migration rules:
+  - Existing projects: set clientId = NULL (or assign to a default “Unassigned Client” record if you choose)
+  - NEW projects must require clientId
+  - Add index on (clientId) and (organizationId, clientId) if orgId exists
+
+IMPORTANT:
+- Do NOT break existing project queries/routes. Support legacy projects with clientId null.
+
+===============================================================================
+2) BACKEND API (MANDATORY)
+===============================================================================
+Follow existing Express routes/controllers/services structure. Add endpoints under /api/v1.
+
+Clients:
+- GET    /api/v1/clients                (list, search by companyName, filter by status)
+- POST   /api/v1/clients                (create)
+- GET    /api/v1/clients/:clientId      (detail includes contacts + projects summary)
+- PATCH  /api/v1/clients/:clientId      (update)
+- DELETE /api/v1/clients/:clientId      (soft delete preferred)
+
+Client Contacts:
+- GET    /api/v1/clients/:clientId/contacts
+- POST   /api/v1/clients/:clientId/contacts
+- PATCH  /api/v1/clients/:clientId/contacts/:contactId
+- DELETE /api/v1/clients/:clientId/contacts/:contactId
+
+Client Invite placeholder:
+- POST   /api/v1/clients/:clientId/contacts/:contactId/invite
+  Behavior (for now):
+  - Create or update a client_invites record with status="sent"
+  - Generate a “fake invite link” for dev (not functional auth), store it in DB as tokenPlaceholder or log it
+  - Return invite object
+- POST   /api/v1/clients/:clientId/invites/:inviteId/revoke
+
+Projects under client:
+- Update existing project creation endpoint so new projects require clientId
+  - POST /api/v1/clients/:clientId/projects (preferred new endpoint)
+  - Keep existing POST /api/v1/projects working, but require clientId in payload for new ones
+- Update project list endpoints:
+  - GET /api/v1/clients/:clientId/projects
+  - Existing GET /api/v1/projects still returns all projects (including clientId null) for backward compatibility
+
+===============================================================================
+3) REALTIME SOCKET EVENTS (MANDATORY)
+===============================================================================
+Use ONLY /server/src/realtime/events.ts to emit.
+
+Add events to the shared contract:
+Clients:
+- client:created
+- client:updated
+- client:deleted
+
+Client contacts:
+- clientContact:created
+- clientContact:updated
+- clientContact:deleted
+
+Client invites (placeholder):
+- clientInvite:sent
+- clientInvite:revoked
+
+Projects now include client context:
+- project:created should include clientId if present
+- project:updated should include clientId if present
+
+Emit to room:
+- project:{projectId} when project-specific
+- Also add client room strategy:
+  - client:{clientId} (clients pages join this room)
+Clients page should join client rooms it needs (client list may not join all; detail page joins client:{clientId})
+
+Frontend must subscribe and update UI instantly.
+
+===============================================================================
+4) FRONTEND UI (MANDATORY)
+===============================================================================
+Navigation:
+- Add main nav items: Clients, Projects, Time Tracking
+- Projects link continues to existing Projects page (backward compatible)
+- Time Tracking route exists as placeholder page with “Coming next”
+
+Clients UI:
+A) Clients List Page (/clients)
+- Table/list of clients
+- Search by name
+- Filter by status
+- Create Client button (slide-out panel, not modal)
+- Clicking client opens Client Detail
+
+B) Client Detail Page (/clients/:clientId)
+Tabs (recommended):
+1) Overview
+  - company fields summary
+  - notes
+2) Contacts
+  - list contacts
+  - add/edit contact (slide-out)
+  - Invite button per contact (calls invite placeholder endpoint)
+3) Projects
+  - list projects belonging to this client
+  - Create Project button that creates a project scoped to this client
+  - Clicking project opens existing project view unchanged
+
+Project Creation Updates:
+- Wherever “Create Project” exists today, update flow:
+  - Option 1 (preferred): require selecting a client (dropdown/search) if not launched from client page
+  - Option 2: keep “legacy create project” but require client selection unless explicitly creating legacy/unassigned (avoid this if possible)
+- Ensure existing projects with clientId null still open and function.
+
+===============================================================================
+5) COMPATIBILITY REQUIREMENTS (MANDATORY)
+===============================================================================
+- All existing project routes remain valid.
+- Existing data remains accessible.
+- If a project has clientId null:
+  - Show “Unassigned Client” in UI
+  - Provide a way to assign it to a client (edit project settings)
+
+===============================================================================
+6) DOCUMENTATION (MANDATORY)
+===============================================================================
+Add:
+- /server/src/api/README-CLIENTS.md explaining endpoints and data model
+- /client/src/pages/clients/README.md explaining UI flows and state updates
+- Update /shared/README.md to include new event contract items
+Add code comments for:
+- migrations (why clientId nullable initially)
+- invite placeholder (how it will later map to Better Auth)
+
+===============================================================================
+7) ACCEPTANCE CRITERIA (MUST WORK)
+===============================================================================
+1) Existing projects load and function as before
+2) Can create a client with standard CRM fields
+3) Can add/edit/delete client contacts
+4) Can send a placeholder invite for a contact (record created, event emitted)
+5) Client detail shows Projects tab and can create a new project under that client
+6) Creating a project from anywhere requires selecting a client (for new projects)
+7) Realtime updates:
+   - Create client in one window -> appears in another instantly
+   - Add contact -> appears instantly
+   - Create project under client -> appears instantly
+
+===============================================================================
+8) OUTPUT (REQUIRED)
+===============================================================================
+When finished, output:
+- Summary of changes
+- Schema changes/migrations created
+- Routes added
+- Socket events added
+- Manual test steps for acceptance criteria

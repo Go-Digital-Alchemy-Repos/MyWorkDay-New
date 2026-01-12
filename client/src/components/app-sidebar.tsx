@@ -11,6 +11,8 @@ import {
   Hash,
   Building2,
   Check,
+  Briefcase,
+  Clock,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -40,6 +42,8 @@ import type { Project, Team, Workspace } from "@shared/schema";
 const mainNavItems = [
   { title: "Home", url: "/", icon: Home },
   { title: "My Tasks", url: "/my-tasks", icon: CheckSquare },
+  { title: "Clients", url: "/clients", icon: Briefcase },
+  { title: "Time Tracking", url: "/time-tracking", icon: Clock },
 ];
 
 export function AppSidebar() {
