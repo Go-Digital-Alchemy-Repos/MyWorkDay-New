@@ -33,6 +33,7 @@ import { CreateTaskDialog } from "@/components/create-task-dialog";
 import { ProjectCalendar } from "@/components/project-calendar";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useProjectSocket } from "@/lib/realtime";
 import type { Project, SectionWithTasks, TaskWithRelations, Section } from "@shared/schema";
 import { Link } from "wouter";
 
@@ -42,6 +43,9 @@ export default function ProjectPage() {
   const [, params] = useRoute("/projects/:id");
   const projectId = params?.id;
   const { toast } = useToast();
+
+  // Subscribe to real-time updates for this project
+  useProjectSocket(projectId);
 
   const [view, setView] = useState<ViewType>("board");
   const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(null);
