@@ -1239,6 +1239,7 @@ export async function registerRoutes(
       const data = insertClientContactSchema.parse({
         ...req.body,
         clientId: req.params.clientId,
+        workspaceId: client.workspaceId,
       });
       const contact = await storage.createClientContact(data);
       
