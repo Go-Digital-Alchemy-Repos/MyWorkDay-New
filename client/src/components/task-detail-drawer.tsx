@@ -64,10 +64,12 @@ export function TaskDetailDrawer({
   const [childDrawerOpen, setChildDrawerOpen] = useState(false);
 
   const invalidateTaskQueries = () => {
-    if (task) {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks", task.id] });
-    }
+    // Broad invalidation to ensure all task-related caches refresh
+    queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
+    if (task?.projectId) {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", task.projectId, "tasks"] });
+    }
   };
 
   const addSubtaskMutation = useMutation({
@@ -84,7 +86,7 @@ export function TaskDetailDrawer({
     onSuccess: invalidateTaskQueries,
   });
 
-  const updateSubtaskMutation = useMutation({
+  const updateSubtaskTitleMutation = useMutation({
     mutationFn: async ({ subtaskId, title }: { subtaskId: string; title: string }) => {
       return apiRequest("PATCH", `/api/subtasks/${subtaskId}`, { title });
     },
@@ -316,7 +318,7 @@ export function TaskDetailDrawer({
             onAdd={(title) => addSubtaskMutation.mutate({ taskId: task.id, title })}
             onToggle={(subtaskId, completed) => toggleSubtaskMutation.mutate({ subtaskId, completed })}
             onDelete={(subtaskId) => deleteSubtaskMutation.mutate(subtaskId)}
-            onUpdate={(subtaskId, title) => updateSubtaskMutation.mutate({ subtaskId, title })}
+            onUpdate={(subtaskId, title) => updateSubtaskTitleMutation.mutate({ subtaskId, title })}
           />
 
           <Separator />
