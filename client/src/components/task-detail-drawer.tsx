@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
-import { X, Calendar, Users, Tag, Flag, Layers } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import {
   Select,
   SelectContent,
@@ -12,7 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ChildTaskList } from "@/components/child-task-list";
+import { SubtaskList } from "@/components/subtask-list";
 import { SubtaskDetailDrawer } from "@/components/subtask-detail-drawer";
 import { CommentThread } from "@/components/comment-thread";
 import { AttachmentUploader } from "@/components/attachment-uploader";
@@ -56,6 +62,41 @@ export function TaskDetailDrawer({
   const [description, setDescription] = useState(task?.description || "");
   const [selectedChildTask, setSelectedChildTask] = useState<TaskWithRelations | null>(null);
   const [childDrawerOpen, setChildDrawerOpen] = useState(false);
+
+  const invalidateTaskQueries = () => {
+    if (task) {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks", task.id] });
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
+  };
+
+  const addSubtaskMutation = useMutation({
+    mutationFn: async ({ taskId, title }: { taskId: string; title: string }) => {
+      return apiRequest("POST", `/api/tasks/${taskId}/subtasks`, { title });
+    },
+    onSuccess: invalidateTaskQueries,
+  });
+
+  const toggleSubtaskMutation = useMutation({
+    mutationFn: async ({ subtaskId, completed }: { subtaskId: string; completed: boolean }) => {
+      return apiRequest("PATCH", `/api/subtasks/${subtaskId}`, { completed });
+    },
+    onSuccess: invalidateTaskQueries,
+  });
+
+  const updateSubtaskMutation = useMutation({
+    mutationFn: async ({ subtaskId, title }: { subtaskId: string; title: string }) => {
+      return apiRequest("PATCH", `/api/subtasks/${subtaskId}`, { title });
+    },
+    onSuccess: invalidateTaskQueries,
+  });
+
+  const deleteSubtaskMutation = useMutation({
+    mutationFn: async (subtaskId: string) => {
+      return apiRequest("DELETE", `/api/subtasks/${subtaskId}`);
+    },
+    onSuccess: invalidateTaskQueries,
+  });
   
   useEffect(() => {
     if (task) {
@@ -168,13 +209,45 @@ export function TaskDetailDrawer({
                   <Calendar className="h-3.5 w-3.5" />
                   Due Date
                 </label>
-                <div className="flex items-center">
-                  {task.dueDate ? (
-                    <span className="text-sm">{format(new Date(task.dueDate), "MMM d, yyyy")}</span>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">No due date</span>
-                  )}
-                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "w-[140px] justify-start text-left font-normal h-8",
+                        !task.dueDate && "text-muted-foreground"
+                      )}
+                      data-testid="button-due-date"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {task.dueDate ? format(new Date(task.dueDate), "MMM d, yyyy") : "Set date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={task.dueDate ? new Date(task.dueDate) : undefined}
+                      onSelect={(date) => {
+                        onUpdate?.(task.id, { dueDate: date || null });
+                      }}
+                      initialFocus
+                    />
+                    {task.dueDate && (
+                      <div className="border-t p-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => onUpdate?.(task.id, { dueDate: null })}
+                          data-testid="button-clear-due-date"
+                        >
+                          Clear date
+                        </Button>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
@@ -234,6 +307,17 @@ export function TaskDetailDrawer({
               data-testid="textarea-description"
             />
           </div>
+
+          <Separator />
+
+          <SubtaskList
+            subtasks={task.subtasks || []}
+            workspaceId={workspaceId}
+            onAdd={(title) => addSubtaskMutation.mutate({ taskId: task.id, title })}
+            onToggle={(subtaskId, completed) => toggleSubtaskMutation.mutate({ subtaskId, completed })}
+            onDelete={(subtaskId) => deleteSubtaskMutation.mutate(subtaskId)}
+            onUpdate={(subtaskId, title) => updateSubtaskMutation.mutate({ subtaskId, title })}
+          />
 
           <Separator />
 

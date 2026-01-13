@@ -223,7 +223,9 @@ export function SubtaskDetailDrawer({
 
           <Separator />
 
-          <AttachmentUploader taskId={subtask.id} projectId={subtask.projectId} />
+          {subtask.projectId && (
+            <AttachmentUploader taskId={subtask.id} projectId={subtask.projectId} />
+          )}
         </div>
       </SheetContent>
     </Sheet>
