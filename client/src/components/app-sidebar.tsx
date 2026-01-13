@@ -46,6 +46,7 @@ import type { Project, Team, Workspace } from "@shared/schema";
 const mainNavItems = [
   { title: "Home", url: "/", icon: Home },
   { title: "My Tasks", url: "/my-tasks", icon: CheckSquare },
+  { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Clients", url: "/clients", icon: Briefcase },
   { title: "Time Tracking", url: "/time-tracking", icon: Clock },
 ];

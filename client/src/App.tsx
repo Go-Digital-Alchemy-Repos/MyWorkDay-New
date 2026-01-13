@@ -13,6 +13,7 @@ import { TenantThemeProvider } from "@/lib/tenant-theme-loader";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import MyTasks from "@/pages/my-tasks";
+import ProjectsDashboard from "@/pages/projects-dashboard";
 import ProjectPage from "@/pages/project";
 import ClientsPage from "@/pages/clients";
 import ClientDetailPage from "@/pages/client-detail";
@@ -53,6 +54,9 @@ function Router() {
       </Route>
       <Route path="/my-tasks">
         {() => <ProtectedRoute component={MyTasks} />}
+      </Route>
+      <Route path="/projects">
+        {() => <ProtectedRoute component={ProjectsDashboard} />}
       </Route>
       <Route path="/projects/:id">
         {() => <ProtectedRoute component={ProjectPage} />}
