@@ -314,58 +314,58 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
               </div>
             ) : analytics ? (
               <>
-                <div className="grid grid-cols-3 gap-3">
-                  <Card>
+                <div className="grid grid-cols-3 gap-3" data-testid="insights-metrics-row-1">
+                  <Card data-testid="card-metric-open-tasks">
                     <CardContent className="pt-3 pb-2 text-center">
-                      <div className="text-xl font-bold text-primary">{analytics.metrics.openTasks}</div>
+                      <div className="text-xl font-bold text-primary" data-testid="text-open-tasks">{analytics.metrics.openTasks}</div>
                       <div className="text-xs text-muted-foreground">Open Tasks</div>
                     </CardContent>
                   </Card>
-                  <Card>
+                  <Card data-testid="card-metric-completed">
                     <CardContent className="pt-3 pb-2 text-center">
-                      <div className="text-xl font-bold text-green-600">{analytics.metrics.completedTasks}</div>
+                      <div className="text-xl font-bold text-green-600 dark:text-green-500" data-testid="text-completed-tasks">{analytics.metrics.completedTasks}</div>
                       <div className="text-xs text-muted-foreground">Completed</div>
                     </CardContent>
                   </Card>
-                  <Card>
+                  <Card data-testid="card-metric-overdue">
                     <CardContent className="pt-3 pb-2 text-center">
-                      <div className="text-xl font-bold text-destructive">{analytics.metrics.overdueTasks}</div>
+                      <div className="text-xl font-bold text-destructive" data-testid="text-overdue-tasks">{analytics.metrics.overdueTasks}</div>
                       <div className="text-xs text-muted-foreground">Overdue</div>
                     </CardContent>
                   </Card>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <Card>
+                <div className="grid grid-cols-3 gap-3" data-testid="insights-metrics-row-2">
+                  <Card data-testid="card-metric-due-today">
                     <CardContent className="pt-3 pb-2 text-center">
-                      <div className="text-xl font-bold">{analytics.metrics.dueToday}</div>
+                      <div className="text-xl font-bold" data-testid="text-due-today">{analytics.metrics.dueToday}</div>
                       <div className="text-xs text-muted-foreground">Due Today</div>
                     </CardContent>
                   </Card>
-                  <Card>
+                  <Card data-testid="card-metric-unassigned">
                     <CardContent className="pt-3 pb-2 text-center">
-                      <div className="text-xl font-bold">{analytics.metrics.unassignedOpenTasks}</div>
+                      <div className="text-xl font-bold" data-testid="text-unassigned-tasks">{analytics.metrics.unassignedOpenTasks}</div>
                       <div className="text-xs text-muted-foreground">Unassigned</div>
                     </CardContent>
                   </Card>
-                  <Card>
+                  <Card data-testid="card-metric-completion">
                     <CardContent className="pt-3 pb-2 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <Progress value={analytics.metrics.completionPercent} className="h-2 w-12" />
-                        <span className="text-sm font-bold">{analytics.metrics.completionPercent}%</span>
+                        <Progress value={analytics.metrics.completionPercent} className="h-2 w-12" data-testid="progress-completion" />
+                        <span className="text-sm font-bold" data-testid="text-completion-percent">{analytics.metrics.completionPercent}%</span>
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">Completion</div>
                     </CardContent>
                   </Card>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
+                <div className="grid grid-cols-2 gap-4" data-testid="insights-charts-row">
+                  <Card data-testid="card-chart-status">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium">Tasks by Status</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-[150px]">
+                      <div className="h-[150px]" data-testid="chart-status-pie">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
@@ -386,9 +386,9 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
-                      <div className="flex flex-wrap gap-2 mt-2 justify-center">
+                      <div className="flex flex-wrap gap-2 mt-2 justify-center" data-testid="legend-status">
                         {analytics.byStatus.map((s, i) => (
-                          <div key={s.status} className="flex items-center gap-1 text-xs">
+                          <div key={s.status} className="flex items-center gap-1 text-xs" data-testid={`legend-item-status-${s.status}`}>
                             <div 
                               className="w-2 h-2 rounded-full" 
                               style={{ backgroundColor: STATUS_COLORS[s.status] || COLORS[i % COLORS.length] }} 
@@ -401,12 +401,12 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                     </CardContent>
                   </Card>
 
-                  <Card>
+                  <Card data-testid="card-chart-priority">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium">Tasks by Priority</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-[150px]">
+                      <div className="h-[150px]" data-testid="chart-priority-bar">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={analytics.byPriority} layout="vertical">
                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -426,12 +426,12 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                 </div>
 
                 {analytics.dueTimeline.some(d => d.count > 0) && (
-                  <Card>
+                  <Card data-testid="card-chart-timeline">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium">Due Date Timeline (Next 14 Days)</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-[120px]">
+                      <div className="h-[120px]" data-testid="chart-timeline-line">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={analytics.dueTimeline}>
                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -453,7 +453,7 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                 )}
 
                 {analytics.byAssignee.length > 0 && (
-                  <Card>
+                  <Card data-testid="card-workload-assignee">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium flex items-center gap-2">
                         <Users className="h-4 w-4" />
@@ -461,14 +461,14 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-2">
+                      <div className="space-y-2" data-testid="list-workload-assignees">
                         {analytics.byAssignee.map((assignee) => (
-                          <div key={assignee.userId} className="flex items-center justify-between">
+                          <div key={assignee.userId} className="flex items-center justify-between" data-testid={`row-assignee-${assignee.userId}`}>
                             <div className="flex items-center gap-2">
                               <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm">{assignee.name}</span>
+                              <span className="text-sm" data-testid={`text-assignee-name-${assignee.userId}`}>{assignee.name}</span>
                             </div>
-                            <Badge variant="secondary">{assignee.count} tasks</Badge>
+                            <Badge variant="secondary" data-testid={`badge-assignee-count-${assignee.userId}`}>{assignee.count} tasks</Badge>
                           </div>
                         ))}
                       </div>
@@ -477,7 +477,7 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                 )}
 
                 {analytics.overdueTasksList.length > 0 && (
-                  <Card>
+                  <Card data-testid="card-overdue-tasks">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium flex items-center gap-2 text-destructive">
                         <AlertTriangle className="h-4 w-4" />
@@ -486,21 +486,21 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                       <CardDescription>Tasks past their due date</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-2">
+                      <div className="space-y-2" data-testid="list-overdue-tasks">
                         {analytics.overdueTasksList.map((task) => (
-                          <div key={task.id} className="flex items-center justify-between py-1">
-                            <span className="text-sm truncate flex-1 mr-2">{task.title}</span>
+                          <div key={task.id} className="flex items-center justify-between py-1" data-testid={`row-overdue-task-${task.id}`}>
+                            <span className="text-sm truncate flex-1 mr-2" data-testid={`text-overdue-task-title-${task.id}`}>{task.title}</span>
                             <div className="flex items-center gap-2">
                               {task.dueDate && (
-                                <span className="text-xs text-destructive">
+                                <span className="text-xs text-destructive" data-testid={`text-overdue-task-date-${task.id}`}>
                                   {format(new Date(task.dueDate), "MMM d")}
                                 </span>
                               )}
                               {task.priority && task.priority !== "none" && (
                                 <Badge 
                                   variant="outline" 
-                                  className="text-xs"
-                                  style={{ borderColor: PRIORITY_COLORS[task.priority] }}
+                                  className={`text-xs ${task.priority === "urgent" ? "border-red-500" : task.priority === "high" ? "border-orange-500" : task.priority === "medium" ? "border-yellow-500" : "border-green-500"}`}
+                                  data-testid={`badge-overdue-task-priority-${task.id}`}
                                 >
                                   {task.priority}
                                 </Badge>
@@ -509,7 +509,7 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                           </div>
                         ))}
                         {analytics.metrics.overdueTasks > 10 && (
-                          <p className="text-xs text-muted-foreground text-center pt-2">
+                          <p className="text-xs text-muted-foreground text-center pt-2" data-testid="text-overdue-more">
                             +{analytics.metrics.overdueTasks - 10} more overdue tasks
                           </p>
                         )}
@@ -519,36 +519,36 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
                 )}
 
                 {analytics.dueTodayTasksList.length > 0 && (
-                  <Card>
+                  <Card data-testid="card-due-today-tasks">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-orange-500" />
+                        <Clock className="h-4 w-4 text-orange-500 dark:text-orange-400" />
                         Due Today
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-2">
+                      <div className="space-y-2" data-testid="list-due-today-tasks">
                         {analytics.dueTodayTasksList.map((task) => (
-                          <div key={task.id} className="flex items-center justify-between py-1">
-                            <span className="text-sm truncate flex-1 mr-2">{task.title}</span>
+                          <div key={task.id} className="flex items-center justify-between py-1" data-testid={`row-due-today-task-${task.id}`}>
+                            <span className="text-sm truncate flex-1 mr-2" data-testid={`text-due-today-task-title-${task.id}`}>{task.title}</span>
                             <div className="flex items-center gap-2">
                               {task.priority && task.priority !== "none" && (
                                 <Badge 
                                   variant="outline" 
-                                  className="text-xs"
-                                  style={{ borderColor: PRIORITY_COLORS[task.priority] }}
+                                  className={`text-xs ${task.priority === "urgent" ? "border-red-500" : task.priority === "high" ? "border-orange-500" : task.priority === "medium" ? "border-yellow-500" : "border-green-500"}`}
+                                  data-testid={`badge-due-today-task-priority-${task.id}`}
                                 >
                                   {task.priority}
                                 </Badge>
                               )}
-                              <Badge variant="outline" className="text-xs">
+                              <Badge variant="outline" className="text-xs" data-testid={`badge-due-today-task-status-${task.id}`}>
                                 {task.status}
                               </Badge>
                             </div>
                           </div>
                         ))}
                         {analytics.metrics.dueToday > 10 && (
-                          <p className="text-xs text-muted-foreground text-center pt-2">
+                          <p className="text-xs text-muted-foreground text-center pt-2" data-testid="text-due-today-more">
                             +{analytics.metrics.dueToday - 10} more tasks due today
                           </p>
                         )}
