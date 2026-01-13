@@ -80,16 +80,18 @@ export function TaskCreateDrawer({
   useEffect(() => {
     const subscription = form.watch(() => {
       const values = form.getValues();
+      const initialSectionId = defaultSectionId || "";
       const hasAnyChanges = 
         values.title !== "" ||
         (values.description && values.description !== "") ||
         values.priority !== "medium" ||
         values.status !== "todo" ||
-        values.dueDate !== null;
+        values.dueDate !== null ||
+        values.sectionId !== initialSectionId;
       setHasChanges(!!hasAnyChanges);
     });
     return () => subscription.unsubscribe();
-  }, [form]);
+  }, [form, defaultSectionId]);
 
   const handleSubmit = async (data: CreateTaskFormData) => {
     try {

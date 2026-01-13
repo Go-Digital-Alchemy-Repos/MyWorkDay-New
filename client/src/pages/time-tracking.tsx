@@ -527,7 +527,16 @@ function ManualEntryDialog({
     });
   };
 
-  const hasChanges = description !== "" || hours !== "0" || minutes !== "30" || clientId !== null || projectId !== null || taskId !== null;
+  const initialDate = format(new Date(), "yyyy-MM-dd");
+  const hasChanges = 
+    description !== "" || 
+    hours !== "0" || 
+    minutes !== "30" || 
+    clientId !== null || 
+    projectId !== null || 
+    taskId !== null ||
+    date !== initialDate ||
+    scope !== "in_scope";
 
   return (
     <FullScreenDrawer
