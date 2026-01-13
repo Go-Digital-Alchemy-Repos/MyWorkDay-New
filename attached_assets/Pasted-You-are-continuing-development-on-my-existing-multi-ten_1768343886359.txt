@@ -1,0 +1,144 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+Implement ONLY the UI/UX changes described below. DO NOT rewrite the app.
+This is a FRONTEND-FIRST change with minimal backend impact (only if absolutely needed).
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change database schema.
+- Do NOT alter auth, tenancy, onboarding, roles/permissions, or any server business logic.
+- Do NOT merge Personal Tasks with Project Tasks in My Tasks (they are distinct categories).
+- Do NOT reintroduce small edit modals; use the existing full-width slide drawer pattern.
+- Keep existing My Tasks filtering logic intact unless required to support the new layout.
+- Any drag/drop reorder must be non-destructive; if persistence is hard, implement UI-only ordering first and add persistence only if an existing API already supports ordering.
+
+===============================================================================
+GOALS
+===============================================================================
+A) DASHBOARD: “Upcoming Tasks” list items open Task Detail Drawer
+B) MY TASKS: convert to a 2-column layout:
+   - LEFT column:
+     1) Personal Tasks (open personal tasks; not tied to client/project)
+     2) No Due Date (open tasks without due date; still listed like other sections)
+   - RIGHT column (stacked):
+     1) Overdue
+     2) Today
+     3) Upcoming
+C) Clicking any task in My Tasks opens Task Detail Drawer for quick view/edit
+D) Tasks in My Tasks are drag-and-droppable for priority organization within their section
+E) Keep separation rules:
+   - Personal tasks stay in Personal Tasks / No Due Date on LEFT
+   - Project/client tasks appear in Overdue/Today/Upcoming on RIGHT (and/or No Due Date if they have none, but ONLY if that is already current behavior; do not change categorization rules unless required)
+
+===============================================================================
+1) TASK DETAIL DRAWER (REUSE EXISTING)
+===============================================================================
+- Use the existing FullScreenDrawer / SlideDrawer component pattern (no small modals).
+- Opening the drawer should not navigate away from the current page.
+- Support deep-link query params (recommended):
+  - ?taskId=<id>
+  - ?drawer=task
+- Drawer must show full task details:
+  - title, description, status, priority, tags, assignees, due date, attachments, subtasks, comments
+  - (Do not add new fields; reuse existing Task Detail / Task Edit UI components if they exist.)
+- Drawer must allow editing if user has existing permission to edit tasks.
+
+Implementation note:
+- Create a reusable TaskDrawer component that can be used from both Dashboard and My Tasks:
+  /client/src/components/tasks/TaskDetailDrawer.tsx
+- It should accept:
+  - taskId
+  - open
+  - onClose
+- It should fetch task details using existing task endpoints/queries.
+
+===============================================================================
+2) DASHBOARD CHANGE: UPCOMING TASKS -> OPEN DRAWER
+===============================================================================
+- For any dashboard type (Super Admin, Tenant Admin, Employee), in the “Upcoming Tasks” section:
+  - clicking a task row opens Task Detail Drawer
+- Do not change dashboard data logic, only the click behavior.
+- Ensure drawer works consistently across roles.
+
+===============================================================================
+3) MY TASKS 2-COLUMN LAYOUT (MANDATORY)
+===============================================================================
+Update the “My Tasks” page UI to the following layout:
+
+LEFT COLUMN
+- Section 1: “Personal Tasks”
+  - Shows open personal tasks (not tied to a project/client)
+- Section 2: “No Due Date”
+  - Shows open tasks without a due date (listed like other sections)
+  - IMPORTANT: Do not change what qualifies as “personal task”. If personal tasks are stored as tasks without project/client, keep that.
+  - If “No Due Date” should include ONLY personal tasks, do that. If currently “No Due Date” includes assigned project tasks too, keep existing behavior and simply display them in this left column section (but do NOT merge sections).
+
+RIGHT COLUMN (STACKED)
+- Section: “Overdue”
+- Section: “Today”
+- Section: “Upcoming”
+
+Each section:
+- renders a list of tasks (cards or rows)
+- clicking a task opens Task Detail Drawer
+- supports drag/drop reordering within that section
+
+===============================================================================
+4) DRAG & DROP BEHAVIOR (SAFE)
+===============================================================================
+- Use the same DnD library already used in the app.
+- DnD scope rules:
+  - Allow drag/drop reorder WITHIN a section
+  - Allow drag/drop between Overdue/Today/Upcoming ONLY if it already makes sense based on due date. Otherwise:
+    - Do NOT change due dates automatically unless there is already a safe existing pattern.
+  - Allow drag/drop within Personal Tasks and within No Due Date
+  - Do NOT allow dragging tasks between LEFT and RIGHT columns (keep mental model clean and avoid accidental recategorization).
+
+Persistence:
+- If you already have a sortOrder / position field and API support, update it.
+- If you do NOT have persistence support, implement client-side ordering only (per session) and add a TODO note in README for later.
+- Under no circumstance should DnD accidentally change tenant/project/task relationships.
+
+===============================================================================
+5) SECTION LOGIC (DO NOT CHANGE CORE RULES)
+===============================================================================
+Keep existing definitions:
+- Overdue: dueDate < today and not completed
+- Today: dueDate == today
+- Upcoming: dueDate > today
+- Personal Tasks: tasks created by user that are not tied to a client/project (existing rule)
+- No Due Date: dueDate is null (existing rule)
+
+If any of these rules differ in your current app, preserve the current rule set and just map them into the new UI sections.
+
+===============================================================================
+6) UI COMPONENTS (CONSISTENT + SCALABLE)
+===============================================================================
+- Each section should have:
+  - header with title and count
+  - empty state (e.g., “No tasks due today”)
+  - scroll handling (avoid the whole page becoming one long list)
+- Use the same style system already used (shadcn/ui + Tailwind if present).
+- Ensure the drawer can be opened from multiple pages without duplicated state logic.
+
+===============================================================================
+7) TESTING / ACCEPTANCE CRITERIA
+===============================================================================
+Manual acceptance checklist:
+1) Dashboard “Upcoming Tasks”: click a task -> Task Detail Drawer opens.
+2) My Tasks page shows 2-column layout:
+   - Left: Personal Tasks + No Due Date
+   - Right: Overdue + Today + Upcoming
+3) Clicking any task in My Tasks opens Task Detail Drawer.
+4) Drag/drop reorder works within each section without breaking tasks.
+5) No backend endpoints changed; no schema changes.
+6) No small edit modals introduced.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Files changed (frontend)
+- Any reused drawer component location
+- Whether drag/drop order is persisted or session-only (be explicit)
+- Manual test steps for Dashboard + My Tasks
