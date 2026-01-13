@@ -36,11 +36,22 @@ export function setupAuth(app: Express): void {
     connectionString: process.env.DATABASE_URL,
   });
 
+  // Create session table manually if it doesn't exist
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS "user_sessions" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      CONSTRAINT "user_sessions_pkey" PRIMARY KEY ("sid")
+    );
+    CREATE INDEX IF NOT EXISTS "IDX_user_sessions_expire" ON "user_sessions" ("expire");
+  `).catch(err => console.error("Session table creation error:", err));
+
   const sessionMiddleware = session({
     store: new PgSession({
       pool,
       tableName: "user_sessions",
-      createTableIfMissing: true,
+      createTableIfMissing: false, // We create it manually above
     }),
     secret: process.env.SESSION_SECRET || "dasana-dev-secret-key",
     resave: false,
