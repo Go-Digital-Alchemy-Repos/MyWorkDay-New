@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,12 +7,31 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play } from "lucide-react";
+import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Palette, HardDrive, Save, TestTube, Eye, EyeOff, Mail, Lock, Check, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { TenantSettingsDialog } from "@/components/super-admin/tenant-settings-dialog";
 import type { Tenant } from "@shared/schema";
+
+interface TenantSettings {
+  displayName?: string;
+  appName?: string | null;
+  logoUrl?: string | null;
+  faviconUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+  accentColor?: string | null;
+  loginMessage?: string | null;
+  supportEmail?: string | null;
+  whiteLabelEnabled?: boolean;
+  hideVendorBranding?: boolean;
+}
+
+type IntegrationStatus = "not_configured" | "configured" | "error";
 
 interface TenancyHealthResponse {
   currentMode: string;
@@ -63,6 +82,8 @@ export default function SuperAdminPage() {
   const [invitingTenant, setInvitingTenant] = useState<Tenant | null>(null);
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("tenants");
+  const [settingsTenant, setSettingsTenant] = useState<Tenant | null>(null);
+  const [settingsTab, setSettingsTab] = useState("branding");
 
   const { data: tenants = [], isLoading } = useQuery<TenantWithDetails[]>({
     queryKey: ["/api/v1/super/tenants-detail"],
@@ -347,6 +368,14 @@ export default function SuperAdminPage() {
                         Invite Admin
                       </Button>
                     )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setSettingsTenant(tenant)}
+                      data-testid={`button-settings-tenant-${tenant.id}`}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -696,6 +725,12 @@ export default function SuperAdminPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <TenantSettingsDialog
+        tenant={settingsTenant}
+        open={!!settingsTenant}
+        onOpenChange={(open) => !open && setSettingsTenant(null)}
+      />
     </div>
   );
 }
