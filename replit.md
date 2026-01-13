@@ -28,6 +28,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Database Schema**: Includes entities for users, workspaces, teams, clients, projects, sections, tasks (with subtasks, tags, comments), activity logs, time tracking, tenant_settings, and tenant_integrations.
 - **Production Bootstrap**: A secure one-time process for creating a super admin user in production environments.
 - **Tenant Onboarding Flow**: A structured 4-step wizard for new tenants to configure their organization profile, branding, and email settings, transitioning from an inactive to an active state.
+- **Flexible Tenant Invitations**: Super admins can invite tenant admins via "link" (copyable URL) or "email" (Mailgun-based delivery). Email invitations use the tenant's configured Mailgun integration with graceful fallback to link generation if email fails.
 - **Frontend Structure**: Organized into `pages/` for route components and `components/` for reusable UI elements, with specialized components for task management, settings, and project views.
 - **Backend Structure**: Modular routes, a `DatabaseStorage` class for CRUD, database connection, authentication, and real-time infrastructure. Middleware handles error handling, request validation, and authentication context.
 - **Design Guidelines**: Adheres to a professional design, using Inter font for UI and JetBrains Mono for monospace, featuring a 3-column layout and dark mode support.
