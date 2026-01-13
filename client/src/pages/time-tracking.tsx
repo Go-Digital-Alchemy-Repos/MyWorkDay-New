@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { TaskSelectorWithCreate } from "@/components/task-selector-with-create";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO } from "date-fns";
 
 type ActiveTimer = {
@@ -110,6 +111,7 @@ function ActiveTimerPanel() {
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
   const [stopScope, setStopScope] = useState<"in_scope" | "out_of_scope">("in_scope");
   const [stopDescription, setStopDescription] = useState("");
+  const [stopTaskId, setStopTaskId] = useState<string | null>(null);
 
   const { data: timer, isLoading } = useQuery<ActiveTimer | null>({
     queryKey: ["/api/timer/current"],
@@ -436,6 +438,7 @@ function ManualEntryDialog({
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [clientId, setClientId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
   const [scope, setScope] = useState<"in_scope" | "out_of_scope">("in_scope");
 
   const { data: projects = [] } = useQuery<Array<{ id: string; name: string }>>({
@@ -446,6 +449,11 @@ function ManualEntryDialog({
     queryKey: ["/api/clients"],
   });
 
+  const handleProjectChange = (newProjectId: string | null) => {
+    setProjectId(newProjectId);
+    setTaskId(null);
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: {
       description: string;
@@ -453,6 +461,7 @@ function ManualEntryDialog({
       startTime: string;
       clientId: string | null;
       projectId: string | null;
+      taskId: string | null;
       scope: string;
     }) => apiRequest("POST", "/api/time-entries", data),
     onSuccess: () => {
@@ -462,6 +471,7 @@ function ManualEntryDialog({
       setDescription("");
       setHours("0");
       setMinutes("30");
+      setTaskId(null);
     },
     onError: (error: Error) => {
       toast({ title: "Failed to create entry", description: error.message, variant: "destructive" });
@@ -481,6 +491,7 @@ function ManualEntryDialog({
       startTime: startTime.toISOString(),
       clientId,
       projectId,
+      taskId,
       scope,
     });
   };
@@ -551,7 +562,7 @@ function ManualEntryDialog({
           </div>
           <div className="space-y-2">
             <Label>Project</Label>
-            <Select value={projectId || "none"} onValueChange={(v) => setProjectId(v === "none" ? null : v)}>
+            <Select value={projectId || "none"} onValueChange={(v) => handleProjectChange(v === "none" ? null : v)}>
               <SelectTrigger data-testid="select-manual-project">
                 <SelectValue placeholder="Select project" />
               </SelectTrigger>
@@ -565,6 +576,11 @@ function ManualEntryDialog({
               </SelectContent>
             </Select>
           </div>
+          <TaskSelectorWithCreate
+            projectId={projectId}
+            taskId={taskId}
+            onTaskChange={setTaskId}
+          />
           <div className="space-y-2">
             <Label>Scope</Label>
             <Select value={scope} onValueChange={(v) => setScope(v as "in_scope" | "out_of_scope")}>
