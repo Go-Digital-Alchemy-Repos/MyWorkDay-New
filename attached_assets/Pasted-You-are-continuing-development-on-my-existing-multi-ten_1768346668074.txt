@@ -1,0 +1,184 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+FOLLOW-UP PHASE: Project Analytics Widgets + Project Detail Insights (safe, tenant-scoped).
+Implement ONLY the features described below. DO NOT rewrite the app.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change response shapes in a breaking way (add fields ok; no removals).
+- Do NOT drop or rename DB tables/columns. Add-only changes only if absolutely necessary.
+- Do NOT modify authentication, tenancy enforcement, onboarding, or agreements.
+- Do NOT change task/project definitions or permissions rules; reuse existing permission checks.
+- Do NOT introduce small edit modals; use full-width drawers/panels for detail.
+- Strict tenant isolation: tenant users only see their tenant; super_user must act-as-tenant.
+
+===============================================================================
+GOAL
+===============================================================================
+Enhance the new /projects dashboard and Project Detail Drawer with “analytics/insights”
+to help admins and team members quickly understand project health and workload.
+
+This includes:
+1) Projects dashboard widgets/columns for quick health indicators
+2) Project detail “Insights” tab with charts and key metrics
+3) Minimal server-side aggregation endpoints (add-only) OR reuse existing endpoints safely
+4) Drill-down interactions that open existing drawers (task drawer, time entry drill-down if available)
+
+===============================================================================
+FEATURE A: PROJECTS DASHBOARD — HEALTH INDICATORS (QUICK VIEW)
+===============================================================================
+A1) Add “Project Health” summary bar at top of /projects
+- Total Active Projects
+- Projects with Overdue Tasks
+- Tasks Due Today (across all visible projects)
+- Unassigned Open Tasks (optional)
+- (If time tracking exists) Total hours this week (optional)
+
+A2) Add lightweight health columns (table or cards)
+Add columns/fields (if feasible):
+- Open Tasks count
+- Overdue Tasks count
+- Due Today count
+- Completion % (completed tasks / total tasks) OR “Done/Total”
+- Last Activity date (latest updatedAt from tasks/comments/time entries if feasible)
+- Optional: “At Risk” badge if overdueTasks > 0 OR dueToday > threshold
+
+Performance note:
+- These must be computed efficiently and/or loaded lazily to avoid slowing /projects page.
+- If heavy, load the list first, then fetch stats in one aggregated call.
+
+===============================================================================
+FEATURE B: PROJECT DETAIL DRAWER — “INSIGHTS” TAB
+===============================================================================
+B1) Add a new tab in the Project Detail Drawer: “Insights”
+This tab includes:
+
+1) Key Metrics cards
+- Open Tasks
+- Completed Tasks
+- Overdue Tasks
+- Due Today
+- Unassigned Tasks (if applicable)
+- (Optional) Total time tracked (project) and time tracked this week
+
+2) Charts (use recharts if already in app)
+- Tasks by Status (bar or pie)
+- Tasks by Priority (bar)
+- Due Date Timeline (next 14/30 days) showing count of tasks due by day/week
+Optional:
+- Workload by Assignee for this project (top 5 assignees + counts)
+
+3) Drill-down lists
+- “Overdue Tasks” quick list (top 10) with “View all”
+- “Due Today” quick list (top 10)
+- Clicking any task opens the Task Detail Drawer.
+
+B2) Keep everything tenant-scoped and permission-safe
+- Only show tasks/projects the user can already see.
+- Tenant admins can see all tenant data; employees may be restricted by existing rules—preserve those rules.
+
+===============================================================================
+FEATURE C: SERVER-SIDE AGGREGATION (ADD-ONLY, SAFE)
+===============================================================================
+Preferred: one aggregated endpoint per view to avoid N+1.
+
+C1) Projects Dashboard summary + per-project stats
+GET /api/v1/projects/analytics/summary
+Query params:
+- workspaceId? (optional)
+- clientId? (optional)
+- onlyActive=true|false (default true)
+Returns:
+{
+  totals: {
+    activeProjects: number,
+    projectsWithOverdue: number,
+    tasksDueToday: number,
+    unassignedOpenTasks?: number,
+    hoursThisWeek?: number
+  },
+  perProject: [
+    {
+      projectId: string,
+      openTasks: number,
+      completedTasks: number,
+      overdueTasks: number,
+      dueToday: number,
+      completionPercent?: number,
+      lastActivityAt?: string
+    }
+  ]
+}
+
+C2) Project detail insights
+GET /api/v1/projects/:projectId/analytics
+Returns:
+{
+  projectId,
+  metrics: { openTasks, completedTasks, overdueTasks, dueToday, unassignedOpenTasks?, hoursTotal?, hoursThisWeek? },
+  byStatus: [{ status, count }],
+  byPriority: [{ priority, count }],
+  dueTimeline: [{ dateOrWeek, count }],   // choose daily or weekly; keep consistent
+  byAssignee?: [{ userId, name, count }]
+}
+
+Rules:
+- Must be tenant-scoped by effectiveTenantId.
+- Must use existing permission checks for project visibility.
+- Must be efficient (single query or small number of queries; avoid per-project loops in server).
+- If time tracking tables exist, include time metrics only when safely available; otherwise omit.
+
+IMPORTANT: If you already have reports endpoints that can serve this data, reuse them and only add missing endpoints.
+
+===============================================================================
+FEATURE D: FRONTEND INTEGRATION
+===============================================================================
+D1) /projects page
+- Load project list as today (existing).
+- Load analytics summary endpoint (single call).
+- Merge stats into UI without changing existing project fetching logic.
+- Show health summary bar and per-project health columns/badges.
+
+D2) Project Detail Drawer
+- Add Insights tab that fetches /projects/:id/analytics when opened.
+- Render charts + key metrics cards.
+- Provide drill-down to task drawer.
+
+D3) Error handling
+- If analytics endpoints fail, show a non-blocking “Analytics unavailable” message but keep project UI functional.
+
+===============================================================================
+PERFORMANCE / CACHING REQUIREMENTS
+===============================================================================
+- Use TanStack Query caching with sensible stale times:
+  - /projects/analytics/summary: 30–60 seconds
+  - /projects/:id/analytics: 30–60 seconds
+- Invalidate analytics when tasks are created/updated/completed (only if you already have invalidation patterns; otherwise allow natural stale refresh).
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) analytics_summary_tenant_scoped.test.ts
+- tenant A cannot access tenant B analytics
+2) analytics_project_permission.test.ts
+- user cannot fetch analytics for a project they can’t view
+3) analytics_shapes_stable.test.ts
+- endpoints return expected keys even when counts are zero
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) /projects shows a health summary bar and per-project health indicators.
+2) Project Drawer includes an “Insights” tab with metrics + charts.
+3) Drill-down from Insights opens Task Detail Drawer.
+4) Analytics endpoints are tenant-scoped and permission-safe.
+5) No breaking changes; existing workflows remain intact; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Endpoints added and where they are mounted
+- Query strategy (how you avoided N+1)
+- UI components added/updated
+- Manual test checklist

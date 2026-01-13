@@ -1,0 +1,212 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+Implement ONLY the features described below. DO NOT rewrite the app.
+This prompt must be SAFE, additive, tenant-scoped, and non-destructive.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change response shapes in a breaking way (you may add fields).
+- Do NOT drop or rename database tables or columns.
+- Add-only schema changes only if absolutely necessary; prefer reusing existing data.
+- Do NOT modify authentication strategy, tenancy enforcement behavior, onboarding, or agreements (Phase 3C is not part of this).
+- Do NOT reintroduce small edit modals; use full-width slide-out drawers for detail/edit screens.
+- Ensure strict tenant isolation: tenant users only see their tenant; super_user can “act as tenant” but must never leak cross-tenant data in normal mode.
+
+===============================================================================
+FEATURE 1: NEW “PROJECTS” DASHBOARD NAV ITEM (ALL USER TYPES)
+===============================================================================
+GOAL
+Add a new main navigation item called “Projects” that appears:
+- Under “My Tasks”
+- Above “Clients”
+For ALL user types (super_user, admin, employee, client) when viewing a tenant context.
+
+This “Projects” page is a dashboard/list that provides visibility across all projects from one place.
+
+-------------------------------------------------------------------------------
+1A) UI ROUTE + PAGE
+-------------------------------------------------------------------------------
+- Add route: /projects
+- Page shows a Projects dashboard with:
+  - Search (by project name)
+  - Filters: status (active/inactive if present), workspace (if present), client (if your model has clients), assignee/team (optional)
+  - Table/list columns (minimum):
+    - Project Name
+    - Client (if applicable)
+    - Status
+    - Due date (if exists)
+    - # Open Tasks (if feasible)
+    - Assigned team / owner (if exists)
+    - Updated date
+- Clicking a project row opens a FULL-WIDTH slide-out drawer (Project Detail Drawer) to review project details.
+  - Reuse existing project detail/editor UI if already implemented.
+  - No small modals.
+
+If you already have a project list page, reuse it and enhance into a unified dashboard.
+
+-------------------------------------------------------------------------------
+1B) DATA FETCHING (REUSE EXISTING ENDPOINTS)
+-------------------------------------------------------------------------------
+- Prefer using existing endpoints:
+  - GET /api/.../projects (existing)
+  - GET /api/.../projects/:id
+- If an endpoint is missing for listing projects with basic metadata, add an ADD-ONLY endpoint:
+  - GET /api/v1/projects?includeCounts=true
+But do NOT break any existing routes; only add.
+
+Counts:
+- If counting open tasks is expensive, implement it as optional:
+  - includeCounts=true triggers counts
+  - default list does not compute counts
+
+-------------------------------------------------------------------------------
+1C) ROLE BEHAVIOR
+-------------------------------------------------------------------------------
+- Tenant Admin/Employee/Client:
+  - only see projects in their tenant.
+  - if existing permissions restrict access, preserve them (don’t broaden access unexpectedly).
+- Super Admin:
+  - sees projects only when acting-as-tenant (X-Tenant-Id or existing mechanism).
+  - In super context, do not show a cross-tenant mega list unless explicitly required (not required in this prompt).
+
+===============================================================================
+FEATURE 2: SUPER ADMIN “PROJECT OVERSIGHT” CAPABILITIES (ON BEHALF OF A TENANT)
+===============================================================================
+GOAL
+Super Admins need more granular control for administering and configuring projects on behalf of a tenant.
+
+Implement this using the safest pattern:
+- Super Admin uses “Act as Tenant”
+- While acting as tenant, Super Admin can access the same /projects dashboard and project drawer
+- Super Admin can perform admin-level actions permitted by existing authorization rules (or a controlled override if you already have one)
+
+-------------------------------------------------------------------------------
+2A) ACT-AS-TENANT REQUIREMENT
+-------------------------------------------------------------------------------
+- Ensure the existing “Act as Tenant” capability is present and stable:
+  - A super_user can set an effective tenantId (via UI + header).
+  - All project APIs use effectiveTenantId for super user while acting-as-tenant.
+- IMPORTANT: Super routes must never be blocked by tenant status guard.
+
+-------------------------------------------------------------------------------
+2B) SUPER ADMIN CONTROLS IN PROJECT DRAWER (ADDITIVE)
+-------------------------------------------------------------------------------
+In Project Detail Drawer, when role=super_user acting-as-tenant:
+- Add an “Admin Tools” section (visible only to super_user):
+  - View tenant + project identifiers (read-only)
+  - Quick links: open client (if tied), open tasks, open time tracking (if exists)
+  - Ability to edit project settings (only if tenant admin can already; do not bypass permissions unless you already allow super override)
+  - Optional: “Impersonate tenant admin view” (UI-only) is NOT required—avoid risky impersonation.
+
+Do NOT create new destructive powers (like mass deletions) in this prompt.
+
+===============================================================================
+FEATURE 3: TENANT ADMIN WORKLOAD / TASKS-BY-EMPLOYEE REPORTS (TENANT SETTINGS)
+===============================================================================
+GOAL
+Tenant Admin needs a new section in their tenant admin settings that provides workload visibility:
+- tasks by employee
+- key report types that help decide task assignment based on workload
+
+This is a tenant-scoped reporting dashboard; do NOT change existing time tracking reports.
+
+-------------------------------------------------------------------------------
+3A) UI LOCATION
+-------------------------------------------------------------------------------
+In Tenant Admin Account/Settings area (or Global Settings if that’s where admin settings live):
+- Add a new tab/section: “Workload” (or “Task Workload”)
+- Visible only to tenant admins (role=admin)
+
+-------------------------------------------------------------------------------
+3B) REPORTS TO INCLUDE (MINIMUM)
+-------------------------------------------------------------------------------
+Provide these reports (tenant-scoped):
+1) Tasks by Employee (Open Workload)
+- For each employee:
+  - # Overdue tasks
+  - # Due today
+  - # Due in next 7 days
+  - # Total open tasks
+  - Optional: # Open subtasks
+- Filter controls:
+  - Workspace (if applicable)
+  - Client (if applicable)
+  - Project
+  - Date range for “Upcoming window” (default 7 days)
+
+2) Tasks by Status / Priority (Summary)
+- Counts grouped by status and priority
+- Optional: stacked chart
+
+3) “Unassigned Tasks” queue (if applicable)
+- List open tasks with no assignee(s)
+- Quick assign (opens Task Drawer; assignment handled there)
+
+IMPORTANT:
+- If you have multi-assignee support already, workload must count tasks where the employee is among assignees.
+- If not, use your existing single-assignee field.
+
+-------------------------------------------------------------------------------
+3C) DATA ACCESS / ENDPOINTS (PREFER REUSE, ADD ONLY IF NEEDED)
+-------------------------------------------------------------------------------
+- Prefer using existing task list endpoints and aggregate client-side ONLY if dataset is small.
+- If dataset is large or you already have server-side reporting patterns, add ADD-ONLY endpoints:
+
+GET /api/v1/reports/workload/tasks-by-employee
+- returns aggregated counts and optionally a small sample list for drill-down
+
+GET /api/v1/reports/workload/unassigned
+- returns list of unassigned tasks for quick access
+
+Rules:
+- Endpoints must be tenant-scoped by effectiveTenantId.
+- Admin-only authorization.
+
+-------------------------------------------------------------------------------
+3D) DRILL-DOWN UX
+-------------------------------------------------------------------------------
+- Clicking an employee row opens a drawer/panel showing the list of that employee’s open tasks.
+- Clicking a task opens the Task Detail Drawer (reuse existing drawer).
+- Keep everything consistent with the “no small modals” direction.
+
+===============================================================================
+VALIDATION, PERFORMANCE, AND SAFETY REQUIREMENTS
+===============================================================================
+- No N+1 queries: if you add server endpoints, aggregate efficiently.
+- Pagination for any list > 50 items.
+- Ensure “client users” don’t gain access to internal workload reports.
+- Do not leak cross-tenant data in any response.
+- Add loading/error empty states in UI; do not silently fail.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) projects_dashboard_access.test.ts
+- tenant user only sees tenant projects
+- super_user without acting-as-tenant cannot list tenant projects (or sees empty)
+- super_user acting-as-tenant can list tenant projects
+
+2) workload_reports_admin_only.test.ts
+- tenant admin can access workload endpoints/page
+- employee/client cannot
+
+3) tenant_isolation_projects_workload.test.ts
+- tenant A cannot see tenant B projects/workload
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) “Projects” nav item appears under My Tasks and above Clients for all user types (in tenant context).
+2) /projects dashboard loads and lists projects; clicking opens project detail drawer.
+3) Super Admin can act-as-tenant and oversee projects using the same dashboard + drawer with an “Admin Tools” section.
+4) Tenant Admin has a “Workload” area showing tasks by employee and key summaries to judge workload.
+5) No breaking changes; no auth/tenancy logic changes; no schema changes unless absolutely necessary; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Files changed
+- Any endpoints added (paths + purpose)
+- Any schema additions (should be none unless required)
+- Manual test checklist
