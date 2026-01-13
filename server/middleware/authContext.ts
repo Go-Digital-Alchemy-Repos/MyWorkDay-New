@@ -15,22 +15,37 @@ declare global {
   }
 }
 
+const DEV_FALLBACK_WORKSPACE_ID = "demo-workspace-id";
+
 export function getAuth(req: Request): AuthContext {
   if (req.auth) {
     return req.auth;
   }
 
   if (req.user) {
+    const workspaceId = req.session?.workspaceId;
+    
+    if (!workspaceId) {
+      if (process.env.NODE_ENV === "production") {
+        throw AppError.forbidden("No workspace selected. Please log in again.");
+      }
+      return {
+        userId: req.user.id,
+        workspaceId: DEV_FALLBACK_WORKSPACE_ID,
+        role: req.user.role || "employee",
+      };
+    }
+    
     return {
       userId: req.user.id,
-      workspaceId: "demo-workspace-id",
+      workspaceId,
       role: req.user.role || "employee",
     };
   }
 
   if (process.env.NODE_ENV !== "production") {
     const fallbackUserId = process.env.DEMO_USER_ID || "demo-user-id";
-    const fallbackWorkspaceId = process.env.DEMO_WORKSPACE_ID || "demo-workspace-id";
+    const fallbackWorkspaceId = process.env.DEMO_WORKSPACE_ID || DEV_FALLBACK_WORKSPACE_ID;
     return {
       userId: fallbackUserId,
       workspaceId: fallbackWorkspaceId,

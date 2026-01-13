@@ -82,9 +82,39 @@ MyWorkDay is a fully functional Asana-inspired project management application bu
 - **storage.ts**: DatabaseStorage class with full CRUD operations
 - **seed.ts**: Demo data seeding script
 - **db.ts**: Database connection
+- **auth.ts**: Authentication setup (Passport.js, session handling)
 - **realtime/**: Socket.IO infrastructure
   - socket.ts: Socket.IO server initialization and room management
   - events.ts: Centralized event emitters (ALL socket emissions go through this module)
+
+### Server Middleware (server/middleware/)
+- **errorHandler.ts**: Centralized error handling middleware (AppError, ZodError, generic errors)
+- **validate.ts**: Request validation middleware (validateBody, validateQuery, validateParams)
+- **authContext.ts**: Auth context helpers (getCurrentUserId, getCurrentWorkspaceId) with session-based workspace resolution
+- **asyncHandler.ts**: Async route handler wrapper for automatic error catching
+
+### Authentication & Workspace Resolution
+- **Session-based workspace**: Login fetches user's workspaces and stores first workspaceId in session
+- **Production security**: In production, throws 403 error if session lacks workspaceId (no demo fallback)
+- **Development convenience**: Falls back to demo-workspace-id in development mode only
+- **Session extension**: SessionData interface extended with workspaceId in auth.ts
+
+### Server Library (server/lib/)
+- **errors.ts**: AppError class with typed error codes (VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, INTERNAL_ERROR)
+
+### Server Routes (server/routes/)
+- **index.ts**: Route aggregator for modular routes
+- **timeTracking.ts**: Example modular route file for timer endpoints (demonstrates pattern)
+
+### Server Scripts (server/scripts/)
+- **create_session_table.sql**: SQL script for creating session table in production
+- **smoke.ts**: Production smoke check script (database connection + required tables verification)
+
+### Server Tests (server/tests/)
+- **auth.test.ts**: Authentication endpoint tests
+- **validation.test.ts**: Validation middleware tests
+- **errors.test.ts**: Error handling tests
+- **setup.ts**: Vitest test setup
 
 ### Real-time Architecture (shared/events/, client/src/lib/realtime/)
 - **shared/events/index.ts**: Type-safe event contracts shared between server and client
@@ -216,6 +246,8 @@ Following design_guidelines.md with:
 - `npm run dev` - Start development server (frontend + backend on port 5000)
 - `npm run db:push` - Push database schema changes
 - `npx tsx server/seed.ts` - Seed demo data
+- `npx vitest run` - Run all tests
+- `npx tsx server/scripts/smoke.ts` - Run production smoke check
 
 ## Deploying to Railway
 1. Create a PostgreSQL database on Railway

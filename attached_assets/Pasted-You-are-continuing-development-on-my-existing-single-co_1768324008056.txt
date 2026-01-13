@@ -1,0 +1,156 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY a diagnosis + fix for the Mailgun integration persistence issue in production (Railway). Preserve ALL existing functionality.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES (READ FIRST)
+===============================================================================
+- NO major refactors, no folder restructures, no framework swaps.
+- Do NOT change any unrelated features (projects/tasks/time tracking/etc.).
+- Do NOT remove/rename endpoints or database tables.
+- Do NOT change auth strategy.
+- Do NOT print secrets in logs. Never log raw Mailgun API keys.
+- Changes must be targeted to: settings storage, encryption, org/workspace scoping, and the integrations UI.
+
+===============================================================================
+PROBLEM
+===============================================================================
+On Railway (production), Admin enters Mailgun domain/api key/from email and clicks “Save settings”.
+UI appears to save, but after refresh the fields are empty again. This implies:
+- PUT save endpoint is not persisting to DB, OR
+- GET endpoint is reading from a different scope (wrong workspace/org), OR
+- encryption key missing causing encryption/decryption failure and fallback empty, OR
+- frontend isn’t reloading the saved config correctly (cache/state issue), OR
+- save is writing but GET returns masked/empty due to serialization bug.
+
+===============================================================================
+GOAL
+===============================================================================
+- Saving Mailgun settings persists reliably in Postgres in production.
+- Refreshing the page rehydrates the fields (masked key) correctly.
+- “Configured: Yes/No” status is accurate.
+- Works across workspaces/organizations consistently.
+
+===============================================================================
+STEP 1: DIAGNOSE WITH SAFE INSTRUMENTATION (MANDATORY)
+===============================================================================
+Add minimal, production-safe logs (no secrets) around these areas:
+
+A) Server: PUT /api/v1/settings/mailgun
+Log (safe):
+- route hit
+- authenticated userId
+- organizationId/workspaceId used for lookup
+- keys present flags only (domain present? apiKey present? fromEmail present?)
+- DB write result (row inserted/updated id)
+
+B) Server: GET /api/v1/settings/mailgun
+Log (safe):
+- route hit
+- authenticated userId
+- organizationId/workspaceId used
+- whether record found
+- whether decrypt succeeded (boolean)
+- return “configured” flag
+
+C) Server encryption
+- Verify APP_ENCRYPTION_KEY exists in Railway environment at runtime.
+- If missing in production:
+  - return 500 with clear message: “Encryption key not configured” (no secrets)
+  - DO NOT silently return empty config.
+
+D) Database
+- Verify the app_settings (or equivalent) table exists and is used in production.
+- Confirm that PUT actually executes INSERT/UPDATE against Postgres (not memory or filesystem).
+- If multi-workspace, confirm the organizationId/workspaceId on write matches read.
+
+E) Frontend
+- Verify the Integrations tab loads current values via GET on mount.
+- After a successful save, re-fetch GET and repopulate the form.
+- Confirm the form is controlled and does not reset state on rerender.
+
+===============================================================================
+STEP 2: FIX THE MOST LIKELY ROOT CAUSES (IMPLEMENT SAFELY)
+===============================================================================
+
+Fix 1: Workspace/org scoping mismatch (VERY LIKELY)
+Symptoms: PUT writes with one orgId (e.g., DEMO_WORKSPACE_ID fallback) but GET reads another orgId (from session).
+Actions:
+- Ensure both GET and PUT compute the SAME organizationId/workspaceId using a single helper:
+  getAuthContext(req) -> { organizationId/workspaceId, userId, role }
+- Remove any “DEMO_* fallback” in production for settings routes:
+  - If no orgId in prod, return 401/500; do NOT write unscoped settings.
+- Ensure app_settings unique key is (organizationId, key="mailgun").
+
+Fix 2: Encryption key missing or inconsistent (VERY LIKELY on Railway)
+Symptoms: PUT “succeeds” but decrypt fails so GET returns empty.
+Actions:
+- Require APP_ENCRYPTION_KEY in production:
+  - On server startup, if NODE_ENV=production and key missing -> log fatal error and refuse to start OR disable settings routes with clear errors.
+- Ensure encryption uses a stable algorithm (AES-GCM recommended) and includes IV + auth tag.
+- Store encrypted payload as a single string (base64) or JSON with iv/tag/ciphertext.
+- On decrypt failure: return configured=false and an admin-visible error message, NOT empty silent wipe.
+
+Fix 3: PUT does not actually update existing record (UPSERT bug)
+Symptoms: first save works sometimes but subsequent reads fail; or row never created.
+Actions:
+- Implement DB upsert:
+  - If record exists for (organizationId, key="mailgun"), UPDATE it.
+  - Else INSERT it.
+- Return { configured: true, maskedKey: "****abcd", domain, fromEmail } after save.
+
+Fix 4: Frontend not rehydrating correctly (common)
+Symptoms: save works, but UI clears on refresh because GET returns {configured:false} or form doesn’t set initial values.
+Actions:
+- After successful PUT, immediately call GET and set form state from response.
+- On mount, call GET and populate:
+  - domain
+  - fromEmail
+  - apiKey field should be blank by default (don’t show raw); show “configured” + masked key display separately.
+- Make the API key input “write-only”:
+  - If user leaves it blank on save, do NOT overwrite stored key.
+  - Only overwrite if user enters a new key.
+
+IMPORTANT behavior:
+- PUT /settings/mailgun should accept:
+  { domain, apiKey?, fromEmail, replyTo? }
+- If apiKey is omitted/empty string, keep existing stored key.
+
+Fix 5: Railway env/config confusion
+Actions:
+- Ensure the settings are stored in Postgres, not in env vars or local files.
+- If there is any code path that writes to filesystem (e.g., JSON file), remove/disable it.
+
+===============================================================================
+STEP 3: HARDEN THE API CONTRACT (MANDATORY)
+===============================================================================
+Server responses:
+
+GET /api/v1/settings/mailgun
+Return:
+{
+  configured: boolean,
+  domain: string | "",
+  fromEmail: string | "",
+  replyTo?: string | "",
+  apiKeyConfigured: boolean,
+  apiKeyMasked: string | null
+}
+
+PUT /api/v1/settings/mailgun
+- Validate domain + fromEmail formatting
+- If apiKey provided, validate non-empty
+Return same shape as GET (configured true)
+
+Errors:
+- If encryption key missing in production:
+  500 with { error: { code:"ENCRYPTION_KEY_MISSING", message:"..." } }
+
+===============================================================================
+STEP 4: ADD A “TEST SETTINGS” ENDPOINT AND UI CONFIRMATION (MANDATORY)
+===============================================================================
+- POST /api/v1/settings/mailgun/test
+Sends a test email to the current admin user.
+Return success/failure with a safe message.
+
+UI:
+- After save: show toast “Saved”
+- Show

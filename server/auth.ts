@@ -30,6 +30,12 @@ declare global {
   }
 }
 
+declare module "express-session" {
+  interface SessionData {
+    workspaceId?: string;
+  }
+}
+
 export function setupAuth(app: Express): void {
   const PgSession = connectPgSimple(session);
   const pool = new Pool({
@@ -114,18 +120,42 @@ export function setupAuth(app: Express): void {
   });
 
   app.post("/api/auth/login", (req, res, next) => {
-    passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message: string }) => {
+    passport.authenticate("local", async (err: Error | null, user: Express.User | false, info: { message: string }) => {
       if (err) {
         return res.status(500).json({ error: "Authentication error" });
       }
       if (!user) {
         return res.status(401).json({ error: info?.message || "Invalid credentials" });
       }
-      req.logIn(user, (loginErr) => {
+      req.logIn(user, async (loginErr) => {
         if (loginErr) {
           return res.status(500).json({ error: "Login failed" });
         }
-        return res.json({ user });
+        
+        try {
+          const workspaces = await storage.getWorkspacesByUser(user.id);
+          const workspaceId = workspaces.length > 0 ? workspaces[0].id : null;
+          
+          if (!workspaceId) {
+            req.logout(() => {});
+            return res.status(403).json({ 
+              error: "No workspace access. Please contact your administrator." 
+            });
+          }
+          
+          req.session.workspaceId = workspaceId;
+          
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error("Session save error:", saveErr);
+            }
+            return res.json({ user, workspaceId });
+          });
+        } catch (workspaceErr) {
+          console.error("Workspace lookup error:", workspaceErr);
+          req.logout(() => {});
+          return res.status(500).json({ error: "Failed to resolve workspace" });
+        }
       });
     })(req, res, next);
   });
@@ -149,7 +179,7 @@ export function setupAuth(app: Express): void {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Not authenticated" });
     }
-    res.json({ user: req.user });
+    res.json({ user: req.user, workspaceId: req.session.workspaceId });
   });
 }
 
