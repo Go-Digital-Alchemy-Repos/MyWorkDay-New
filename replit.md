@@ -35,7 +35,7 @@ MyWorkDay is a fully functional Asana-inspired project management application bu
 - **projects**: Projects belong to workspaces, optionally to teams and clients (via clientId)
 - **projectMembers**: User roles in projects (admin, member, viewer)
 - **sections**: Kanban columns within projects
-- **tasks**: Main task entities with title, description, status, priority, dates
+- **tasks**: Main task entities with title, description, status, priority, dates, isPersonal flag, nullable projectId
 - **taskAssignees**: Many-to-many for task assignments
 - **subtasks**: Checklist items within tasks
 - **tags**: Colored labels for categorization
@@ -140,8 +140,9 @@ MyWorkDay is a fully functional Asana-inspired project management application bu
 - DELETE /api/sections/:id - Delete section
 
 ### Tasks
-- GET /api/tasks/my - Get tasks assigned to current user
-- GET /api/projects/:projectId/tasks - List project tasks
+- GET /api/tasks/my - Get tasks assigned to current user (includes personal tasks)
+- POST /api/tasks/personal - Create a personal task (no project, auto-assigned to creator)
+- GET /api/projects/:projectId/tasks - List project tasks (excludes personal tasks)
 - GET /api/projects/:projectId/calendar-events - Get tasks for calendar view (supports start/end date range, includeSubtasks toggle)
 - GET /api/tasks/:id - Get task with relations
 - POST /api/tasks - Create task
@@ -215,6 +216,16 @@ Following design_guidelines.md with:
 - `npm run dev` - Start development server (frontend + backend on port 5000)
 - `npm run db:push` - Push database schema changes
 - `npx tsx server/seed.ts` - Seed demo data
+
+## Deploying to Railway
+1. Create a PostgreSQL database on Railway
+2. Set the `DATABASE_URL` environment variable (Railway does this automatically when you link the database)
+3. Set `SESSION_SECRET` environment variable (a random string for session encryption)
+4. Deploy - the build script automatically runs `db:push` to create database tables
+5. On first run, the app will automatically create an admin user:
+   - Email: admin@dasana.com
+   - Password: admin123
+6. After login, you can change the admin password and create additional users in Settings > Team
 
 ## User Preferences
 - Professional, clean Asana-like design

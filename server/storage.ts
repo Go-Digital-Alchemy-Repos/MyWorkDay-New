@@ -339,7 +339,8 @@ export class DatabaseStorage implements IStorage {
       const sectionTasks = await db.select().from(tasks)
         .where(and(
           eq(tasks.sectionId, section.id),
-          sql`${tasks.parentTaskId} IS NULL`
+          sql`${tasks.parentTaskId} IS NULL`,
+          eq(tasks.isPersonal, false)
         ))
         .orderBy(asc(tasks.orderIndex));
       
@@ -429,7 +430,10 @@ export class DatabaseStorage implements IStorage {
 
   async getTasksByProject(projectId: string): Promise<TaskWithRelations[]> {
     const tasksList = await db.select().from(tasks)
-      .where(eq(tasks.projectId, projectId))
+      .where(and(
+        eq(tasks.projectId, projectId),
+        eq(tasks.isPersonal, false)
+      ))
       .orderBy(asc(tasks.orderIndex));
     
     const result: TaskWithRelations[] = [];

@@ -457,6 +457,9 @@ export async function registerRoutes(
         const { itemType, taskId, parentTaskId, toSectionId, toIndex } = move;
 
         if (itemType === "task") {
+          // Skip personal tasks - they shouldn't be in project reorder requests
+          const task = await storage.getTask(taskId);
+          if (task?.isPersonal) continue;
           await storage.moveTask(taskId, toSectionId, toIndex);
         } else if (itemType === "childTask") {
           if (!parentTaskId) {
@@ -796,7 +799,15 @@ export async function registerRoutes(
 
   app.patch("/api/tasks/:id", async (req, res) => {
     try {
-      const task = await storage.updateTask(req.params.id, req.body);
+      // If converting to personal task, force clear project ties
+      const updateData = { ...req.body };
+      if (updateData.isPersonal === true) {
+        updateData.projectId = null;
+        updateData.sectionId = null;
+        updateData.parentTaskId = null;
+      }
+      
+      const task = await storage.updateTask(req.params.id, updateData);
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
       }
@@ -863,8 +874,8 @@ export async function registerRoutes(
       await storage.moveTask(req.params.id, sectionId, targetIndex);
       const task = await storage.getTaskWithRelations(req.params.id);
 
-      // Emit real-time event after successful DB operation (only for project tasks)
-      if (taskBefore.projectId) {
+      // Emit real-time event after successful DB operation (only for non-personal project tasks)
+      if (!taskBefore.isPersonal && taskBefore.projectId) {
         emitTaskMoved(
           req.params.id,
           taskBefore.projectId,
