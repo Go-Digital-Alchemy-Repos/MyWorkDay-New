@@ -410,6 +410,7 @@ export const projects = pgTable("projects", {
   visibility: text("visibility").notNull().default("workspace"),
   status: text("status").notNull().default("active"),
   color: text("color").default("#3B82F6"),
+  budgetMinutes: integer("budget_minutes"), // Optional project budget in minutes for workload forecasting
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -453,6 +454,7 @@ export const tasks = pgTable("tasks", {
   priority: text("priority").notNull().default("medium"),
   startDate: timestamp("start_date"),
   dueDate: timestamp("due_date"),
+  estimateMinutes: integer("estimate_minutes"), // Optional task estimate in minutes for workload forecasting
   isPersonal: boolean("is_personal").notNull().default(false),
   createdBy: varchar("created_by").references(() => users.id),
   orderIndex: integer("order_index").notNull().default(0),
