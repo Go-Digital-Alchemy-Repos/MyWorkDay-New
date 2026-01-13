@@ -75,6 +75,7 @@ MyWorkDay is a fully functional Asana-inspired project management application bu
   - avatar-group.tsx: Assignee display
   - project-calendar.tsx: FullCalendar integration with filtering and drag-to-reschedule
   - project-settings-sheet.tsx: Project settings including client assignment/unassignment
+  - task-selector-with-create.tsx: Reusable task selector with inline task creation for time tracking
 
 ### Backend Structure (server/)
 - **routes.ts**: API endpoints with real-time event emissions
