@@ -21,10 +21,330 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
-import { Download, Clock, FolderKanban, CheckSquare, TrendingUp, Users, Building2, User, UserCheck } from "lucide-react";
+import { Download, Clock, FolderKanban, CheckSquare, TrendingUp, Users, Building2, User, UserCheck, AlertTriangle, CalendarCheck, Flag } from "lucide-react";
 import type { Project, TimeEntry, User as UserType, Team, WorkspaceMember } from "@shared/schema";
 
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16"];
+
+interface EmployeeWorkload {
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  avatarUrl: string | null;
+  totalTasks: number;
+  openTasks: number;
+  completedTasks: number;
+  overdueTasks: number;
+  dueTodayTasks: number;
+  highPriorityTasks: number;
+  completionRate: number;
+}
+
+interface WorkloadSummary {
+  totalEmployees: number;
+  totalProjects: number;
+  totalOpenTasks: number;
+  totalCompletedTasks: number;
+  totalOverdueTasks: number;
+  avgTasksPerEmployee: number;
+}
+
+function WorkloadContent() {
+  const { data: workloadData, isLoading: workloadLoading } = useQuery<EmployeeWorkload[]>({
+    queryKey: ["/api/v1/workload/tasks-by-employee"],
+  });
+
+  const { data: summary, isLoading: summaryLoading } = useQuery<WorkloadSummary>({
+    queryKey: ["/api/v1/workload/summary"],
+  });
+
+  const handleExportWorkloadCSV = () => {
+    if (!workloadData) return;
+    
+    const headers = ["Employee", "Email", "Open Tasks", "Completed Tasks", "Overdue", "Due Today", "High Priority", "Completion Rate"];
+    const rows = workloadData.map((w) => [
+      w.firstName && w.lastName ? `${w.firstName} ${w.lastName}` : w.email,
+      w.email,
+      w.openTasks.toString(),
+      w.completedTasks.toString(),
+      w.overdueTasks.toString(),
+      w.dueTodayTasks.toString(),
+      w.highPriorityTasks.toString(),
+      `${w.completionRate}%`,
+    ]);
+    
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `workload-report-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
+
+  const getInitials = (firstName: string | null, lastName: string | null, email: string) => {
+    if (firstName && lastName) {
+      return `${firstName[0]}${lastName[0]}`.toUpperCase();
+    }
+    return email.slice(0, 2).toUpperCase();
+  };
+
+  const getName = (w: EmployeeWorkload) => {
+    if (w.firstName && w.lastName) {
+      return `${w.firstName} ${w.lastName}`;
+    }
+    return w.email;
+  };
+
+  if (workloadLoading || summaryLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="pt-4">
+                <div className="h-16 bg-muted animate-pulse rounded" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium">Task Workload by Employee</h3>
+          <p className="text-sm text-muted-foreground">
+            View task distribution and workload across your team
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleExportWorkloadCSV} data-testid="button-export-workload-csv">
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
+        </Button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Open Tasks</CardTitle>
+            <CheckSquare className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary?.totalOpenTasks || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              across {summary?.totalProjects || 0} projects
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Completed</CardTitle>
+            <CalendarCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{summary?.totalCompletedTasks || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              total completed tasks
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Overdue</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-destructive">{summary?.totalOverdueTasks || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              require attention
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Avg per Employee</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary?.avgTasksPerEmployee || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              tasks per team member
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Employee Workload Overview</CardTitle>
+          <CardDescription>Tasks assigned to each team member</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Employee</TableHead>
+                <TableHead className="text-center">Open</TableHead>
+                <TableHead className="text-center">Completed</TableHead>
+                <TableHead className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                    Overdue
+                  </div>
+                </TableHead>
+                <TableHead className="text-center">Due Today</TableHead>
+                <TableHead className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Flag className="h-3.5 w-3.5" />
+                    Priority
+                  </div>
+                </TableHead>
+                <TableHead className="text-center">Completion Rate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {workloadData && workloadData.length > 0 ? (
+                workloadData.map((employee) => (
+                  <TableRow key={employee.userId}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={employee.avatarUrl || undefined} />
+                          <AvatarFallback>{getInitials(employee.firstName, employee.lastName, employee.email)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-medium">{getName(employee)}</div>
+                          <div className="text-xs text-muted-foreground">{employee.email}</div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="outline">{employee.openTasks}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className="text-green-600 font-medium">{employee.completedTasks}</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {employee.overdueTasks > 0 ? (
+                        <Badge variant="destructive">{employee.overdueTasks}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {employee.dueTodayTasks > 0 ? (
+                        <Badge variant="secondary">{employee.dueTodayTasks}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {employee.highPriorityTasks > 0 ? (
+                        <Badge className="bg-orange-500 hover:bg-orange-600">{employee.highPriorityTasks}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary rounded-full" 
+                            style={{ width: `${employee.completionRate}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium">{employee.completionRate}%</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    No employee workload data available
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {workloadData && workloadData.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Open Tasks Distribution</CardTitle>
+              <CardDescription>Tasks by employee</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart 
+                    data={workloadData.slice(0, 8).map((w) => ({
+                      name: w.firstName || w.email.split("@")[0],
+                      openTasks: w.openTasks,
+                      overdue: w.overdueTasks,
+                    }))}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis type="number" className="text-xs" />
+                    <YAxis dataKey="name" type="category" className="text-xs" width={80} />
+                    <Tooltip />
+                    <Bar dataKey="openTasks" name="Open Tasks" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="overdue" name="Overdue" fill="hsl(var(--destructive))" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Completion Rates</CardTitle>
+              <CardDescription>Task completion by employee</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={workloadData.filter((w) => w.totalTasks > 0).slice(0, 8).map((w) => ({
+                        name: w.firstName || w.email.split("@")[0],
+                        value: w.completionRate,
+                      }))}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, value }) => `${name}: ${value}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {workloadData.slice(0, 8).map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface TimeEntryWithRelations extends TimeEntry {
   user?: UserType;
@@ -272,6 +592,7 @@ export function ReportsTab() {
       <Tabs defaultValue="time-tracking" className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="time-tracking">Time Tracking</TabsTrigger>
+          <TabsTrigger value="workload">Workload</TabsTrigger>
           <TabsTrigger value="employees">Employees</TabsTrigger>
           <TabsTrigger value="teams">Teams</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
@@ -371,6 +692,10 @@ export function ReportsTab() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="workload" className="space-y-4">
+          <WorkloadContent />
         </TabsContent>
 
         <TabsContent value="employees" className="space-y-4">
