@@ -51,6 +51,7 @@ interface TenancyHealthResponse {
     blockers: string[];
   };
   activeTenantCount: number;
+  persistenceEnabled: boolean;
 }
 
 interface TenantWithDetails extends Tenant {
@@ -124,7 +125,7 @@ export default function SuperAdminPage() {
     queryKey: ["/api/v1/super/tenants-detail"],
   });
 
-  const { data: healthData, isLoading: healthLoading, refetch: refetchHealth } = useQuery<TenancyHealthResponse>({
+  const { data: healthData, isLoading: healthLoading, isError: healthError, error: healthErrorDetails, refetch: refetchHealth } = useQuery<TenancyHealthResponse>({
     queryKey: ["/api/v1/super/tenancy/health"],
     enabled: activeTab === "health",
   });
@@ -1181,6 +1182,12 @@ export default function SuperAdminPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {!healthData.persistenceEnabled && (
+                    <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-600 dark:text-amber-400">
+                      Warning persistence is disabled. Set TENANCY_WARN_PERSIST=true to enable persistent warning storage.
+                      Statistics shown are from in-memory counters only.
+                    </div>
+                  )}
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center p-4 rounded-lg bg-muted/50">
                       <div className="text-2xl font-bold">{healthData.warningStats.last24Hours}</div>
@@ -1218,10 +1225,28 @@ export default function SuperAdminPage() {
                 </CardContent>
               </Card>
             </div>
+          ) : healthError ? (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center">
+                  <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-4" />
+                  <div className="text-destructive font-medium mb-2">Failed to load health data</div>
+                  <div className="text-sm text-muted-foreground mb-4">
+                    {healthErrorDetails instanceof Error 
+                      ? healthErrorDetails.message 
+                      : "Unknown error occurred"}
+                  </div>
+                  <Button variant="outline" onClick={() => refetchHealth()}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Try Again
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           ) : (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
-                Failed to load health data. Click refresh to try again.
+                No health data available. Click refresh to load.
               </CardContent>
             </Card>
           )}

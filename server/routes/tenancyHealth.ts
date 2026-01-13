@@ -87,7 +87,10 @@ function computeReadiness(
   };
 }
 
-router.get("/api/v1/super/tenancy/health", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+router.get("/v1/super/tenancy/health", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[TenancyHealth] Health endpoint hit by user:", (req as any).user?.id, "role:", (req as any).user?.role);
+  }
   try {
     const now = new Date();
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -170,7 +173,7 @@ router.get("/api/v1/super/tenancy/health", requireAuth, requireSuperUser, async 
   }
 });
 
-router.get("/api/v1/super/tenancy/warnings", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+router.get("/v1/super/tenancy/warnings", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
   if (!tenancyHealthTracker.isPersistenceEnabled()) {
     return res.status(501).json({
       error: "Warning persistence not enabled",
@@ -200,7 +203,7 @@ router.get("/api/v1/super/tenancy/warnings", requireAuth, requireSuperUser, asyn
   }
 });
 
-router.post("/api/v1/super/tenancy/backfill", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+router.post("/v1/super/tenancy/backfill", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
   const confirmHeader = req.headers["x-confirm-backfill"];
   if (confirmHeader !== "YES") {
     return res.status(400).json({
@@ -291,7 +294,7 @@ router.post("/api/v1/super/tenancy/backfill", requireAuth, requireSuperUser, asy
   }
 });
 
-router.get("/api/v1/tenant/tenancy/health", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/tenant/tenancy/health", requireAuth, async (req: Request, res: Response) => {
   const user = req.user as any;
   if (!user) {
     return res.status(401).json({ error: "Unauthorized" });

@@ -117,7 +117,7 @@ export async function registerRoutes(
   app.use("/api", (req, res, next) => {
     if (req.path.startsWith("/auth") || 
         req.path === "/health" || 
-        req.path === "/v1/super/bootstrap" ||
+        req.path.startsWith("/v1/super/") ||
         req.path.startsWith("/v1/tenant/")) {
       return next();
     }
