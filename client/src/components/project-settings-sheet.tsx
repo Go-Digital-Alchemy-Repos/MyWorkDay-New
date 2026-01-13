@@ -42,9 +42,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { Building2, X, Archive, RotateCcw } from "lucide-react";
+import { Building2, X, Archive, RotateCcw, Search } from "lucide-react";
 import type { Project, ClientWithContacts, Team } from "@shared/schema";
 
 const PROJECT_COLORS = [
@@ -80,8 +81,9 @@ export function ProjectSettingsSheet({
   onOpenChange,
 }: ProjectSettingsSheetProps) {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [clientSearch, setClientSearch] = useState("");
 
   const { data: clients = [] } = useQuery<ClientWithContacts[]>({
     queryKey: ["/api/clients"],
@@ -90,6 +92,12 @@ export function ProjectSettingsSheet({
   const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams"],
   });
+
+  const filteredClients = clients.filter(
+    (c) =>
+      c.companyName.toLowerCase().includes(clientSearch.toLowerCase()) ||
+      c.displayName?.toLowerCase().includes(clientSearch.toLowerCase())
+  );
 
   const form = useForm<EditProjectFormData>({
     resolver: zodResolver(editProjectSchema),
@@ -111,6 +119,7 @@ export function ProjectSettingsSheet({
         color: project.color || "#3B82F6",
         visibility: (project.visibility as "workspace" | "private") || "workspace",
       });
+      setClientSearch("");
     }
   }, [open, project, form]);
 
@@ -205,6 +214,25 @@ export function ProjectSettingsSheet({
   const handleSubmit = (data: EditProjectFormData) => {
     updateProjectMutation.mutate(data);
   };
+
+  if (authLoading) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent className="sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Project Settings</SheetTitle>
+            <SheetDescription>Loading...</SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -395,6 +423,16 @@ export function ProjectSettingsSheet({
                   <Label className="text-xs text-muted-foreground">
                     {currentClient ? "Change Client" : "Assign Client"}
                   </Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search clients..."
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-search-client"
+                    />
+                  </div>
                   <Select
                     onValueChange={handleAssignClient}
                     disabled={assignClientMutation.isPending}
@@ -408,7 +446,7 @@ export function ProjectSettingsSheet({
                           <span className="text-muted-foreground">Unassign client</span>
                         </SelectItem>
                       )}
-                      {clients.map((client) => (
+                      {filteredClients.map((client) => (
                         <SelectItem
                           key={client.id}
                           value={client.id}
@@ -420,9 +458,9 @@ export function ProjectSettingsSheet({
                           </div>
                         </SelectItem>
                       ))}
-                      {clients.length === 0 && (
+                      {filteredClients.length === 0 && (
                         <div className="py-2 px-2 text-sm text-muted-foreground text-center">
-                          No clients available
+                          {clientSearch ? "No clients match your search" : "No clients available"}
                         </div>
                       )}
                     </SelectContent>
