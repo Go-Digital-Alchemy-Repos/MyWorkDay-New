@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Palette, HardDrive, Save, TestTube, Eye, EyeOff, Mail, Lock, Check, X } from "lucide-react";
+import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Palette, HardDrive, Save, TestTube, Eye, EyeOff, Mail, Lock, Check, X, Upload, FileText, Users, Download } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { TenantSettingsDialog } from "@/components/super-admin/tenant-settings-dialog";
@@ -78,6 +78,31 @@ interface InviteResponse {
   message: string;
 }
 
+interface CSVUser {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role?: "admin" | "employee";
+}
+
+interface ImportResult {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
+  success: boolean;
+  inviteUrl?: string;
+  error?: string;
+}
+
+interface ImportResponse {
+  message: string;
+  totalProcessed: number;
+  successCount: number;
+  failCount: number;
+  results: ImportResult[];
+}
+
 export default function SuperAdminPage() {
   const { toast } = useToast();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -88,6 +113,9 @@ export default function SuperAdminPage() {
   const [activeTab, setActiveTab] = useState("tenants");
   const [settingsTenant, setSettingsTenant] = useState<Tenant | null>(null);
   const [settingsTab, setSettingsTab] = useState("branding");
+  const [importingTenant, setImportingTenant] = useState<Tenant | null>(null);
+  const [csvUsers, setCsvUsers] = useState<CSVUser[]>([]);
+  const [importResults, setImportResults] = useState<ImportResponse | null>(null);
 
   const { data: tenants = [], isLoading } = useQuery<TenantWithDetails[]>({
     queryKey: ["/api/v1/super/tenants-detail"],
@@ -152,6 +180,87 @@ export default function SuperAdminPage() {
       toast({ title: "Failed to create invitation", description: error.message, variant: "destructive" });
     },
   });
+
+  const importUsersMutation = useMutation({
+    mutationFn: async ({ tenantId, users }: { tenantId: string; users: CSVUser[] }) => {
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/import-users`, { users });
+      return res.json() as Promise<ImportResponse>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
+      setImportResults(data);
+      toast({ 
+        title: "Import complete", 
+        description: `${data.successCount} of ${data.totalProcessed} users imported successfully` 
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Import failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const parseCSV = (csvText: string): CSVUser[] => {
+    const lines = csvText.trim().split("\n");
+    if (lines.length < 2) return [];
+    
+    const headerLine = lines[0].toLowerCase();
+    const headers = headerLine.split(",").map(h => h.trim().replace(/"/g, ""));
+    
+    const emailIndex = headers.findIndex(h => h === "email" || h === "e-mail" || h === "emailaddress");
+    const firstNameIndex = headers.findIndex(h => h === "firstname" || h === "first_name" || h === "first name" || h === "first");
+    const lastNameIndex = headers.findIndex(h => h === "lastname" || h === "last_name" || h === "last name" || h === "last");
+    const roleIndex = headers.findIndex(h => h === "role");
+    
+    if (emailIndex === -1) return [];
+    
+    const users: CSVUser[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
+      const email = values[emailIndex];
+      if (!email || !email.includes("@")) continue;
+      
+      const user: CSVUser = { email };
+      if (firstNameIndex !== -1 && values[firstNameIndex]) user.firstName = values[firstNameIndex];
+      if (lastNameIndex !== -1 && values[lastNameIndex]) user.lastName = values[lastNameIndex];
+      if (roleIndex !== -1 && values[roleIndex]) {
+        const role = values[roleIndex].toLowerCase();
+        if (role === "admin" || role === "employee") user.role = role;
+      }
+      users.push(user);
+    }
+    return users;
+  };
+
+  const handleCSVFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const users = parseCSV(text);
+      setCsvUsers(users);
+      if (users.length === 0) {
+        toast({ title: "Invalid CSV", description: "Could not find any valid email addresses in the CSV file", variant: "destructive" });
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportUsers = () => {
+    if (!importingTenant || csvUsers.length === 0) return;
+    importUsersMutation.mutate({ tenantId: importingTenant.id, users: csvUsers });
+  };
+
+  const copyAllInviteLinks = () => {
+    if (!importResults) return;
+    const successfulLinks = importResults.results
+      .filter(r => r.success && r.inviteUrl)
+      .map(r => `${r.email}: ${r.inviteUrl}`)
+      .join("\n");
+    navigator.clipboard.writeText(successfulLinks);
+    toast({ title: "Copied!", description: "All invite links copied to clipboard" });
+  };
 
   const backfillMutation = useMutation({
     mutationFn: async ({ dryRun }: { dryRun: boolean }) => {
@@ -397,6 +506,19 @@ export default function SuperAdminPage() {
                       </Button>
                     )}
                     <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setImportingTenant(tenant);
+                        setCsvUsers([]);
+                        setImportResults(null);
+                      }}
+                      data-testid={`button-import-users-${tenant.id}`}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import CSV
+                    </Button>
+                    <Button
                       size="icon"
                       variant="ghost"
                       onClick={() => setSettingsTenant(tenant)}
@@ -589,6 +711,201 @@ export default function SuperAdminPage() {
                 </Button>
               </DialogFooter>
             </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!importingTenant} onOpenChange={(open) => { if (!open) { setImportingTenant(null); setCsvUsers([]); setImportResults(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Import Users via CSV
+            </DialogTitle>
+            <DialogDescription>
+              Bulk import users into {importingTenant?.name}. Upload a CSV file with columns: email, firstName, lastName, role (admin/employee).
+            </DialogDescription>
+          </DialogHeader>
+          
+          {importResults ? (
+            <div className="space-y-4">
+              <div className={`p-4 rounded-lg border ${importResults.failCount === 0 ? 'bg-green-500/10 border-green-500/20' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
+                <p className="text-sm font-medium mb-1">
+                  {importResults.successCount === importResults.totalProcessed 
+                    ? "All users imported successfully!" 
+                    : `${importResults.successCount} of ${importResults.totalProcessed} imported`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {importResults.failCount > 0 && `${importResults.failCount} failed (see errors below)`}
+                </p>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <Label>Import Results</Label>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={copyAllInviteLinks}
+                  disabled={importResults.successCount === 0}
+                  data-testid="button-copy-all-links"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy All Links
+                </Button>
+              </div>
+              
+              <div className="max-h-64 overflow-y-auto border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted sticky top-0">
+                    <tr>
+                      <th className="text-left p-2">Email</th>
+                      <th className="text-left p-2">Name</th>
+                      <th className="text-left p-2">Status</th>
+                      <th className="text-left p-2">Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importResults.results.map((result, idx) => (
+                      <tr key={idx} className="border-t">
+                        <td className="p-2 font-mono text-xs">{result.email}</td>
+                        <td className="p-2 text-xs">{result.firstName} {result.lastName}</td>
+                        <td className="p-2">
+                          {result.success ? (
+                            <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
+                              <Check className="h-3 w-3 mr-1" />
+                              Success
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/20">
+                              <X className="h-3 w-3 mr-1" />
+                              {result.error || "Failed"}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          {result.inviteUrl && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                navigator.clipboard.writeText(result.inviteUrl!);
+                                toast({ title: "Copied!", description: "Invite link copied to clipboard" });
+                              }}
+                              data-testid={`button-copy-link-${idx}`}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              <DialogFooter>
+                <Button onClick={() => { setImportingTenant(null); setCsvUsers([]); setImportResults(null); }} data-testid="button-done-import">
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                <FileText className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+                <Label htmlFor="csv-file" className="cursor-pointer">
+                  <span className="text-sm font-medium">Click to upload CSV file</span>
+                  <br />
+                  <span className="text-xs text-muted-foreground">or drag and drop</span>
+                </Label>
+                <Input
+                  id="csv-file"
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleCSVFileChange}
+                  data-testid="input-csv-file"
+                />
+              </div>
+              
+              <div className="text-xs text-muted-foreground p-3 bg-muted rounded-lg">
+                <p className="font-medium mb-1">CSV Format:</p>
+                <code className="block">email,firstName,lastName,role</code>
+                <code className="block">john@example.com,John,Doe,employee</code>
+                <code className="block">jane@example.com,Jane,Smith,admin</code>
+              </div>
+              
+              {csvUsers.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Preview ({csvUsers.length} users found)</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCsvUsers([])}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto border rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted sticky top-0">
+                        <tr>
+                          <th className="text-left p-2">Email</th>
+                          <th className="text-left p-2">First Name</th>
+                          <th className="text-left p-2">Last Name</th>
+                          <th className="text-left p-2">Role</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvUsers.slice(0, 10).map((user, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="p-2 font-mono text-xs">{user.email}</td>
+                            <td className="p-2 text-xs">{user.firstName || "-"}</td>
+                            <td className="p-2 text-xs">{user.lastName || "-"}</td>
+                            <td className="p-2">
+                              <Badge variant="outline" className="text-xs">
+                                {user.role || "employee"}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                        {csvUsers.length > 10 && (
+                          <tr className="border-t">
+                            <td colSpan={4} className="p-2 text-center text-xs text-muted-foreground">
+                              ...and {csvUsers.length - 10} more
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setImportingTenant(null)}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleImportUsers} 
+                  disabled={csvUsers.length === 0 || importUsersMutation.isPending}
+                  data-testid="button-import-users"
+                >
+                  {importUsersMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import {csvUsers.length} User{csvUsers.length !== 1 ? "s" : ""}
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
           )}
         </DialogContent>
       </Dialog>

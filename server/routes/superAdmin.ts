@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
@@ -353,6 +353,149 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
     }
     console.error("Error creating tenant admin invitation:", error);
     res.status(500).json({ error: "Failed to create invitation" });
+  }
+});
+
+// =============================================================================
+// BULK CSV IMPORT - Import users from CSV with invite links
+// =============================================================================
+
+const csvUserSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  role: z.enum(["admin", "employee"]).optional().default("employee"),
+});
+
+const bulkImportSchema = z.object({
+  users: z.array(csvUserSchema).min(1, "At least one user is required").max(500, "Maximum 500 users per import"),
+  expiresInDays: z.number().min(1).max(30).optional(),
+});
+
+interface ImportResult {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
+  success: boolean;
+  inviteUrl?: string;
+  error?: string;
+}
+
+router.post("/tenants/:tenantId/import-users", requireSuperUser, async (req, res) => {
+  try {
+    const tenantId = req.params.tenantId;
+    const data = bulkImportSchema.parse(req.body);
+
+    // Verify tenant exists
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    // Get or create a default workspace for the tenant
+    let workspaceId: string;
+    const allWorkspaces = await db.select().from(workspaces);
+    const tenantWorkspace = allWorkspaces.find(w => w.name === `${tenant.name} Workspace`);
+    
+    if (tenantWorkspace) {
+      workspaceId = tenantWorkspace.id;
+    } else {
+      const [newWorkspace] = await db.insert(workspaces).values({
+        name: `${tenant.name} Workspace`,
+      }).returning();
+      workspaceId = newWorkspace.id;
+    }
+
+    const superUser = req.user as any;
+    if (!superUser?.id) {
+      return res.status(401).json({ error: "User not authenticated" });
+    }
+
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const results: ImportResult[] = [];
+
+    // Check for existing emails to avoid duplicates
+    const existingEmails = new Set(
+      (await db.select({ email: users.email }).from(users))
+        .map(u => u.email.toLowerCase())
+    );
+
+    // Process each user
+    for (const user of data.users) {
+      const emailLower = user.email.toLowerCase();
+      
+      // Skip if email already exists as a user
+      if (existingEmails.has(emailLower)) {
+        results.push({
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role || "employee",
+          success: false,
+          error: "Email already exists in the system",
+        });
+        continue;
+      }
+
+      try {
+        // Create the invitation
+        const { invitation, token } = await storage.createTenantAdminInvitation({
+          tenantId,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          expiresInDays: data.expiresInDays,
+          createdByUserId: superUser.id,
+          workspaceId,
+        });
+
+        // Override the role if not admin (the storage method defaults to admin)
+        if (user.role === "employee") {
+          await db.update(invitations)
+            .set({ role: "employee" })
+            .where(eq(invitations.id, invitation.id));
+        }
+
+        const inviteUrl = `${baseUrl}/invite/${token}`;
+
+        results.push({
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role || "employee",
+          success: true,
+          inviteUrl,
+        });
+      } catch (err) {
+        console.error(`Error creating invitation for ${user.email}:`, err);
+        results.push({
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role || "employee",
+          success: false,
+          error: "Failed to create invitation",
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+
+    res.status(201).json({
+      message: `Imported ${successCount} user(s) successfully. ${failCount} failed.`,
+      totalProcessed: data.users.length,
+      successCount,
+      failCount,
+      results,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error importing users:", error);
+    res.status(500).json({ error: "Failed to import users" });
   }
 });
 
