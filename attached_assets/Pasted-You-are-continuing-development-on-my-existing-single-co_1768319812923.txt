@@ -1,0 +1,108 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY the “Create Task from Time Entry” enhancement described below. Preserve all existing functionality (Clients→Projects→Tasks/Subtasks, time tracking timers/manual entries, attachments, sockets, etc.).
+
+CRITICAL CONSTRAINTS
+- React frontend under /client, Express backend under /server
+- Do NOT change database schema for this feature unless absolutely necessary (it should not be necessary)
+- Do NOT remove/rename any endpoints; reuse existing task creation endpoints
+- Use existing UI patterns (slide-out panels; avoid introducing new modal systems)
+- If realtime events are emitted, ALL emits must go through /server/src/realtime/events.ts
+
+===============================================================================
+GOAL
+===============================================================================
+When creating a new time entry (manual entry modal/slide-out AND timer finalize flow),
+if the user cannot find a task in the selected project, they must be able to create a new task
+directly from the time entry UI, and then immediately assign the time entry to that new task.
+
+This must work without leaving the time entry flow.
+
+===============================================================================
+1) UI/UX REQUIREMENTS (MANDATORY)
+===============================================================================
+
+Where this must work:
+A) Manual “New Time Entry” slide-out/modal (wherever time entries are created)
+B) Timer “Finalize / Save & Stop” slide-out (when stopping timer)
+C) (Optional) Timer Start flow if you require task selection at start
+
+Behavior:
+1) The user selects Client → Project
+2) The Task dropdown loads tasks for the project (open tasks by default)
+3) In the Task dropdown area provide:
+   - a visible button/link: “+ Create New Task”
+   - show it:
+     - always, OR at least when no tasks match search / list empty
+4) Clicking “+ Create New Task” opens an inline slide-out section (or nested slide-out) with fields:
+   - Task Title (required)
+   - Description (optional)
+   - Priority (optional, if your tasks support it)
+   - Status/Section (optional; default to first active section)
+   - Assignee (optional)
+   - Tags (optional)
+   - Confirm Create button
+
+After creating:
+- Create task via API under the currently selected project
+- Refresh tasks list for that project
+- Auto-select the newly created task in the time entry UI
+- If the new task has subtasks (none initially), do not show subtask dropdown
+- User can then save the time entry immediately (or finalize timer)
+
+Edge cases:
+- If Client or Project is not selected, disable “Create New Task” and show tooltip:
+  “Select a project first.”
+- If the task create request fails, show error and keep user in time entry flow.
+
+===============================================================================
+2) BACKEND REQUIREMENTS (REUSE EXISTING ENDPOINTS)
+===============================================================================
+Do NOT create new task creation APIs if one already exists.
+
+Reuse one of:
+- POST /api/v1/projects/:projectId/tasks
+or existing equivalent.
+
+Payload must include at minimum:
+- title
+- description? and any other existing task fields
+
+Ensure response returns new task object with id and projectId.
+
+If task creation currently requires additional fields, provide safe defaults on server (e.g., status = “Open”).
+
+===============================================================================
+3) TIME ENTRY INTEGRATION (MANDATORY)
+===============================================================================
+When the new task is created and auto-selected:
+- Time entry should store taskId = newTask.id
+- Save/create time entry uses the same API as before
+- Timer finalize uses the same API as before
+
+Ensure cascading dropdown logic remains:
+- Changing project resets selected task/subtask
+- After task creation, selected task should remain consistent with the current project
+
+===============================================================================
+4) REALTIME (OPTIONAL BUT RECOMMENDED)
+===============================================================================
+If you already emit task:created, ensure it fires (via /server/src/realtime/events.ts).
+Also ensure time entry creation/update events still function.
+
+===============================================================================
+5) ACCEPTANCE CRITERIA (MUST WORK)
+===============================================================================
+1) In New Time Entry UI, user can click “+ Create New Task” after selecting a project
+2) Task is created successfully and appears in the task dropdown without leaving the flow
+3) Newly created task is auto-selected
+4) User can save the time entry and it is linked to that new task
+5) Same workflow works in Timer Finalize panel before stopping timer
+6) No existing features are broken
+
+===============================================================================
+6) OUTPUT REQUIRED
+===============================================================================
+When done, output:
+- Summary of changes
+- Files modified
+- Any endpoints reused/added (should be reused)
+- Manual test steps for acceptance criteria
