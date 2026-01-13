@@ -72,6 +72,9 @@ interface InviteResponse {
     tenantId: string;
   };
   inviteUrl: string;
+  inviteType: "link" | "email";
+  emailSent: boolean;
+  emailError: string | null;
   message: string;
 }
 
@@ -81,6 +84,7 @@ export default function SuperAdminPage() {
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [invitingTenant, setInvitingTenant] = useState<Tenant | null>(null);
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
+  const [inviteType, setInviteType] = useState<"link" | "email">("link");
   const [activeTab, setActiveTab] = useState("tenants");
   const [settingsTenant, setSettingsTenant] = useState<Tenant | null>(null);
   const [settingsTab, setSettingsTab] = useState("branding");
@@ -123,25 +127,47 @@ export default function SuperAdminPage() {
   });
 
   const inviteAdminMutation = useMutation({
-    mutationFn: async ({ tenantId, email, firstName, lastName }: { tenantId: string; email: string; firstName?: string; lastName?: string }) => {
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/invite-admin`, { email, firstName, lastName });
+    mutationFn: async ({ tenantId, email, firstName, lastName, inviteType }: { tenantId: string; email: string; firstName?: string; lastName?: string; inviteType: "link" | "email" }) => {
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/invite-admin`, { email, firstName, lastName, inviteType });
       return res.json() as Promise<InviteResponse>;
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
       setLastInviteUrl(data.inviteUrl);
-      toast({ title: "Invitation sent", description: `Invite link created for ${data.invitation.email}` });
+      if (variables.inviteType === "email") {
+        if (data.emailSent) {
+          toast({ title: "Email sent", description: `Invitation email sent to ${data.invitation.email}` });
+        } else if (data.emailError) {
+          toast({ 
+            title: "Email not sent", 
+            description: data.emailError, 
+            variant: "destructive" 
+          });
+        }
+      } else {
+        toast({ title: "Invite link created", description: `Copy the link to share with ${data.invitation.email}` });
+      }
     },
     onError: (error: any) => {
-      toast({ title: "Failed to send invitation", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to create invitation", description: error.message, variant: "destructive" });
     },
   });
 
   const backfillMutation = useMutation({
     mutationFn: async ({ dryRun }: { dryRun: boolean }) => {
-      const res = await apiRequest("POST", "/api/v1/super/tenancy/backfill", { dryRun }, {
-        headers: { "X-Confirm-Backfill": "YES" }
+      const res = await fetch("/api/v1/super/tenancy/backfill", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Confirm-Backfill": "YES" 
+        },
+        credentials: "include",
+        body: JSON.stringify({ dryRun }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
       return res.json();
     },
     onSuccess: (data, variables) => {
@@ -191,7 +217,8 @@ export default function SuperAdminPage() {
       tenantId: invitingTenant.id, 
       email, 
       firstName: firstName || undefined, 
-      lastName: lastName || undefined 
+      lastName: lastName || undefined,
+      inviteType 
     });
   };
 
@@ -361,6 +388,7 @@ export default function SuperAdminPage() {
                         onClick={() => {
                           setInvitingTenant(tenant);
                           setLastInviteUrl(null);
+                          setInviteType("link");
                         }}
                         data-testid={`button-invite-admin-${tenant.id}`}
                       >
@@ -475,6 +503,38 @@ export default function SuperAdminPage() {
           ) : (
             <form onSubmit={handleInviteAdmin} className="space-y-4">
               <div className="space-y-2">
+                <Label>Invite Method</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={inviteType === "link" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setInviteType("link")}
+                    className="flex-1"
+                    data-testid="button-invite-type-link"
+                  >
+                    <Copy className="h-4 w-4 mr-2" />
+                    Generate Link
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={inviteType === "email" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setInviteType("email")}
+                    className="flex-1"
+                    data-testid="button-invite-type-email"
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    Send Email
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {inviteType === "link" 
+                    ? "Generate a link to copy and share manually" 
+                    : "Send an email invitation (requires Mailgun to be configured)"}
+                </p>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="invite-email">Email Address</Label>
                 <Input
                   id="invite-email"
@@ -513,12 +573,17 @@ export default function SuperAdminPage() {
                   {inviteAdminMutation.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Sending...
+                      {inviteType === "email" ? "Sending..." : "Creating..."}
+                    </>
+                  ) : inviteType === "email" ? (
+                    <>
+                      <Mail className="h-4 w-4 mr-2" />
+                      Send Email
                     </>
                   ) : (
                     <>
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Send Invitation
+                      <Copy className="h-4 w-4 mr-2" />
+                      Generate Link
                     </>
                   )}
                 </Button>

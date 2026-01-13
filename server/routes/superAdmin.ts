@@ -240,6 +240,7 @@ const inviteAdminSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   expiresInDays: z.number().min(1).max(30).optional(),
+  inviteType: z.enum(["link", "email"]).optional().default("link"),
 });
 
 router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res) => {
@@ -290,6 +291,45 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
     const inviteUrl = `${baseUrl}/invite/${token}`;
 
+    let emailSent = false;
+    let emailError: string | null = null;
+
+    // If email type is requested, attempt to send email via Mailgun
+    if (data.inviteType === "email") {
+      try {
+        // Check if Mailgun is configured for this tenant
+        const mailgunConfig = await tenantIntegrationService.getIntegrationWithSecrets(tenantId, "mailgun");
+        
+        if (mailgunConfig && mailgunConfig.publicConfig && mailgunConfig.secretConfig) {
+          // Mailgun is configured - send the email
+          const { domain, fromEmail, replyTo } = mailgunConfig.publicConfig as { domain: string; fromEmail: string; replyTo?: string };
+          const { apiKey } = mailgunConfig.secretConfig as { apiKey: string };
+          
+          // Basic email sending via Mailgun API
+          const FormData = (await import("form-data")).default;
+          const Mailgun = (await import("mailgun.js")).default;
+          const mailgun = new Mailgun(FormData);
+          const mg = mailgun.client({ username: "api", key: apiKey });
+          
+          await mg.messages.create(domain, {
+            from: fromEmail,
+            to: [data.email],
+            subject: `You're invited to join ${tenant.name}`,
+            text: `You've been invited to become an admin for ${tenant.name}.\n\nClick the link below to accept your invitation:\n${inviteUrl}\n\nThis invitation expires in ${data.expiresInDays || 7} days.`,
+            html: `<p>You've been invited to become an admin for <strong>${tenant.name}</strong>.</p><p><a href="${inviteUrl}">Click here to accept your invitation</a></p><p>This invitation expires in ${data.expiresInDays || 7} days.</p>`,
+            ...(replyTo ? { "h:Reply-To": replyTo } : {}),
+          });
+          
+          emailSent = true;
+        } else {
+          emailError = "Mailgun is not configured for this tenant. The invite link has been generated instead.";
+        }
+      } catch (mailError) {
+        console.error("Error sending invitation email:", mailError);
+        emailError = "Failed to send email. The invite link has been generated instead.";
+      }
+    }
+
     res.status(201).json({
       invitation: {
         id: invitation.id,
@@ -300,7 +340,12 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
         tenantId: invitation.tenantId,
       },
       inviteUrl,
-      message: "Invitation created successfully. Share the invite URL with the tenant admin.",
+      inviteType: data.inviteType,
+      emailSent,
+      emailError,
+      message: emailSent 
+        ? `Email invitation sent to ${data.email}. The invite link has also been generated.`
+        : "Invitation created successfully. Share the invite URL with the tenant admin.",
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

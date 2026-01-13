@@ -220,6 +220,35 @@ export class TenantIntegrationService {
     }
   }
 
+  async getIntegrationWithSecrets(tenantId: string, provider: IntegrationProvider): Promise<{ publicConfig: PublicConfig | null; secretConfig: SecretConfig | null } | null> {
+    const [integration] = await db
+      .select()
+      .from(tenantIntegrations)
+      .where(and(
+        eq(tenantIntegrations.tenantId, tenantId),
+        eq(tenantIntegrations.provider, provider)
+      ))
+      .limit(1);
+
+    if (!integration) {
+      return null;
+    }
+
+    let secretConfig: SecretConfig | null = null;
+    if (integration.configEncrypted) {
+      try {
+        secretConfig = JSON.parse(decryptValue(integration.configEncrypted));
+      } catch {
+        console.error(`[TenantIntegrations] Failed to decrypt secrets for ${provider}`);
+      }
+    }
+
+    return {
+      publicConfig: integration.configPublic as PublicConfig | null,
+      secretConfig,
+    };
+  }
+
   async testIntegration(tenantId: string, provider: IntegrationProvider): Promise<{ success: boolean; message: string }> {
     const integration = await this.getIntegration(tenantId, provider);
     
