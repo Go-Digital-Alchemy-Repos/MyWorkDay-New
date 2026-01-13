@@ -50,7 +50,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">DASANA</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">MyWorkDay</CardTitle>
           <CardDescription className="text-center">
             Enter your credentials to access your workspace
           </CardDescription>

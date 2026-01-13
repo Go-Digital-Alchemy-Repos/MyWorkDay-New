@@ -1,7 +1,7 @@
-# DASANA - Project Management Application
+# MyWorkDay - Project Management Application
 
 ## Overview
-DASANA is a fully functional Asana-inspired project management application built with React, Express, and PostgreSQL. It features workspaces, teams, clients (CRM module), projects, sections, tasks with subtasks, tags, comments, and activity tracking.
+MyWorkDay is a fully functional Asana-inspired project management application built with React, Express, and PostgreSQL. It features workspaces, teams, clients (CRM module), projects, sections, tasks with subtasks, tags, comments, and activity tracking.
 
 ## Current State
 - **Status**: MVP Complete with Authentication
