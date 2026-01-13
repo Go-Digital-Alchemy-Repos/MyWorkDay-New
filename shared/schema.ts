@@ -117,20 +117,58 @@ export const tenants = pgTable("tenants", {
 ]);
 
 /**
- * Tenant Settings table - stores per-tenant configuration
+ * Tenant Settings table - stores per-tenant configuration including white-label branding
  * One-to-one relationship with tenants
  */
 export const tenantSettings = pgTable("tenant_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id").references(() => tenants.id).notNull().unique(),
-  displayName: text("display_name").notNull(),
+  // Branding fields
+  displayName: text("display_name").notNull(), // Also serves as brandName
+  appName: text("app_name"), // Optional custom app name shown in UI
   logoUrl: text("logo_url"),
-  primaryColor: text("primary_color"),
+  faviconUrl: text("favicon_url"),
+  primaryColor: text("primary_color"), // Hex color
+  secondaryColor: text("secondary_color"), // Hex color
+  accentColor: text("accent_color"), // Hex color
+  loginMessage: text("login_message"), // Optional message on login/onboarding
   supportEmail: text("support_email"),
+  // White label toggles
+  whiteLabelEnabled: boolean("white_label_enabled").notNull().default(false),
+  hideVendorBranding: boolean("hide_vendor_branding").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("tenant_settings_tenant_idx").on(table.tenantId),
+]);
+
+/**
+ * Integration status enum
+ */
+export const IntegrationStatus = {
+  NOT_CONFIGURED: "not_configured",
+  CONFIGURED: "configured",
+  ERROR: "error",
+} as const;
+
+/**
+ * Tenant Integrations table - stores per-tenant integration configurations
+ * Supports multiple providers (mailgun, s3, stripe, etc.) with encrypted secrets
+ */
+export const tenantIntegrations = pgTable("tenant_integrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  provider: text("provider").notNull(), // "mailgun", "s3", "stripe", etc.
+  configEncrypted: text("config_encrypted"), // Encrypted JSON blob for secrets
+  configPublic: jsonb("config_public"), // Non-secret fields (domain, region, etc.)
+  status: text("status").notNull().default("not_configured"),
+  lastTestedAt: timestamp("last_tested_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("tenant_integrations_tenant_idx").on(table.tenantId),
+  index("tenant_integrations_provider_idx").on(table.provider),
+  uniqueIndex("tenant_integrations_tenant_provider_unique").on(table.tenantId, table.provider),
 ]);
 
 // Tenancy warning type enum
@@ -619,6 +657,7 @@ export const tenantsRelations = relations(tenants, ({ one, many }) => ({
     fields: [tenants.id],
     references: [tenantSettings.tenantId],
   }),
+  integrations: many(tenantIntegrations),
   users: many(users),
   teams: many(teams),
   clients: many(clients),
@@ -633,6 +672,13 @@ export const tenantsRelations = relations(tenants, ({ one, many }) => ({
 export const tenantSettingsRelations = relations(tenantSettings, ({ one }) => ({
   tenant: one(tenants, {
     fields: [tenantSettings.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const tenantIntegrationsRelations = relations(tenantIntegrations, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [tenantIntegrations.tenantId],
     references: [tenants.id],
   }),
 }));
@@ -984,6 +1030,12 @@ export const insertTenantSettingsSchema = createInsertSchema(tenantSettings).omi
   updatedAt: true,
 });
 
+export const insertTenantIntegrationSchema = createInsertSchema(tenantIntegrations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertTenancyWarningSchema = createInsertSchema(tenancyWarnings).omit({
   id: true,
   occurredAt: true,
@@ -1149,6 +1201,9 @@ export type InsertTenant = z.infer<typeof insertTenantSchema>;
 
 export type TenantSettings = typeof tenantSettings.$inferSelect;
 export type InsertTenantSettings = z.infer<typeof insertTenantSettingsSchema>;
+
+export type TenantIntegration = typeof tenantIntegrations.$inferSelect;
+export type InsertTenantIntegration = z.infer<typeof insertTenantIntegrationSchema>;
 
 export type TenancyWarning = typeof tenancyWarnings.$inferSelect;
 export type InsertTenancyWarning = z.infer<typeof insertTenancyWarningSchema>;
