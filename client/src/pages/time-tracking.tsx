@@ -210,10 +210,8 @@ function ActiveTimerPanel() {
   }, [timer?.description]);
 
   useEffect(() => {
-    if (timer?.taskId !== undefined) {
-      setStopTaskId(timer.taskId);
-    }
-  }, [timer?.taskId]);
+    setStopTaskId(timer?.taskId || null);
+  }, [timer?.taskId, timer?.projectId]);
 
   const handleStartTimer = useCallback(() => {
     startMutation.mutate({});
