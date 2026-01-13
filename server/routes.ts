@@ -77,6 +77,9 @@ import {
   emitTimeEntryCreated,
   emitTimeEntryUpdated,
   emitTimeEntryDeleted,
+  emitMyTaskCreated,
+  emitMyTaskUpdated,
+  emitMyTaskDeleted,
 } from "./realtime/events";
 
 export async function registerRoutes(
@@ -644,6 +647,45 @@ export async function registerRoutes(
     }
   });
 
+  // Create a personal task (no project)
+  app.post("/api/tasks/personal", async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const workspaceId = getCurrentWorkspaceId(req);
+      
+      const data = insertTaskSchema.parse({
+        ...req.body,
+        projectId: null,
+        sectionId: null,
+        isPersonal: true,
+        createdBy: userId,
+      });
+      
+      const task = await storage.createTask(data);
+
+      // Auto-assign the task to the creating user
+      await storage.addTaskAssignee({
+        taskId: task.id,
+        userId: userId,
+      });
+
+      const taskWithRelations = await storage.getTaskWithRelations(task.id);
+
+      // Emit real-time event for personal task
+      if (taskWithRelations) {
+        emitMyTaskCreated(userId, taskWithRelations as any, workspaceId);
+      }
+
+      res.status(201).json(taskWithRelations);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating personal task:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/tasks/:id", async (req, res) => {
     try {
       const task = await storage.getTaskWithRelations(req.params.id);
@@ -757,7 +799,13 @@ export async function registerRoutes(
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
       // Emit real-time event after successful DB operation
-      emitTaskUpdated(task.id, task.projectId, task.parentTaskId, req.body);
+      if (task.isPersonal) {
+        // Personal task - emit to workspace
+        emitMyTaskUpdated(task.createdBy, task.id, req.body, getCurrentWorkspaceId(req));
+      } else {
+        // Project task - emit to project room
+        emitTaskUpdated(task.id, task.projectId, task.parentTaskId, req.body);
+      }
 
       res.json(taskWithRelations);
     } catch (error) {
@@ -777,12 +825,18 @@ export async function registerRoutes(
       await storage.deleteTask(req.params.id);
 
       // Emit real-time event after successful DB operation
-      emitTaskDeleted(
-        task.id,
-        task.projectId,
-        task.sectionId,
-        task.parentTaskId,
-      );
+      if (task.isPersonal) {
+        // Personal task - emit to workspace
+        emitMyTaskDeleted(task.createdBy, task.id, getCurrentWorkspaceId(req));
+      } else {
+        // Project task - emit to project room
+        emitTaskDeleted(
+          task.id,
+          task.projectId,
+          task.sectionId,
+          task.parentTaskId,
+        );
+      }
 
       res.status(204).send();
     } catch (error) {
