@@ -155,6 +155,32 @@ export default function ProjectPage() {
     },
   });
 
+  const updateSectionMutation = useMutation({
+    mutationFn: async ({ sectionId, name }: { sectionId: string; name: string }) => {
+      return apiRequest("PATCH", `/api/sections/${sectionId}`, { name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
+      toast({ title: "Section updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update section", variant: "destructive" });
+    },
+  });
+
+  const deleteSectionMutation = useMutation({
+    mutationFn: async (sectionId: string) => {
+      return apiRequest("DELETE", `/api/sections/${sectionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
+      toast({ title: "Section deleted successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete section", variant: "destructive" });
+    },
+  });
+
   const reorderMutation = useMutation({
     mutationFn: async (moves: { itemType: string; taskId: string; toSectionId: string; toIndex: number }[]) => {
       return apiRequest("PATCH", `/api/projects/${projectId}/tasks/reorder`, { moves });
@@ -287,8 +313,23 @@ export default function ProjectPage() {
     setCreateTaskOpen(true);
   };
 
-  const handleCreateTask = (data: any) => {
-    createTaskMutation.mutate(data);
+  const handleCreateTask = async (data: any) => {
+    return new Promise<void>((resolve, reject) => {
+      createTaskMutation.mutate(data, {
+        onSuccess: () => {
+          toast({ title: "Task created successfully" });
+          resolve();
+        },
+        onError: (error) => {
+          toast({ 
+            title: "Failed to create task", 
+            description: error instanceof Error ? error.message : "Unknown error",
+            variant: "destructive"
+          });
+          reject(error);
+        },
+      });
+    });
   };
 
   const handleTaskSelect = (task: TaskWithRelations) => {
@@ -300,6 +341,16 @@ export default function ProjectPage() {
       taskId,
       data: { status: completed ? "done" : "todo" },
     });
+  };
+
+  const handleEditSection = (sectionId: string, name: string) => {
+    updateSectionMutation.mutate({ sectionId, name });
+  };
+
+  const handleDeleteSection = (sectionId: string) => {
+    if (window.confirm("Are you sure you want to delete this section? All tasks in this section will be moved to no section.")) {
+      deleteSectionMutation.mutate(sectionId);
+    }
   };
 
   const isLoading = projectLoading || sectionsLoading;
@@ -408,6 +459,8 @@ export default function ProjectPage() {
                   onAddTask={() => handleAddTask(section.id)}
                   onTaskSelect={handleTaskSelect}
                   onTaskStatusChange={handleStatusChange}
+                  onEditSection={handleEditSection}
+                  onDeleteSection={handleDeleteSection}
                 />
               ))}
               <div className="min-w-[280px] max-w-[280px] shrink-0">
@@ -514,6 +567,7 @@ export default function ProjectPage() {
         onSubmit={handleCreateTask}
         sections={sections?.map((s) => ({ id: s.id, projectId: s.projectId, name: s.name, orderIndex: s.orderIndex, createdAt: s.createdAt })) || []}
         defaultSectionId={selectedSectionId}
+        isLoading={createTaskMutation.isPending}
       />
 
       {project && (

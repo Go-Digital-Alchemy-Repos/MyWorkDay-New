@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -30,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import type { Section } from "@shared/schema";
@@ -49,9 +48,10 @@ type CreateTaskFormData = z.infer<typeof createTaskSchema>;
 interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: CreateTaskFormData) => void;
+  onSubmit: (data: CreateTaskFormData) => Promise<void>;
   sections?: Section[];
   defaultSectionId?: string;
+  isLoading?: boolean;
 }
 
 export function CreateTaskDialog({
@@ -60,6 +60,7 @@ export function CreateTaskDialog({
   onSubmit,
   sections = [],
   defaultSectionId,
+  isLoading = false,
 }: CreateTaskDialogProps) {
   const form = useForm<CreateTaskFormData>({
     resolver: zodResolver(createTaskSchema),
@@ -73,14 +74,25 @@ export function CreateTaskDialog({
     },
   });
 
-  const handleSubmit = (data: CreateTaskFormData) => {
-    onSubmit(data);
-    form.reset();
-    onOpenChange(false);
+  const handleSubmit = async (data: CreateTaskFormData) => {
+    try {
+      await onSubmit(data);
+      form.reset();
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Failed to create task:", error);
+    }
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      form.reset();
+    }
+    onOpenChange(open);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl" data-testid="dialog-create-task">
         <DialogHeader>
           <DialogTitle>Create Task</DialogTitle>
@@ -245,13 +257,21 @@ export function CreateTaskDialog({
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
+                disabled={isLoading}
                 data-testid="button-cancel"
               >
                 Cancel
               </Button>
-              <Button type="submit" data-testid="button-create-task">
-                Create Task
+              <Button type="submit" disabled={isLoading} data-testid="button-create-task">
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Task"
+                )}
               </Button>
             </DialogFooter>
           </form>
