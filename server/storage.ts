@@ -27,13 +27,16 @@ import {
   type AppSetting,
   type ClientUserAccess, type InsertClientUserAccess,
   type Tenant, type InsertTenant,
+  type TenantSettings, type InsertTenantSettings,
   users, workspaces, workspaceMembers, teams, teamMembers,
   projects, projectMembers, sections, tasks, taskAssignees,
   subtasks, tags, taskTags, comments, activityLog, taskAttachments,
   clients, clientContacts, clientInvites, clientUserAccess,
   timeEntries, activeTimers,
-  invitations, appSettings, tenants,
+  invitations, appSettings, tenants, tenantSettings,
+  UserRole,
 } from "@shared/schema";
+import crypto from "crypto";
 import { db } from "./db";
 import { eq, and, desc, asc, inArray, gte, lte, sql } from "drizzle-orm";
 import { encryptValue, decryptValue } from "./lib/encryption";
@@ -236,6 +239,22 @@ export interface IStorage {
   // Phase 2B: Tenant-scoped Task Attachments
   getTaskAttachmentByIdAndTenant(id: string, tenantId: string): Promise<TaskAttachment | undefined>;
   getTaskAttachmentsByTaskAndTenant(taskId: string, tenantId: string): Promise<TaskAttachmentWithUser[]>;
+
+  // Phase 3A: Tenant Settings
+  getTenantSettings(tenantId: string): Promise<TenantSettings | undefined>;
+  createTenantSettings(settings: InsertTenantSettings): Promise<TenantSettings>;
+  updateTenantSettings(tenantId: string, settings: Partial<InsertTenantSettings>): Promise<TenantSettings | undefined>;
+
+  // Phase 3A: Tenant Admin Invitations (extend existing)
+  createTenantAdminInvitation(data: {
+    tenantId: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    expiresInDays?: number;
+    createdByUserId: string;
+    workspaceId: string;
+  }): Promise<{ invitation: Invitation; token: string }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1658,6 +1677,63 @@ export class DatabaseStorage implements IStorage {
       result.push(enriched);
     }
     return result;
+  }
+
+  // =============================================================================
+  // PHASE 3A: TENANT SETTINGS
+  // =============================================================================
+
+  async getTenantSettings(tenantId: string): Promise<TenantSettings | undefined> {
+    const [settings] = await db.select().from(tenantSettings)
+      .where(eq(tenantSettings.tenantId, tenantId));
+    return settings || undefined;
+  }
+
+  async createTenantSettings(settings: InsertTenantSettings): Promise<TenantSettings> {
+    const [created] = await db.insert(tenantSettings).values(settings).returning();
+    return created;
+  }
+
+  async updateTenantSettings(tenantId: string, settings: Partial<InsertTenantSettings>): Promise<TenantSettings | undefined> {
+    const [updated] = await db.update(tenantSettings)
+      .set({ ...settings, updatedAt: new Date() })
+      .where(eq(tenantSettings.tenantId, tenantId))
+      .returning();
+    return updated || undefined;
+  }
+
+  // =============================================================================
+  // PHASE 3A: TENANT ADMIN INVITATIONS
+  // =============================================================================
+
+  async createTenantAdminInvitation(data: {
+    tenantId: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    expiresInDays?: number;
+    createdByUserId: string;
+    workspaceId: string;
+  }): Promise<{ invitation: Invitation; token: string }> {
+    const expiresInDays = data.expiresInDays || 7;
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const [invitation] = await db.insert(invitations).values({
+      tenantId: data.tenantId,
+      workspaceId: data.workspaceId,
+      email: data.email,
+      role: UserRole.ADMIN,
+      tokenHash,
+      status: "pending",
+      expiresAt,
+      createdByUserId: data.createdByUserId,
+    }).returning();
+
+    return { invitation, token };
   }
 }
 
