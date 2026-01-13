@@ -96,7 +96,7 @@ export function TaskDetailDrawer({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        className="w-[480px] sm:max-w-[480px] overflow-y-auto p-0"
+        className="w-full sm:max-w-xl overflow-y-auto p-0"
         data-testid="task-detail-drawer"
       >
         <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">

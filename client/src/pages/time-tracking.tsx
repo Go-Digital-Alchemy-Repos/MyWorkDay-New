@@ -45,6 +45,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { FullScreenDrawer, FullScreenDrawerFooter } from "@/components/ui/full-screen-drawer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -526,54 +527,69 @@ function ManualEntryDialog({
     });
   };
 
+  const hasChanges = description !== "" || hours !== "0" || minutes !== "30" || clientId !== null || projectId !== null || taskId !== null;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add Manual Time Entry</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
+    <FullScreenDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add Manual Time Entry"
+      description="Log time spent on a task"
+      hasUnsavedChanges={hasChanges}
+      width="xl"
+      footer={
+        <FullScreenDrawerFooter
+          onCancel={() => onOpenChange(false)}
+          onSave={handleSubmit}
+          isLoading={createMutation.isPending}
+          saveLabel="Save Entry"
+        />
+      }
+    >
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Label>Description</Label>
+          <Textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What did you work on?"
+            className="min-h-[100px]"
+            data-testid="input-manual-description"
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What did you work on?"
-              data-testid="input-manual-description"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Hours</Label>
-              <Input
-                type="number"
-                min="0"
-                value={hours}
-                onChange={(e) => setHours(e.target.value)}
-                data-testid="input-manual-hours"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Minutes</Label>
-              <Input
-                type="number"
-                min="0"
-                max="59"
-                value={minutes}
-                onChange={(e) => setMinutes(e.target.value)}
-                data-testid="input-manual-minutes"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Date</Label>
+            <Label>Hours</Label>
             <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              data-testid="input-manual-date"
+              type="number"
+              min="0"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              data-testid="input-manual-hours"
             />
           </div>
+          <div className="space-y-2">
+            <Label>Minutes</Label>
+            <Input
+              type="number"
+              min="0"
+              max="59"
+              value={minutes}
+              onChange={(e) => setMinutes(e.target.value)}
+              data-testid="input-manual-minutes"
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Date</Label>
+          <Input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            data-testid="input-manual-date"
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Label>Client</Label>
             <Select value={clientId || "none"} onValueChange={(v) => setClientId(v === "none" ? null : v)}>
@@ -606,34 +622,26 @@ function ManualEntryDialog({
               </SelectContent>
             </Select>
           </div>
-          <TaskSelectorWithCreate
-            projectId={projectId}
-            taskId={taskId}
-            onTaskChange={setTaskId}
-          />
-          <div className="space-y-2">
-            <Label>Scope</Label>
-            <Select value={scope} onValueChange={(v) => setScope(v as "in_scope" | "out_of_scope")}>
-              <SelectTrigger data-testid="select-manual-scope">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="in_scope">In Scope (Billable)</SelectItem>
-                <SelectItem value="out_of_scope">Out of Scope</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={createMutation.isPending} data-testid="button-save-manual-entry">
-            Save Entry
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <TaskSelectorWithCreate
+          projectId={projectId}
+          taskId={taskId}
+          onTaskChange={setTaskId}
+        />
+        <div className="space-y-2">
+          <Label>Scope</Label>
+          <Select value={scope} onValueChange={(v) => setScope(v as "in_scope" | "out_of_scope")}>
+            <SelectTrigger data-testid="select-manual-scope">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="in_scope">In Scope (Billable)</SelectItem>
+              <SelectItem value="out_of_scope">Out of Scope</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </FullScreenDrawer>
   );
 }
 

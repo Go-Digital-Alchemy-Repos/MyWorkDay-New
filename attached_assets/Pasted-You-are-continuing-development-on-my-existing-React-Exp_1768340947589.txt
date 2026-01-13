@@ -1,0 +1,98 @@
+You are continuing development on my existing React + Express app.
+We are upgrading the UI system-wide to remove SMALL EDITING MODALS and replace them with full-viewport slide-out panels (drawers) or dedicated pages for more space and scalability.
+DO NOT rewrite the app. Do this as an incremental, safe refactor with minimal behavior change.
+
+===============================================================================
+SAFETY RULES
+===============================================================================
+- Do NOT change backend endpoints or business logic.
+- Do NOT change database schema.
+- Do NOT remove functionality.
+- Keep existing navigation structure; only add routes/state needed for drawers.
+- Keep confirmation dialogs (delete/confirm) as modals. Only replace editing/data-entry modals.
+- Migrate in WAVES; do NOT try to replace every modal in the app in one pass.
+
+===============================================================================
+GOAL
+===============================================================================
+1) Create a reusable FullScreenDrawer UI component.
+2) Establish a standard pattern for opening panels (URL state supported).
+3) Replace the most important editing modals first (Wave 1), then Wave 2 and Wave 3.
+
+===============================================================================
+STANDARD UI PATTERN (MANDATORY)
+===============================================================================
+A) Component:
+- Create <FullScreenDrawer/> that supports:
+  - full viewport height and width (or 90%+)
+  - header with title + close
+  - internal scroll area
+  - sticky footer actions (Save/Cancel)
+  - unsaved changes guard
+
+B) State pattern:
+- Support deep-linking using query params:
+  - ?panel=task-edit&id=...
+  - ?panel=client-edit&id=...
+- Opening a panel should update URL; closing should revert.
+- Ensure refresh preserves open panel state if query params present.
+
+C) Accessibility:
+- Focus trap in drawer
+- Escape closes (if safe)
+- Background scroll locked
+
+===============================================================================
+WAVE 1 (MANDATORY): Replace these editing modals
+===============================================================================
+1) Task create/edit modal -> Drawer
+- Includes full task fields + attachments + subtask navigation
+2) Client create/edit modal -> Drawer
+3) Time Entry create/edit modal -> Drawer
+4) User create/edit and invite flows in Team/Global settings -> Drawer
+
+Do NOT change the underlying forms’ validation rules. Only presentation.
+
+===============================================================================
+WAVE 2 (OPTIONAL IF TIME): Replace these editing modals
+===============================================================================
+1) Project create/edit/settings -> Drawer
+2) Workspace create/edit -> Drawer
+3) Integrations configure forms -> Drawer
+
+===============================================================================
+WAVE 3 (OPTIONAL IF TIME): Replace remaining editing modals
+===============================================================================
+- Identify other non-confirmation modals used for editing and migrate them.
+
+===============================================================================
+CONFIRMATION MODALS (KEEP)
+===============================================================================
+Keep these as modals:
+- Delete confirmations
+- “Discard changes?” confirmations
+- Simple yes/no confirmations
+
+===============================================================================
+TESTING / ACCEPTANCE CRITERIA
+===============================================================================
+1) No backend changes, no endpoint changes.
+2) All Wave 1 workflows still work end-to-end:
+   - create/edit tasks
+   - create/edit clients
+   - create/edit time entries
+   - create/edit users and invites
+3) URL deep-linking works:
+   - loading /app?panel=task-edit&id=123 opens drawer
+4) Drawer prevents accidental data loss:
+   - unsaved changes prompt
+5) Confirm dialogs still work and remain modals.
+6) No console errors; no broken navigation.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- List of modals replaced in Wave 1
+- Files changed
+- New shared drawer component location
+- Manual test checklist

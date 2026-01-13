@@ -1,0 +1,218 @@
+You are continuing development on my existing multi-tenant React + Express app.
+Implement ONLY the features described below. DO NOT rewrite the app.
+This prompt is ADDITIVE, BACKWARD-COMPATIBLE, and TENANT-SAFE.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change response shapes in a breaking way (you may add fields).
+- Do NOT drop or rename database tables or columns.
+- Add-only schema changes only.
+- Do NOT modify authentication, tenancy enforcement, onboarding, agreements, or billing.
+- Do NOT merge or refactor unrelated UI or business logic.
+- All new data MUST be tenant-scoped (tenantId required).
+- Existing workflows must continue to work unchanged.
+
+===============================================================================
+NON-NEGOTIABLE UI SEPARATION (CRITICAL)
+===============================================================================
+The “My Tasks” page MUST remain split into TWO DISTINCT AREAS that are NEVER merged:
+
+1) Assigned Project Tasks
+   - Tasks tied to a Client and/or Project
+   - Existing behavior MUST remain unchanged
+   - No personal sections
+   - No personal drag-and-drop
+
+2) Personal Tasks
+   - Tasks NOT tied to a Client or Project
+   - Organized into user-defined personal sections
+   - Drag-and-drop ONLY within this Personal Tasks area
+
+Rules:
+- NEVER merge these two areas into one list.
+- NEVER allow dragging tasks between these two areas.
+- Personal sections apply ONLY to Personal Tasks.
+- Project tasks MUST ignore personalSectionId and personalSortOrder entirely.
+
+===============================================================================
+FEATURE SET A: MULTI-ASSIGNEE TASKS & SUB-TASKS
+===============================================================================
+GOAL:
+Allow Tasks and Sub-Tasks to be assigned to multiple users (2+ assignees),
+while preserving backward compatibility with existing single-assignee behavior.
+
+-------------------------------------------------------------------------------
+A1) DATA MODEL (ADD-ONLY)
+-------------------------------------------------------------------------------
+Create join table:
+
+task_assignees
+- id (uuid)
+- tenantId (uuid, indexed)
+- taskId (uuid, FK tasks.id)
+- userId (uuid, FK users.id)
+- createdAt
+
+Constraints:
+- UNIQUE(taskId, userId)
+- Users assigned MUST belong to the same tenant as the task.
+
+Sub-Tasks:
+- If sub-tasks are stored in the same tasks table (parentTaskId pattern),
+  reuse task_assignees for both tasks and sub-tasks.
+
+Backward compatibility:
+- KEEP existing tasks.assignedToUserId column.
+- DO NOT remove or repurpose it.
+
+-------------------------------------------------------------------------------
+A2) API BEHAVIOR (BACKWARD COMPATIBLE)
+-------------------------------------------------------------------------------
+Write:
+- Accept new optional field:
+  assigneeIds: string[]
+
+Rules:
+- If assigneeIds provided:
+  - validate users exist and belong to same tenant
+  - replace rows in task_assignees for that task
+  - optionally set assignedToUserId = first assignee (legacy compatibility)
+- If assigneeIds not provided:
+  - preserve existing behavior using assignedToUserId
+
+Read:
+- Always return:
+  assignees: [{ id, firstName, lastName, email }]
+- If no task_assignees rows exist but assignedToUserId exists:
+  - synthesize assignees = [assignedToUser]
+
+Filtering:
+- “My Tasks” logic must include tasks where:
+  - assignedToUserId = currentUserId OR
+  - currentUserId exists in task_assignees
+
+-------------------------------------------------------------------------------
+A3) FRONTEND (TASK & SUB-TASK EDITORS)
+-------------------------------------------------------------------------------
+- Replace single assignee dropdown with multi-select.
+- Show selected assignees as chips/avatars.
+- Display multiple assignees on task cards (collapse to “+N” if needed).
+- Do NOT change drag/drop behavior or board logic.
+
+-------------------------------------------------------------------------------
+A4) VALIDATION & SECURITY
+-------------------------------------------------------------------------------
+- Prevent assigning users from other tenants.
+- Enforce existing permissions for who can edit assignees.
+
+===============================================================================
+FEATURE SET B: PERSONAL “MY TASKS” SECTIONS (SEPARATE FEATURE)
+===============================================================================
+GOAL:
+Allow users to organize PERSONAL TASKS (no client/project required)
+into custom sections within the My Tasks area.
+
+-------------------------------------------------------------------------------
+B1) DATA MODEL (ADD-ONLY)
+-------------------------------------------------------------------------------
+Create table:
+
+personal_task_sections
+- id (uuid)
+- tenantId (uuid, indexed)
+- userId (uuid, indexed)   // owner
+- name (text)
+- sortOrder (int)
+- createdAt, updatedAt
+
+Add to tasks table (ADD-ONLY):
+- personalSectionId (uuid nullable FK personal_task_sections.id)
+- personalSortOrder (int nullable)
+
+Rules:
+- personalSectionId and personalSortOrder are used ONLY for Personal Tasks.
+- Project/Client tasks MUST ignore these fields.
+
+-------------------------------------------------------------------------------
+B2) API ENDPOINTS (TENANT-SCOPED, USER-OWNED)
+-------------------------------------------------------------------------------
+Sections CRUD:
+- GET    /api/v1/my-tasks/sections
+- POST   /api/v1/my-tasks/sections { name }
+- PATCH  /api/v1/my-tasks/sections/:id { name?, sortOrder? }
+- DELETE /api/v1/my-tasks/sections/:id
+  - Deleting a section MUST NOT delete tasks
+  - Tasks revert to “Unsectioned” (personalSectionId = null)
+
+Move personal task:
+- POST /api/v1/my-tasks/tasks/:taskId/move
+  Body: { personalSectionId: uuid|null, newIndex?: number }
+
+Validation:
+- Task must belong to current user
+- Task must be a Personal Task (no clientId/projectId)
+- Reject attempts to move Project Tasks
+
+-------------------------------------------------------------------------------
+B3) FRONTEND (MY TASKS PAGE)
+-------------------------------------------------------------------------------
+Layout MUST remain:
+
+A) Assigned Project Tasks
+- Existing behavior unchanged
+- No sections
+- No drag/drop changes
+
+B) Personal Tasks
+- Section-based layout
+- “Add Section” button
+- Default virtual “Unsectioned” section
+- Tasks draggable ONLY within Personal Tasks and between sections
+- Creating a personal task inside a section auto-assigns section + sort order
+
+-------------------------------------------------------------------------------
+B4) DRAG & DROP
+-------------------------------------------------------------------------------
+- Use existing DnD library.
+- Restrict DnD scope to Personal Tasks only.
+- Do NOT allow dragging across the two task areas.
+
+-------------------------------------------------------------------------------
+B5) SECURITY
+-------------------------------------------------------------------------------
+- Users can only manage their own sections.
+- Enforce tenant isolation on all queries.
+
+===============================================================================
+TESTS (MANDATORY)
+===============================================================================
+1) multi_assignee_tasks.test.ts
+2) legacy_single_assignee_compat.test.ts
+3) my_tasks_includes_multi_assignee.test.ts
+4) personal_sections_crud.test.ts
+5) personal_task_move_between_sections.test.ts
+6) cannot_section_project_task.test.ts
+7) tenant_isolation_assignees_and_sections.test.ts
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Tasks and sub-tasks support multiple assignees.
+2) Existing single-assignee tasks continue working unchanged.
+3) My Tasks shows:
+   - Assigned Project Tasks (unchanged)
+   - Personal Tasks with sections (new)
+4) Personal tasks can be organized via sections and drag/drop.
+5) Project tasks cannot be sectioned or moved into personal sections.
+6) Tenant isolation enforced everywhere.
+7) Tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Schema changes (add-only)
+- Endpoints added/updated
+- UI components updated
+- Manual test checklist

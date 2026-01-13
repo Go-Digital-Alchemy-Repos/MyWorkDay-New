@@ -29,7 +29,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SectionColumn } from "@/components/section-column";
 import { TaskCard } from "@/components/task-card";
 import { TaskDetailDrawer } from "@/components/task-detail-drawer";
-import { CreateTaskDialog } from "@/components/create-task-dialog";
+import { TaskCreateDrawer } from "@/components/task-create-drawer";
 import { ProjectCalendar } from "@/components/project-calendar";
 import { ProjectSettingsSheet } from "@/components/project-settings-sheet";
 import { useToast } from "@/hooks/use-toast";
@@ -561,7 +561,7 @@ export default function ProjectPage() {
         }}
       />
 
-      <CreateTaskDialog
+      <TaskCreateDrawer
         open={createTaskOpen}
         onOpenChange={setCreateTaskOpen}
         onSubmit={handleCreateTask}

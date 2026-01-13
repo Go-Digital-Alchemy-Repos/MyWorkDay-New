@@ -7,48 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Plus, Building2, Mail, Phone, MapPin, MoreHorizontal, FolderKanban, User } from "lucide-react";
+import { ClientDrawer } from "@/components/client-drawer";
+import { Plus, Building2, FolderKanban, User } from "lucide-react";
 import { Link } from "wouter";
 import type { ClientWithContacts } from "@shared/schema";
 
-const createClientSchema = z.object({
-  companyName: z.string().min(1, "Company name is required"),
-  displayName: z.string().optional(),
-  status: z.enum(["active", "inactive", "prospect"]).default("active"),
-  industry: z.string().optional(),
-  website: z.string().optional(),
-  notes: z.string().optional(),
-});
-
-type CreateClientForm = z.infer<typeof createClientSchema>;
-
 export default function ClientsPage() {
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: clients, isLoading } = useQuery<ClientWithContacts[]>({
@@ -56,30 +21,16 @@ export default function ClientsPage() {
   });
 
   const createClientMutation = useMutation({
-    mutationFn: async (data: CreateClientForm) => {
+    mutationFn: async (data: any) => {
       return apiRequest("POST", "/api/clients", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
-      setCreateDialogOpen(false);
-      form.reset();
     },
   });
 
-  const form = useForm<CreateClientForm>({
-    resolver: zodResolver(createClientSchema),
-    defaultValues: {
-      companyName: "",
-      displayName: "",
-      status: "active",
-      industry: "",
-      website: "",
-      notes: "",
-    },
-  });
-
-  const handleCreateClient = (data: CreateClientForm) => {
-    createClientMutation.mutate(data);
+  const handleCreateClient = async (data: any) => {
+    await createClientMutation.mutateAsync(data);
   };
 
   const filteredClients = clients?.filter((client) =>
@@ -140,130 +91,10 @@ export default function ClientsPage() {
             Manage your clients and their projects
           </p>
         </div>
-        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-client">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Client
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Client</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleCreateClient)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="companyName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Company Name *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Acme Inc."
-                          {...field}
-                          data-testid="input-company-name"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="displayName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Display Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Short name or alias"
-                          {...field}
-                          data-testid="input-display-name"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-status">
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
-                          <SelectItem value="prospect">Prospect</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="industry"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Industry</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Technology, Finance, etc."
-                          {...field}
-                          data-testid="input-industry"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="website"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Website</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="https://example.com"
-                          {...field}
-                          data-testid="input-website"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setCreateDialogOpen(false)}
-                    data-testid="button-cancel-create-client"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={createClientMutation.isPending}
-                    data-testid="button-submit-create-client"
-                  >
-                    {createClientMutation.isPending ? "Creating..." : "Create Client"}
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setCreateDrawerOpen(true)} data-testid="button-add-client">
+          <Plus className="h-4 w-4 mr-2" />
+          Add Client
+        </Button>
       </div>
 
       <div className="px-6 py-4 border-b border-border shrink-0">
@@ -339,13 +170,21 @@ export default function ClientsPage() {
             <p className="text-sm text-muted-foreground mb-4 max-w-sm">
               Start by adding your first client to organize projects and manage relationships.
             </p>
-            <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-add-first-client">
+            <Button onClick={() => setCreateDrawerOpen(true)} data-testid="button-add-first-client">
               <Plus className="h-4 w-4 mr-2" />
               Add Your First Client
             </Button>
           </div>
         )}
       </div>
+
+      <ClientDrawer
+        open={createDrawerOpen}
+        onOpenChange={setCreateDrawerOpen}
+        onSubmit={handleCreateClient}
+        isLoading={createClientMutation.isPending}
+        mode="create"
+      />
     </div>
   );
 }
