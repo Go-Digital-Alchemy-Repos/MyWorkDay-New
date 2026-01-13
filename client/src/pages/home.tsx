@@ -13,12 +13,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskCard } from "@/components/task-card";
+import { TaskDetailDrawer } from "@/components/task-detail-drawer";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Project, TaskWithRelations, Team } from "@shared/schema";
+import type { Project, TaskWithRelations, Team, Workspace } from "@shared/schema";
 
 export default function Home() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(null);
 
   const { data: projects, isLoading: projectsLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
@@ -32,6 +34,10 @@ export default function Home() {
     queryKey: ["/api/teams"],
   });
 
+  const { data: currentWorkspace } = useQuery<Workspace>({
+    queryKey: ["/api/workspaces/current"],
+  });
+
   const createProjectMutation = useMutation({
     mutationFn: async (data: any) => {
       return apiRequest("POST", "/api/projects", data);
@@ -42,8 +48,67 @@ export default function Home() {
     },
   });
 
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ taskId, data }: { taskId: string; data: Partial<TaskWithRelations> }) => {
+      return apiRequest("PATCH", `/api/tasks/${taskId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
+      if (selectedTask) {
+        refetchSelectedTask();
+      }
+    },
+  });
+
+  const addSubtaskMutation = useMutation({
+    mutationFn: async ({ taskId, title }: { taskId: string; title: string }) => {
+      return apiRequest("POST", `/api/tasks/${taskId}/subtasks`, { title });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
+      if (selectedTask) {
+        refetchSelectedTask();
+      }
+    },
+  });
+
+  const deleteSubtaskMutation = useMutation({
+    mutationFn: async (subtaskId: string) => {
+      return apiRequest("DELETE", `/api/subtasks/${subtaskId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
+      if (selectedTask) {
+        refetchSelectedTask();
+      }
+    },
+  });
+
+  const addCommentMutation = useMutation({
+    mutationFn: async ({ taskId, body }: { taskId: string; body: string }) => {
+      return apiRequest("POST", `/api/tasks/${taskId}/comments`, { body });
+    },
+    onSuccess: () => {
+      if (selectedTask) {
+        refetchSelectedTask();
+      }
+    },
+  });
+
+  const refetchSelectedTask = async () => {
+    if (selectedTask) {
+      const response = await fetch(`/api/tasks/${selectedTask.id}`);
+      const updatedTask = await response.json();
+      setSelectedTask(updatedTask);
+    }
+  };
+
   const handleCreateProject = (data: any) => {
     createProjectMutation.mutate(data);
+  };
+
+  const handleTaskClick = (task: TaskWithRelations) => {
+    setSelectedTask(task);
   };
 
   const upcomingTasks = myTasks?.slice(0, 5) || [];
@@ -139,7 +204,13 @@ export default function Home() {
               ) : upcomingTasks.length > 0 ? (
                 <div>
                   {upcomingTasks.map((task) => (
-                    <TaskCard key={task.id} task={task} view="list" />
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      view="list"
+                      onSelect={() => handleTaskClick(task)}
+                      data-testid={`dashboard-task-${task.id}`}
+                    />
                   ))}
                 </div>
               ) : (
@@ -231,6 +302,25 @@ export default function Home() {
         onSubmit={handleCreateProject}
         teams={teams}
         isPending={createProjectMutation.isPending}
+      />
+
+      <TaskDetailDrawer
+        task={selectedTask}
+        open={!!selectedTask}
+        onOpenChange={(open) => !open && setSelectedTask(null)}
+        onUpdate={(taskId: string, data: Partial<TaskWithRelations>) => {
+          updateTaskMutation.mutate({ taskId, data });
+        }}
+        onAddChildTask={(parentTaskId: string, title: string) => {
+          addSubtaskMutation.mutate({ taskId: parentTaskId, title });
+        }}
+        onDeleteChildTask={(taskId: string) => {
+          deleteSubtaskMutation.mutate(taskId);
+        }}
+        onAddComment={(taskId: string, body: string) => {
+          addCommentMutation.mutate({ taskId, body });
+        }}
+        workspaceId={selectedTask?.project?.workspaceId || currentWorkspace?.id}
       />
     </div>
   );

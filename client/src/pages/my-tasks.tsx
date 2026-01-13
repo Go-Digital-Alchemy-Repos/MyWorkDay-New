@@ -677,19 +677,16 @@ export default function MyTasks() {
         task={selectedTask}
         open={!!selectedTask}
         onOpenChange={(open) => !open && setSelectedTask(null)}
-        onUpdate={(taskId, data) => {
+        onUpdate={(taskId: string, data: Partial<TaskWithRelations>) => {
           updateTaskMutation.mutate({ taskId, data });
         }}
-        onAddSubtask={(taskId, title) => {
-          addSubtaskMutation.mutate({ taskId, title });
+        onAddChildTask={(parentTaskId: string, title: string) => {
+          addSubtaskMutation.mutate({ taskId: parentTaskId, title });
         }}
-        onToggleSubtask={(subtaskId, completed) => {
-          toggleSubtaskMutation.mutate({ subtaskId, completed });
+        onDeleteChildTask={(taskId: string) => {
+          deleteSubtaskMutation.mutate(taskId);
         }}
-        onDeleteSubtask={(subtaskId) => {
-          deleteSubtaskMutation.mutate(subtaskId);
-        }}
-        onAddComment={(taskId, body) => {
+        onAddComment={(taskId: string, body: string) => {
           addCommentMutation.mutate({ taskId, body });
         }}
         workspaceId={selectedTask?.project?.workspaceId || currentWorkspace?.id}
