@@ -1,0 +1,106 @@
+You are continuing development on my existing multi-tenant React + Express app.
+Implement ONLY upload support for tenant white-label brand assets (logo/icon/favicon) for Tenant Admins and Super Admins.
+DO NOT rewrite the app. Preserve all existing functionality.
+
+===============================================================================
+SAFETY RULES
+===============================================================================
+- Do NOT remove/rename existing endpoints.
+- Add-only schema changes only (prefer none).
+- Do NOT modify auth/tenancy enforcement/onboarding/agreements.
+- Use existing S3 integration. Do NOT store image blobs in Postgres.
+- Tenant isolation is mandatory: uploads must be stored under the correct tenantId.
+
+===============================================================================
+GOAL
+===============================================================================
+In the White Label / Branding area, both Tenant Admins and Super Admins can upload logo/icon files via drag-and-drop or file picker.
+The app stores files in Amazon S3 and saves resulting URLs into tenant_settings.
+
+===============================================================================
+1) BACKEND: UPLOAD ENDPOINTS (ADD-ONLY)
+===============================================================================
+A) Tenant admin (tenant-scoped, admin only)
+POST /api/v1/tenant/settings/brand-assets
+- multipart/form-data: file
+- field: type = "logo" | "icon" | "favicon"
+Behavior:
+- validate role=admin
+- determine effectiveTenantId
+- validate file type and size
+- upload to S3 path:
+  tenants/{tenantId}/branding/{type}/{uuid}-{sanitizedFilename}
+- return { url }
+
+B) Super admin (super_user only)
+POST /api/v1/super/tenants/:tenantId/settings/brand-assets
+- same behavior, but tenantId comes from params
+- validate super_user
+- do not rely on X-Tenant-Id for this endpoint
+
+C) Security
+- Allow only: png, jpg/jpeg, webp, svg (optional), ico (optional for favicon)
+- Max size: 5MB
+- Do not log file contents
+- Use server-side MIME checks
+
+===============================================================================
+2) BACKEND: TENANT SETTINGS UPDATE (REUSE EXISTING)
+===============================================================================
+Ensure tenant_settings supports storing:
+- logoUrl
+- faviconUrl
+(If iconUrl separate is desired, add iconUrl column add-only.)
+
+Existing PATCH endpoints:
+- PATCH /api/v1/tenant/settings
+- PATCH /api/v1/super/tenants/:tenantId/settings
+must accept these URL fields and persist them.
+
+===============================================================================
+3) FRONTEND: WHITE LABEL UI (TENANT ADMIN + SUPER ADMIN)
+===============================================================================
+A) Replace URL-only inputs with:
+- Drag-and-drop upload zone (in the branding tab)
+- File picker button
+- Preview of current logo/icon
+- “Remove” button (sets url null)
+- Optional: keep a small “Paste URL” advanced option (do not require it)
+
+B) On upload:
+- call the correct endpoint
+- on success, PATCH tenant_settings with returned url
+- show toast success
+
+C) Ensure UI uses large slide-out panels/drawers if that is your current direction; avoid tiny modals.
+
+===============================================================================
+4) TESTS (MANDATORY MINIMUM)
+===============================================================================
+- tenant_brand_assets_upload.test.ts
+  - tenant admin can upload logo, gets url
+- super_brand_assets_upload.test.ts
+  - super_user can upload logo for specific tenantId
+- tenant_isolation_brand_assets.test.ts
+  - non-admin tenant user cannot upload
+  - tenant admin cannot upload to another tenant’s endpoint
+
+(Use mocked S3 client or test bucket config; do not require real S3 in unit tests.)
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Tenant Admin can upload logo/icon/favicon from White Label settings and see preview saved after refresh.
+2) Super Admin can upload logo/icon/favicon for any tenant from Super tenant settings.
+3) Files are stored in S3 under tenant-specific prefixes.
+4) No breaking changes to existing settings endpoints.
+5) Tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Endpoints added
+- Any schema additions
+- UI files updated
+- How uploads are stored in S3 (path convention)
+- Manual test checklist
