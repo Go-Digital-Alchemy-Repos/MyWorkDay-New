@@ -1,14 +1,19 @@
 /**
- * Tenant Onboarding Routes
+ * Tenant Onboarding Routes + Tenant Settings & Integrations
  * 
  * These routes are accessible by tenant admins even when the tenant is inactive.
- * They allow the tenant admin to complete onboarding and activate the tenant.
+ * They allow the tenant admin to complete onboarding, configure settings, and manage integrations.
  * 
  * Routes:
  * - GET  /api/v1/tenant/me - Get current tenant info
+ * - GET  /api/v1/tenant/settings - Get tenant settings (branding)
  * - PATCH /api/v1/tenant/settings - Update tenant settings
  * - GET  /api/v1/tenant/onboarding/status - Get onboarding status
  * - POST /api/v1/tenant/onboarding/complete - Complete onboarding
+ * - GET  /api/v1/tenant/integrations - List all integrations
+ * - GET  /api/v1/tenant/integrations/:provider - Get specific integration
+ * - PUT  /api/v1/tenant/integrations/:provider - Update integration
+ * - POST /api/v1/tenant/integrations/:provider/test - Test integration
  */
 
 import { Router } from "express";
@@ -17,6 +22,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { tenants, TenantStatus, UserRole } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { tenantIntegrationService, IntegrationProvider } from "../services/tenantIntegrations";
 
 const router = Router();
 
@@ -85,11 +91,20 @@ router.get("/me", requireAuth, requireTenantAdmin, async (req, res) => {
 // PATCH /api/v1/tenant/settings - Update tenant settings
 // =============================================================================
 
+const hexColorRegex = /^#[0-9A-Fa-f]{6}$/;
+
 const updateSettingsSchema = z.object({
   displayName: z.string().min(1).optional(),
+  appName: z.string().optional().nullable(),
   logoUrl: z.string().url().optional().nullable(),
-  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be valid hex color").optional().nullable(),
+  faviconUrl: z.string().url().optional().nullable(),
+  primaryColor: z.string().regex(hexColorRegex, "Must be valid hex color").optional().nullable(),
+  secondaryColor: z.string().regex(hexColorRegex, "Must be valid hex color").optional().nullable(),
+  accentColor: z.string().regex(hexColorRegex, "Must be valid hex color").optional().nullable(),
+  loginMessage: z.string().optional().nullable(),
   supportEmail: z.string().email().optional().nullable(),
+  whiteLabelEnabled: z.boolean().optional(),
+  hideVendorBranding: z.boolean().optional(),
 });
 
 router.patch("/settings", requireAuth, requireTenantAdmin, async (req, res) => {
@@ -221,6 +236,193 @@ router.post("/onboarding/complete", requireAuth, requireTenantAdmin, async (req,
   } catch (error) {
     console.error("Error completing onboarding:", error);
     res.status(500).json({ error: "Failed to complete onboarding" });
+  }
+});
+
+// =============================================================================
+// GET /api/v1/tenant/settings - Get tenant settings (branding)
+// =============================================================================
+
+router.get("/settings", requireAuth, requireTenantAdmin, async (req, res) => {
+  try {
+    const user = req.user as any;
+    const tenantId = user.tenantId;
+
+    const settings = await storage.getTenantSettings(tenantId);
+    
+    if (!settings) {
+      return res.json({ tenantSettings: null });
+    }
+
+    res.json({
+      tenantSettings: {
+        displayName: settings.displayName,
+        appName: settings.appName,
+        logoUrl: settings.logoUrl,
+        faviconUrl: settings.faviconUrl,
+        primaryColor: settings.primaryColor,
+        secondaryColor: settings.secondaryColor,
+        accentColor: settings.accentColor,
+        loginMessage: settings.loginMessage,
+        supportEmail: settings.supportEmail,
+        whiteLabelEnabled: settings.whiteLabelEnabled,
+        hideVendorBranding: settings.hideVendorBranding,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching tenant settings:", error);
+    res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+// =============================================================================
+// INTEGRATION ENDPOINTS
+// =============================================================================
+
+const validProviders: IntegrationProvider[] = ["mailgun", "s3"];
+
+function isValidProvider(provider: string): provider is IntegrationProvider {
+  return validProviders.includes(provider as IntegrationProvider);
+}
+
+// GET /api/v1/tenant/integrations - List all integrations
+router.get("/integrations", requireAuth, requireTenantAdmin, async (req, res) => {
+  try {
+    const user = req.user as any;
+    const tenantId = user.tenantId;
+
+    const integrations = await tenantIntegrationService.listIntegrations(tenantId);
+    res.json({ integrations });
+  } catch (error) {
+    console.error("Error fetching integrations:", error);
+    res.status(500).json({ error: "Failed to fetch integrations" });
+  }
+});
+
+// GET /api/v1/tenant/integrations/:provider - Get specific integration
+router.get("/integrations/:provider", requireAuth, requireTenantAdmin, async (req, res) => {
+  try {
+    const user = req.user as any;
+    const tenantId = user.tenantId;
+    const { provider } = req.params;
+
+    if (!isValidProvider(provider)) {
+      return res.status(400).json({ error: `Invalid provider: ${provider}` });
+    }
+
+    const integration = await tenantIntegrationService.getIntegration(tenantId, provider);
+    
+    if (!integration) {
+      return res.json({
+        provider,
+        status: "not_configured",
+        publicConfig: null,
+        secretConfigured: false,
+        lastTestedAt: null,
+      });
+    }
+
+    res.json(integration);
+  } catch (error) {
+    console.error("Error fetching integration:", error);
+    res.status(500).json({ error: "Failed to fetch integration" });
+  }
+});
+
+// PUT /api/v1/tenant/integrations/:provider - Update integration
+const mailgunUpdateSchema = z.object({
+  domain: z.string().optional(),
+  fromEmail: z.string().email().optional(),
+  replyTo: z.string().email().optional().nullable(),
+  apiKey: z.string().optional(),
+});
+
+const s3UpdateSchema = z.object({
+  bucketName: z.string().optional(),
+  region: z.string().optional(),
+  keyPrefixTemplate: z.string().optional(),
+  accessKeyId: z.string().optional(),
+  secretAccessKey: z.string().optional(),
+});
+
+router.put("/integrations/:provider", requireAuth, requireTenantAdmin, async (req, res) => {
+  try {
+    const user = req.user as any;
+    const tenantId = user.tenantId;
+    const { provider } = req.params;
+
+    if (!isValidProvider(provider)) {
+      return res.status(400).json({ error: `Invalid provider: ${provider}` });
+    }
+
+    let publicConfig: any = {};
+    let secretConfig: any = {};
+
+    if (provider === "mailgun") {
+      const data = mailgunUpdateSchema.parse(req.body);
+      publicConfig = {
+        domain: data.domain,
+        fromEmail: data.fromEmail,
+        replyTo: data.replyTo,
+      };
+      if (data.apiKey) {
+        secretConfig = { apiKey: data.apiKey };
+      }
+    } else if (provider === "s3") {
+      const data = s3UpdateSchema.parse(req.body);
+      publicConfig = {
+        bucketName: data.bucketName,
+        region: data.region,
+        keyPrefixTemplate: data.keyPrefixTemplate || `tenants/${tenantId}/`,
+      };
+      if (data.accessKeyId || data.secretAccessKey) {
+        secretConfig = {
+          accessKeyId: data.accessKeyId,
+          secretAccessKey: data.secretAccessKey,
+        };
+      }
+    }
+
+    const result = await tenantIntegrationService.upsertIntegration(tenantId, provider, {
+      publicConfig,
+      secretConfig: Object.keys(secretConfig).length > 0 ? secretConfig : undefined,
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error updating integration:", error);
+    if (error instanceof Error && error.message.includes("Encryption key")) {
+      return res.status(500).json({ 
+        error: { 
+          code: "ENCRYPTION_KEY_MISSING", 
+          message: "Encryption key not configured. Please contact administrator." 
+        } 
+      });
+    }
+    res.status(500).json({ error: "Failed to update integration" });
+  }
+});
+
+// POST /api/v1/tenant/integrations/:provider/test - Test integration
+router.post("/integrations/:provider/test", requireAuth, requireTenantAdmin, async (req, res) => {
+  try {
+    const user = req.user as any;
+    const tenantId = user.tenantId;
+    const { provider } = req.params;
+
+    if (!isValidProvider(provider)) {
+      return res.status(400).json({ error: `Invalid provider: ${provider}` });
+    }
+
+    const result = await tenantIntegrationService.testIntegration(tenantId, provider);
+    
+    res.json(result);
+  } catch (error) {
+    console.error("Error testing integration:", error);
+    res.status(500).json({ error: "Failed to test integration" });
   }
 });
 

@@ -274,7 +274,7 @@ export class TenantIntegrationService {
   }
 
   private async testMailgun(tenantId: string): Promise<{ success: boolean; message: string }> {
-    const secrets = await this.getDecryptedSecrets(tenantId, "mailgun");
+    const secrets = await this.getDecryptedSecrets(tenantId, "mailgun") as MailgunSecretConfig | null;
     const integration = await this.getIntegration(tenantId, "mailgun");
     
     if (!secrets?.apiKey || !integration?.publicConfig) {
