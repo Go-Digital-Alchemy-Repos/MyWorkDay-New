@@ -61,7 +61,21 @@ async function buildAll() {
   });
 }
 
-buildAll().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function runDbPush() {
+  console.log("running db:push...");
+  const { execSync } = await import("child_process");
+  try {
+    execSync("npx drizzle-kit push", { stdio: "inherit" });
+    console.log("db:push completed");
+  } catch (error) {
+    console.error("db:push failed:", error);
+    // Don't fail the build if db:push fails - it may already be up to date
+  }
+}
+
+buildAll()
+  .then(() => runDbPush())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

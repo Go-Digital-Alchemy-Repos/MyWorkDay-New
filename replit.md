@@ -217,6 +217,16 @@ Following design_guidelines.md with:
 - `npm run db:push` - Push database schema changes
 - `npx tsx server/seed.ts` - Seed demo data
 
+## Deploying to Railway
+1. Create a PostgreSQL database on Railway
+2. Set the `DATABASE_URL` environment variable (Railway does this automatically when you link the database)
+3. Set `SESSION_SECRET` environment variable (a random string for session encryption)
+4. Deploy - the build script automatically runs `db:push` to create database tables
+5. On first run, the app will automatically create an admin user:
+   - Email: admin@dasana.com
+   - Password: admin123
+6. After login, you can change the admin password and create additional users in Settings > Team
+
 ## User Preferences
 - Professional, clean Asana-like design
 - Board view as primary view with list view and calendar view options
