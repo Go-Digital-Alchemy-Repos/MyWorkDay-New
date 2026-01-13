@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
 import { users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 
 function safeCompare(a: string, b: string): boolean {
@@ -184,10 +184,18 @@ router.post("/tenants", requireSuperUser, async (req, res) => {
       return res.status(409).json({ error: "A tenant with this slug already exists" });
     }
     
+    // Phase 3A: New tenants start as inactive
     const tenant = await storage.createTenant({
       ...data,
-      status: data.status || TenantStatus.ACTIVE,
+      status: TenantStatus.INACTIVE,
     });
+
+    // Phase 3A: Create tenant_settings record
+    await storage.createTenantSettings({
+      tenantId: tenant.id,
+      displayName: tenant.name,
+    });
+
     res.status(201).json(tenant);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -200,7 +208,8 @@ router.post("/tenants", requireSuperUser, async (req, res) => {
 
 const updateTenantSchema = z.object({
   name: z.string().min(1).optional(),
-  status: z.enum([TenantStatus.ACTIVE, TenantStatus.INACTIVE]).optional(),
+  slug: z.string().min(1).regex(/^[a-z0-9-]+$/).optional(),
+  status: z.enum([TenantStatus.ACTIVE, TenantStatus.INACTIVE, TenantStatus.SUSPENDED]).optional(),
 });
 
 router.patch("/tenants/:id", requireSuperUser, async (req, res) => {
@@ -218,6 +227,146 @@ router.patch("/tenants/:id", requireSuperUser, async (req, res) => {
     }
     console.error("Error updating tenant:", error);
     res.status(500).json({ error: "Failed to update tenant" });
+  }
+});
+
+// =============================================================================
+// PHASE 3A: TENANT ADMIN INVITATION
+// =============================================================================
+
+const inviteAdminSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  expiresInDays: z.number().min(1).max(30).optional(),
+});
+
+router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res) => {
+  try {
+    const tenantId = req.params.tenantId;
+    const data = inviteAdminSchema.parse(req.body);
+
+    // Verify tenant exists
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    // Get or create a default workspace for the tenant
+    // For now, we'll create a new one if none exists
+    let workspaceId: string;
+    const allWorkspaces = await db.select().from(workspaces);
+    const tenantWorkspace = allWorkspaces.find(w => w.name === `${tenant.name} Workspace`);
+    
+    if (tenantWorkspace) {
+      workspaceId = tenantWorkspace.id;
+    } else {
+      // Create a default workspace for the tenant
+      const [newWorkspace] = await db.insert(workspaces).values({
+        name: `${tenant.name} Workspace`,
+      }).returning();
+      workspaceId = newWorkspace.id;
+    }
+
+    // Get the super user's ID from the request
+    const superUser = req.user as any;
+    if (!superUser?.id) {
+      return res.status(401).json({ error: "User not authenticated" });
+    }
+
+    // Create the invitation
+    const { invitation, token } = await storage.createTenantAdminInvitation({
+      tenantId,
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      expiresInDays: data.expiresInDays,
+      createdByUserId: superUser.id,
+      workspaceId,
+    });
+
+    // Build the invite URL
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const inviteUrl = `${baseUrl}/invite/${token}`;
+
+    res.status(201).json({
+      invitation: {
+        id: invitation.id,
+        email: invitation.email,
+        role: invitation.role,
+        status: invitation.status,
+        expiresAt: invitation.expiresAt,
+        tenantId: invitation.tenantId,
+      },
+      inviteUrl,
+      message: "Invitation created successfully. Share the invite URL with the tenant admin.",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error creating tenant admin invitation:", error);
+    res.status(500).json({ error: "Failed to create invitation" });
+  }
+});
+
+// =============================================================================
+// PHASE 3A: TENANT ONBOARDING STATUS
+// =============================================================================
+
+router.get("/tenants/:tenantId/onboarding-status", requireSuperUser, async (req, res) => {
+  try {
+    const tenantId = req.params.tenantId;
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const settings = await storage.getTenantSettings(tenantId);
+
+    res.json({
+      status: tenant.status,
+      onboardedAt: tenant.onboardedAt,
+      ownerUserId: tenant.ownerUserId,
+      settings: settings ? {
+        displayName: settings.displayName,
+        logoUrl: settings.logoUrl,
+        primaryColor: settings.primaryColor,
+        supportEmail: settings.supportEmail,
+      } : null,
+    });
+  } catch (error) {
+    console.error("Error fetching tenant onboarding status:", error);
+    res.status(500).json({ error: "Failed to fetch onboarding status" });
+  }
+});
+
+// Get tenants with additional info (settings, user counts)
+router.get("/tenants-detail", requireSuperUser, async (req, res) => {
+  try {
+    const allTenants = await storage.getAllTenants();
+    
+    const tenantsWithDetails = await Promise.all(
+      allTenants.map(async (tenant) => {
+        const settings = await storage.getTenantSettings(tenant.id);
+        const tenantUsers = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(users)
+          .where(eq(users.tenantId, tenant.id));
+        
+        return {
+          ...tenant,
+          settings,
+          userCount: Number(tenantUsers[0]?.count || 0),
+        };
+      })
+    );
+
+    res.json(tenantsWithDetails);
+  } catch (error) {
+    console.error("Error fetching tenants with details:", error);
+    res.status(500).json({ error: "Failed to fetch tenants" });
   }
 });
 

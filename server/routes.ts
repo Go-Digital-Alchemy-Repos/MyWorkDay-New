@@ -110,10 +110,15 @@ export async function registerRoutes(
     return requireAuth(req, res, next);
   });
   
-  // Enforce tenant context for all API routes except /api/auth/*, /api/health, and /api/v1/super/bootstrap
+  // Enforce tenant context for all API routes except /api/auth/*, /api/health, /api/v1/super/bootstrap, and /api/v1/tenant/*
   // SuperUsers can access without tenant context; regular users must have tenantId
+  // Tenant onboarding routes (/api/v1/tenant/*) are exempt from strict tenant context enforcement
+  // as they need to work during onboarding when tenant context is being set up
   app.use("/api", (req, res, next) => {
-    if (req.path.startsWith("/auth") || req.path === "/health" || req.path === "/v1/super/bootstrap") {
+    if (req.path.startsWith("/auth") || 
+        req.path === "/health" || 
+        req.path === "/v1/super/bootstrap" ||
+        req.path.startsWith("/v1/tenant/")) {
       return next();
     }
     return requireTenantContext(req, res, next);
