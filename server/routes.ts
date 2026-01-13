@@ -3433,10 +3433,22 @@ export async function registerRoutes(
   // =============================================================================
 
   // PATCH /api/users/me - Update current user's profile
+  const updateProfileSchema = z.object({
+    firstName: z.string().max(100).optional(),
+    lastName: z.string().max(100).optional(),
+    name: z.string().max(200).optional(),
+  }).strict();
+
   app.patch("/api/users/me", requireAuth, async (req, res) => {
     try {
       const user = req.user as any;
-      const { firstName, lastName, name } = req.body;
+      
+      const parseResult = updateProfileSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid input", details: parseResult.error.issues });
+      }
+      
+      const { firstName, lastName, name } = parseResult.data;
       
       const updates: Record<string, any> = {};
       if (firstName !== undefined) updates.firstName = firstName;
