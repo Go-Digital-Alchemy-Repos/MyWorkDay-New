@@ -1,0 +1,180 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY the “Personal Tasks in My Tasks” enhancement described below. Preserve all existing functionality (Clients→Projects→Tasks/Subtasks, time tracking, attachments, sockets, admin settings, etc.).
+
+CRITICAL SAFETY RULES
+- NO major refactors, no folder restructures, no framework swaps.
+- DO NOT remove/rename existing endpoints, tables, or fields.
+- Schema changes must be ADD-ONLY and backward compatible (no drops/renames).
+- Keep existing project tasks working exactly as they do today.
+- If realtime emits are needed, ALL emits MUST go through /server/src/realtime/events.ts.
+
+===============================================================================
+GOAL
+===============================================================================
+Enhance “My Tasks” so team members can create and manage PERSONAL tasks that:
+- appear in “My Tasks”
+- are owned/assigned to the user
+- are NOT required to be tied to a Client or Project
+- coexist with assigned project tasks in the same view
+
+Personal tasks should still support core task features (title, description, priority, status, due date, tags, etc.) consistent with existing task model.
+
+===============================================================================
+1) DATA MODEL (ADD-ONLY, SAFE)
+===============================================================================
+We need a way to represent tasks that are NOT tied to a project.
+
+Preferred approach (choose one that fits existing schema with minimal change):
+
+Option A (recommended): Allow tasks.projectId to be NULL for personal tasks
+- Add/ensure tasks.projectId is nullable (if not already)
+- Add a boolean field:
+  - tasks.isPersonal (boolean default false)
+Rules:
+- For project tasks: projectId is NOT NULL and isPersonal=false
+- For personal tasks: projectId is NULL and isPersonal=true
+- Subtasks for personal tasks are allowed if your model supports subtasks:
+  - subtask.projectId should also be NULL
+  - subtask.isPersonal=true
+  - parentTaskId points to the personal parent
+
+Option B: Add a separate personal_tasks table (ONLY if tasks.projectId cannot be nullable)
+- Strongly prefer Option A to avoid dual task systems.
+
+If you add isPersonal:
+- Add an index on (assigneeUserId, isPersonal, createdAt) or equivalent.
+
+IMPORTANT:
+- Do not change existing behavior for project tasks.
+- Existing tasks with projectId not null remain unchanged.
+
+===============================================================================
+2) BACKEND API (MANDATORY)
+===============================================================================
+A) My Tasks list must include BOTH:
+- tasks assigned to the user tied to projects
+- personal tasks created by the user (isPersonal=true)
+
+Update existing “My Tasks” endpoint if it exists, without breaking callers.
+If needed, add:
+GET /api/v1/my-tasks?includeProjectTasks=true&includePersonalTasks=true
+Defaults:
+- includeProjectTasks=true
+- includePersonalTasks=true
+
+Filtering:
+- optional: status, due date range, priority, tags
+- optional: showCompleted=true/false if you have completion logic
+
+B) Create personal task endpoint
+POST /api/v1/my-tasks
+Body:
+{
+  title (required),
+  description?,
+  dueDate?,
+  priority?,
+  tags?,
+  status/section? (if you use a status model),
+  parentTaskId? (optional; to create a personal subtask)
+}
+Server behavior:
+- Create task with:
+  - assigneeUserId = current user
+  - isPersonal = true
+  - projectId = null
+  - clientId = null (if tasks table has it; otherwise ignore)
+- Validate that clientId/projectId are not required for this endpoint.
+
+C) Update personal task
+PATCH /api/v1/my-tasks/:taskId
+- allow editing same fields as normal tasks
+- ensure only the owner/assignee can edit personal tasks (unless admin)
+
+D) Delete personal task
+DELETE /api/v1/my-tasks/:taskId
+- soft delete if your system uses it; otherwise hard delete ok
+- ensure only owner/assignee can delete (unless admin)
+
+E) Optional: Convert personal task to project task
+Nice-to-have (optional): allow user to attach a personal task to a project later:
+PATCH /api/v1/my-tasks/:taskId/attach
+Body: { clientId, projectId }
+- when attached:
+  - set projectId
+  - set isPersonal=false
+  - now it behaves like a project task
+This is optional; implement only if easy.
+
+Permissions:
+- Employee: can create/update/delete their own personal tasks
+- Admin: can manage any task
+- Client users: do NOT get personal tasks unless already supported (default: hide My Tasks for client role)
+
+===============================================================================
+3) FRONTEND UI (MANDATORY)
+===============================================================================
+My Tasks page changes:
+
+A) Add “New Personal Task” button
+- Opens slide-out panel (not modal)
+- Fields:
+  - Title (required)
+  - Description
+  - Due date
+  - Priority
+  - Tags
+  - (Optional) Status
+  - IMPORTANT: Client and Project are NOT required and should be hidden by default.
+  - Optional: “Attach to Project” link that expands client/project selectors (only if you implement attach endpoint)
+
+On save:
+- Call POST /api/v1/my-tasks
+- Update list instantly
+
+B) List presentation
+My Tasks should show two sections or a filter toggle:
+- “Assigned Project Tasks”
+- “Personal Tasks”
+Or a single unified list with badges:
+- Badge: “Personal” for personal tasks
+- Badge: Project name for project tasks
+
+C) Editing
+- Clicking a personal task opens the same task detail panel style you use elsewhere
+- Ensure edits work without requiring project/client fields
+- For project tasks in My Tasks, keep current behavior.
+
+D) Realtime updates (if you already use sockets)
+- On create/update/delete personal tasks, emit events through /server/src/realtime/events.ts:
+  - myTask:created / myTask:updated / myTask:deleted
+- Update the My Tasks list instantly across tabs/windows.
+
+===============================================================================
+4) VALIDATION + EDGE CASES (MANDATORY)
+===============================================================================
+- Personal task creation must NOT require clientId or projectId.
+- If tasks currently enforce projectId in DB:
+  - migrate safely to allow null OR use Option B fallback.
+- My Tasks should not break if projectId is null.
+- Task dropdowns elsewhere (time tracking, project views) should continue to assume project context and must NOT accidentally include personal tasks.
+  - Ensure project task queries filter out isPersonal=true (or projectId is null) as appropriate.
+
+===============================================================================
+5) ACCEPTANCE CRITERIA (MUST WORK)
+===============================================================================
+1) My Tasks still shows assigned project tasks as before
+2) User can create a personal task without selecting a client/project
+3) Personal task appears in My Tasks immediately and is marked “Personal”
+4) User can edit and delete their personal tasks
+5) Project-related areas (project board/list/task selectors for time tracking) do NOT show personal tasks
+6) No existing app features are broken
+
+===============================================================================
+6) OUTPUT REQUIRED
+===============================================================================
+When done, output:
+- Summary of changes
+- Any migrations added (add-only)
+- Endpoints added/changed
+- Files modified
+- Manual test steps for acceptance criteria 1–6

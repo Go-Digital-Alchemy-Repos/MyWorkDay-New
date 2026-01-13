@@ -444,11 +444,21 @@ export class DatabaseStorage implements IStorage {
 
   async getTasksByUser(userId: string): Promise<TaskWithRelations[]> {
     const assigneeRecords = await db.select().from(taskAssignees).where(eq(taskAssignees.userId, userId));
-    const taskIds = assigneeRecords.map(a => a.taskId);
-    if (taskIds.length === 0) return [];
+    const assignedTaskIds = new Set(assigneeRecords.map(a => a.taskId));
+    
+    const personalTasks = await db.select().from(tasks).where(
+      and(
+        eq(tasks.isPersonal, true),
+        eq(tasks.createdBy, userId)
+      )
+    );
+    const personalTaskIds = personalTasks.map(t => t.id);
+    
+    const allTaskIds = [...new Set([...assignedTaskIds, ...personalTaskIds])];
+    if (allTaskIds.length === 0) return [];
 
     const result: TaskWithRelations[] = [];
-    for (const taskId of taskIds) {
+    for (const taskId of allTaskIds) {
       const taskWithRelations = await this.getTaskWithRelations(taskId);
       if (taskWithRelations) {
         result.push(taskWithRelations);

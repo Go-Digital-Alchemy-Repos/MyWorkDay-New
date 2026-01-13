@@ -308,9 +308,10 @@ export const sections = pgTable("sections", {
 });
 
 // Tasks table
+// Note: projectId is nullable to support personal tasks (isPersonal=true)
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id).notNull(),
+  projectId: varchar("project_id").references(() => projects.id),
   sectionId: varchar("section_id").references(() => sections.id),
   parentTaskId: varchar("parent_task_id"),
   title: text("title").notNull(),
@@ -319,6 +320,7 @@ export const tasks = pgTable("tasks", {
   priority: text("priority").notNull().default("medium"),
   startDate: timestamp("start_date"),
   dueDate: timestamp("due_date"),
+  isPersonal: boolean("is_personal").notNull().default(false),
   createdBy: varchar("created_by").references(() => users.id),
   orderIndex: integer("order_index").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -327,6 +329,7 @@ export const tasks = pgTable("tasks", {
   index("tasks_project_section_order").on(table.projectId, table.sectionId, table.orderIndex),
   index("tasks_due_date").on(table.dueDate),
   index("tasks_parent_order").on(table.parentTaskId, table.orderIndex),
+  index("tasks_personal_user").on(table.isPersonal, table.createdBy),
 ]);
 
 // Task Assignees table (for multiple assignees)
