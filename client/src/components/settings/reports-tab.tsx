@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
   SelectContent,
@@ -19,22 +20,36 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
-import { Download, Clock, FolderKanban, CheckSquare, TrendingUp, Users } from "lucide-react";
-import type { Project, TimeEntry } from "@shared/schema";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
+import { Download, Clock, FolderKanban, CheckSquare, TrendingUp, Users, Building2, User, UserCheck } from "lucide-react";
+import type { Project, TimeEntry, User as UserType, Team, WorkspaceMember } from "@shared/schema";
 
-const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
+const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16"];
+
+interface TimeEntryWithRelations extends TimeEntry {
+  user?: UserType;
+  project?: Project;
+}
 
 export function ReportsTab() {
   const [dateRange, setDateRange] = useState("this-month");
   const [groupBy, setGroupBy] = useState("week");
+  const [reportView, setReportView] = useState<"organization" | "employee" | "team">("organization");
 
-  const { data: timeEntries } = useQuery<TimeEntry[]>({
+  const { data: timeEntries } = useQuery<TimeEntryWithRelations[]>({
     queryKey: ["/api/time-entries"],
   });
 
   const { data: projects } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
+  });
+
+  const { data: teams } = useQuery<Team[]>({
+    queryKey: ["/api/teams"],
+  });
+
+  const { data: workspaceMembers } = useQuery<(WorkspaceMember & { user?: UserType })[]>({
+    queryKey: ["/api/workspace-members"],
   });
 
   const { data: timeSummary } = useQuery<any>({
@@ -56,6 +71,38 @@ export function ReportsTab() {
     };
   }).filter((p) => p.hours > 0) || [];
 
+  const employeeHours = workspaceMembers?.map((member) => {
+    const user = member.user;
+    if (!user) return null;
+    const userEntries = timeEntries?.filter((e) => e.userId === user.id) || [];
+    const hours = userEntries.reduce((acc, e) => acc + (e.duration || 0), 0) / 3600;
+    return {
+      id: user.id,
+      name: user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.name || user.email,
+      email: user.email,
+      hours: Math.round(hours * 10) / 10,
+      entries: userEntries.length,
+      avatarUrl: user.avatarUrl,
+    };
+  }).filter(Boolean) || [];
+
+  const teamHours = teams?.map((team) => {
+    const teamEntries = timeEntries?.filter((e) => {
+      const project = projects?.find((p) => p.id === e.projectId);
+      return project?.teamId === team.id;
+    }) || [];
+    const hours = teamEntries.reduce((acc, e) => acc + (e.duration || 0), 0) / 3600;
+    return {
+      id: team.id,
+      name: team.name,
+      hours: Math.round(hours * 10) / 10,
+      entries: teamEntries.length,
+      projectCount: projects?.filter((p) => p.teamId === team.id).length || 0,
+    };
+  }) || [];
+
   const weeklyData = [
     { name: "Mon", hours: 6.5 },
     { name: "Tue", hours: 8.2 },
@@ -66,22 +113,74 @@ export function ReportsTab() {
     { name: "Sun", hours: 0 },
   ];
 
-  const handleExportCSV = () => {
-    const headers = ["Date", "Project", "Description", "Duration (hours)"];
-    const rows = timeEntries?.map((entry) => [
-      entry.date ? new Date(entry.date).toLocaleDateString() : "",
-      projects?.find((p) => p.id === entry.projectId)?.name || "",
-      entry.description || "",
-      ((entry.duration || 0) / 3600).toFixed(2),
-    ]) || [];
+  const handleExportCSV = (type: "time" | "employee" | "team" | "project") => {
+    let csv = "";
+    let filename = "";
 
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    if (type === "time") {
+      const headers = ["Date", "Employee", "Project", "Description", "Duration (hours)"];
+      const rows = timeEntries?.map((entry) => [
+        entry.date ? new Date(entry.date).toLocaleDateString() : "",
+        entry.user ? (entry.user.firstName && entry.user.lastName 
+          ? `${entry.user.firstName} ${entry.user.lastName}` 
+          : entry.user.name || entry.user.email) : "",
+        projects?.find((p) => p.id === entry.projectId)?.name || "",
+        entry.description || "",
+        ((entry.duration || 0) / 3600).toFixed(2),
+      ]) || [];
+      csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      filename = `time-entries-${new Date().toISOString().split("T")[0]}.csv`;
+    } else if (type === "employee") {
+      const headers = ["Employee", "Email", "Hours Logged", "Time Entries"];
+      const rows = employeeHours.map((e: any) => [
+        e.name,
+        e.email,
+        e.hours.toFixed(2),
+        e.entries.toString(),
+      ]);
+      csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      filename = `employee-hours-${new Date().toISOString().split("T")[0]}.csv`;
+    } else if (type === "team") {
+      const headers = ["Team", "Hours Logged", "Time Entries", "Projects"];
+      const rows = teamHours.map((t) => [
+        t.name,
+        t.hours.toFixed(2),
+        t.entries.toString(),
+        t.projectCount.toString(),
+      ]);
+      csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      filename = `team-hours-${new Date().toISOString().split("T")[0]}.csv`;
+    } else if (type === "project") {
+      const headers = ["Project", "Status", "Hours Logged", "Team"];
+      const rows = projects?.map((project) => {
+        const hours = projectHours.find((p) => p.name.startsWith(project.name.slice(0, 15)))?.hours || 0;
+        const team = teams?.find((t) => t.id === project.teamId);
+        return [
+          project.name,
+          project.status || "active",
+          hours.toString(),
+          team?.name || "-",
+        ];
+      }) || [];
+      csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      filename = `project-report-${new Date().toISOString().split("T")[0]}.csv`;
+    }
+
     const blob = new Blob([csv], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `time-report-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = filename;
     a.click();
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -110,16 +209,11 @@ export function ReportsTab() {
             <SelectItem value="month">Month</SelectItem>
           </SelectContent>
         </Select>
-
-        <Button variant="outline" onClick={handleExportCSV} data-testid="button-export-csv">
-          <Download className="h-4 w-4 mr-2" />
-          Export CSV
-        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Total Hours</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -132,7 +226,7 @@ export function ReportsTab() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
             <FolderKanban className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -147,45 +241,79 @@ export function ReportsTab() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Daily Hours</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Team Members</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {weeklyData.filter((d) => d.hours > 0).length > 0
-                ? (weeklyData.reduce((a, b) => a + b.hours, 0) / weeklyData.filter((d) => d.hours > 0).length).toFixed(1)
-                : "0"}
-              h
+              {employeeHours.filter((e: any) => e.hours > 0).length}
             </div>
             <p className="text-xs text-muted-foreground">
-              based on work days
+              with time tracked
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Projects Tracked</CardTitle>
-            <CheckSquare className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Active Teams</CardTitle>
+            <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{projectHours.length}</div>
+            <div className="text-2xl font-bold">{teamHours.filter((t) => t.hours > 0).length}</div>
             <p className="text-xs text-muted-foreground">
-              with time logged
+              of {teams?.length || 0} total teams
             </p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs defaultValue="time-tracking" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="time-tracking">Time Tracking</TabsTrigger>
+          <TabsTrigger value="employees">Employees</TabsTrigger>
+          <TabsTrigger value="teams">Teams</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
-          <TabsTrigger value="productivity">Productivity</TabsTrigger>
         </TabsList>
 
         <TabsContent value="time-tracking" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex gap-2">
+              <Button 
+                variant={reportView === "organization" ? "default" : "outline"} 
+                size="sm"
+                onClick={() => setReportView("organization")}
+                data-testid="button-view-organization"
+              >
+                <Building2 className="h-4 w-4 mr-2" />
+                Organization
+              </Button>
+              <Button 
+                variant={reportView === "employee" ? "default" : "outline"} 
+                size="sm"
+                onClick={() => setReportView("employee")}
+                data-testid="button-view-employee"
+              >
+                <User className="h-4 w-4 mr-2" />
+                By Employee
+              </Button>
+              <Button 
+                variant={reportView === "team" ? "default" : "outline"} 
+                size="sm"
+                onClick={() => setReportView("team")}
+                data-testid="button-view-team"
+              >
+                <Users className="h-4 w-4 mr-2" />
+                By Team
+              </Button>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => handleExportCSV("time")} data-testid="button-export-time-csv">
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
@@ -215,13 +343,23 @@ export function ReportsTab() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Hours by Project</CardTitle>
-                <CardDescription>Distribution across projects</CardDescription>
+                <CardTitle className="text-base">
+                  Hours by {reportView === "organization" ? "Project" : reportView === "employee" ? "Employee" : "Team"}
+                </CardTitle>
+                <CardDescription>Distribution breakdown</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={projectHours.slice(0, 6)}>
+                    <BarChart 
+                      data={
+                        reportView === "organization" 
+                          ? projectHours.slice(0, 6)
+                          : reportView === "employee"
+                          ? employeeHours.slice(0, 6).map((e: any) => ({ name: e.name.split(" ")[0], hours: e.hours }))
+                          : teamHours.slice(0, 6).map((t) => ({ name: t.name, hours: t.hours }))
+                      }
+                    >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis dataKey="name" className="text-xs" />
                       <YAxis className="text-xs" />
@@ -235,7 +373,260 @@ export function ReportsTab() {
           </div>
         </TabsContent>
 
+        <TabsContent value="employees" className="space-y-4">
+          <div className="flex items-center justify-end">
+            <Button variant="outline" size="sm" onClick={() => handleExportCSV("employee")} data-testid="button-export-employee-csv">
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-base">Employee Time Summary</CardTitle>
+                <CardDescription>Hours logged by each team member</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Hours Logged</TableHead>
+                      <TableHead>Time Entries</TableHead>
+                      <TableHead>Avg per Entry</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {employeeHours
+                      .sort((a: any, b: any) => b.hours - a.hours)
+                      .map((employee: any) => (
+                        <TableRow key={employee.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={employee.avatarUrl || undefined} />
+                                <AvatarFallback>{getInitials(employee.name)}</AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div className="font-medium">{employee.name}</div>
+                                <div className="text-xs text-muted-foreground">{employee.email}</div>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-medium">{employee.hours}h</span>
+                          </TableCell>
+                          <TableCell>{employee.entries}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {employee.entries > 0 
+                              ? `${(employee.hours / employee.entries).toFixed(1)}h`
+                              : "-"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {employeeHours.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                          No time entries found
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Hours Distribution</CardTitle>
+                <CardDescription>By employee</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={employeeHours.filter((e: any) => e.hours > 0).slice(0, 8)}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name.split(" ")[0]} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="hours"
+                      >
+                        {employeeHours.slice(0, 8).map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Top Contributors</CardTitle>
+                <CardDescription>Most active this period</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {employeeHours
+                    .sort((a: any, b: any) => b.hours - a.hours)
+                    .slice(0, 5)
+                    .map((employee: any, index: number) => (
+                      <div key={employee.id} className="flex items-center gap-3">
+                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary/10 text-xs font-medium">
+                          {index + 1}
+                        </div>
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={employee.avatarUrl || undefined} />
+                          <AvatarFallback>{getInitials(employee.name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{employee.name}</div>
+                          <div className="text-xs text-muted-foreground">{employee.entries} entries</div>
+                        </div>
+                        <div className="font-medium">{employee.hours}h</div>
+                      </div>
+                    ))}
+                  {employeeHours.length === 0 && (
+                    <div className="text-center text-muted-foreground py-4">
+                      No data available
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="teams" className="space-y-4">
+          <div className="flex items-center justify-end">
+            <Button variant="outline" size="sm" onClick={() => handleExportCSV("team")} data-testid="button-export-team-csv">
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-base">Team Time Summary</CardTitle>
+                <CardDescription>Hours logged by each team</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Team</TableHead>
+                      <TableHead>Hours Logged</TableHead>
+                      <TableHead>Time Entries</TableHead>
+                      <TableHead>Projects</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {teamHours
+                      .sort((a, b) => b.hours - a.hours)
+                      .map((team) => (
+                        <TableRow key={team.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <Users className="h-4 w-4 text-primary" />
+                              </div>
+                              <span className="font-medium">{team.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-medium">{team.hours}h</span>
+                          </TableCell>
+                          <TableCell>{team.entries}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{team.projectCount} projects</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {teamHours.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                          No teams found
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Team Hours Distribution</CardTitle>
+                <CardDescription>Comparison across teams</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={teamHours} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" className="text-xs" />
+                      <YAxis dataKey="name" type="category" className="text-xs" width={80} />
+                      <Tooltip />
+                      <Bar dataKey="hours" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Team Productivity</CardTitle>
+                <CardDescription>Hours per project</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {teamHours
+                    .filter((t) => t.projectCount > 0)
+                    .sort((a, b) => (b.hours / b.projectCount) - (a.hours / a.projectCount))
+                    .slice(0, 5)
+                    .map((team) => (
+                      <div key={team.id} className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Users className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{team.name}</div>
+                          <div className="text-xs text-muted-foreground">{team.projectCount} projects</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium">{(team.hours / team.projectCount).toFixed(1)}h</div>
+                          <div className="text-xs text-muted-foreground">avg/project</div>
+                        </div>
+                      </div>
+                    ))}
+                  {teamHours.filter((t) => t.projectCount > 0).length === 0 && (
+                    <div className="text-center text-muted-foreground py-4">
+                      No team data available
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         <TabsContent value="projects" className="space-y-4">
+          <div className="flex items-center justify-end">
+            <Button variant="outline" size="sm" onClick={() => handleExportCSV("project")} data-testid="button-export-project-csv">
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Project Summary</CardTitle>
@@ -254,6 +645,7 @@ export function ReportsTab() {
                 <TableBody>
                   {projects?.slice(0, 10).map((project) => {
                     const hours = projectHours.find((p) => p.name.startsWith(project.name.slice(0, 15)))?.hours || 0;
+                    const team = teams?.find((t) => t.id === project.teamId);
                     return (
                       <TableRow key={project.id}>
                         <TableCell>
@@ -271,7 +663,9 @@ export function ReportsTab() {
                           </Badge>
                         </TableCell>
                         <TableCell>{hours}h</TableCell>
-                        <TableCell className="text-muted-foreground">-</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {team?.name || "-"}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -279,22 +673,67 @@ export function ReportsTab() {
               </Table>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="productivity" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Productivity Metrics</CardTitle>
-              <CardDescription>Team performance overview</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Productivity metrics will be available once more task data is collected.</p>
-                <p className="text-sm mt-2">Track task completions and time to see productivity insights.</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Hours by Project</CardTitle>
+                <CardDescription>Top projects by time tracked</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={projectHours.slice(0, 8)}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="name" className="text-xs" />
+                      <YAxis className="text-xs" />
+                      <Tooltip />
+                      <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
+                        {projectHours.slice(0, 8).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Project Status</CardTitle>
+                <CardDescription>Current project breakdown</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: "Active", value: projects?.filter((p) => p.status === "active").length || 0 },
+                          { name: "Archived", value: projects?.filter((p) => p.status === "archived").length || 0 },
+                          { name: "Completed", value: projects?.filter((p) => p.status === "completed").length || 0 },
+                        ].filter((d) => d.value > 0)}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        <Cell fill="#10B981" />
+                        <Cell fill="#6B7280" />
+                        <Cell fill="#3B82F6" />
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

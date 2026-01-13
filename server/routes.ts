@@ -151,6 +151,41 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/workspaces/:id", async (req, res) => {
+    try {
+      const workspace = await storage.updateWorkspace(req.params.id, req.body);
+      if (!workspace) {
+        return res.status(404).json({ error: "Workspace not found" });
+      }
+      res.json(workspace);
+    } catch (error) {
+      console.error("Error updating workspace:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/workspaces", async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const workspaces = await storage.getWorkspacesByUser(userId);
+      res.json(workspaces);
+    } catch (error) {
+      console.error("Error fetching workspaces:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/workspace-members", async (req, res) => {
+    try {
+      const workspaceId = getCurrentWorkspaceId(req);
+      const members = await storage.getWorkspaceMembers(workspaceId);
+      res.json(members);
+    } catch (error) {
+      console.error("Error fetching workspace members:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/projects", async (req, res) => {
     try {
       const projects = await storage.getProjectsByWorkspace(getCurrentWorkspaceId(req));
@@ -327,6 +362,39 @@ export async function registerRoutes(
         return res.status(400).json({ error: error.errors });
       }
       console.error("Error adding team member:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/teams/:id", async (req, res) => {
+    try {
+      const team = await storage.updateTeam(req.params.id, req.body);
+      if (!team) {
+        return res.status(404).json({ error: "Team not found" });
+      }
+      res.json(team);
+    } catch (error) {
+      console.error("Error updating team:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/teams/:id", async (req, res) => {
+    try {
+      await storage.deleteTeam(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting team:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/teams/:teamId/members/:userId", async (req, res) => {
+    try {
+      await storage.removeTeamMember(req.params.teamId, req.params.userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing team member:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -1957,6 +2025,60 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/users", requireAdmin, async (req, res) => {
+    try {
+      const { firstName, lastName, email, role, teamIds, clientIds } = req.body;
+      
+      if (!firstName || !lastName || !email) {
+        return res.status(400).json({ error: "First name, last name, and email are required" });
+      }
+      
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ error: "User with this email already exists" });
+      }
+      
+      const user = await storage.createUser({
+        email,
+        firstName,
+        lastName,
+        name: `${firstName} ${lastName}`,
+        role: role || "employee",
+        isActive: true,
+        passwordHash: null,
+      });
+      
+      await storage.addWorkspaceMember({
+        workspaceId: getCurrentWorkspaceId(req),
+        userId: user.id,
+        role: role === "admin" ? "admin" : "member",
+        status: "active",
+      });
+      
+      if (teamIds && Array.isArray(teamIds)) {
+        for (const teamId of teamIds) {
+          await storage.addTeamMember({ teamId, userId: user.id });
+        }
+      }
+      
+      if (role === "client" && clientIds && Array.isArray(clientIds)) {
+        for (const clientId of clientIds) {
+          await storage.addClientUserAccess({
+            workspaceId: getCurrentWorkspaceId(req),
+            clientId,
+            userId: user.id,
+            accessLevel: "viewer",
+          });
+        }
+      }
+      
+      res.status(201).json(user);
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.patch("/api/users/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
@@ -1995,11 +2117,11 @@ export async function registerRoutes(
 
       const invitation = await storage.createInvitation({
         email,
-        role: role || "employee",
-        token,
+        role: (role || "employee") as "admin" | "employee" | "client",
+        tokenHash: token,
         expiresAt,
         workspaceId: getCurrentWorkspaceId(req),
-        invitedBy: getCurrentUserId(req),
+        createdByUserId: getCurrentUserId(req),
         status: "pending",
       });
       
@@ -2016,6 +2138,45 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting invitation:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/invitations/for-user", requireAdmin, async (req, res) => {
+    try {
+      const { userId, expiresInDays, sendEmail } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + (expiresInDays || 7));
+      
+      const invitation = await storage.createInvitation({
+        email: user.email,
+        role: (user.role || "employee") as "admin" | "employee" | "client",
+        tokenHash: token,
+        expiresAt,
+        workspaceId: getCurrentWorkspaceId(req),
+        createdByUserId: getCurrentUserId(req),
+        status: "pending",
+      });
+      
+      const inviteLink = `${req.protocol}://${req.get("host")}/accept-invite/${token}`;
+      
+      res.status(201).json({
+        ...invitation,
+        inviteLink,
+      });
+    } catch (error) {
+      console.error("Error creating invitation for user:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

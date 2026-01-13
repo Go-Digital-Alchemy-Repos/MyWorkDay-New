@@ -8,6 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,7 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2, Users, Calendar, MoreHorizontal, Edit, Archive } from "lucide-react";
+import { Plus, Building2, Calendar, MoreHorizontal, Edit, Archive } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +35,9 @@ import type { Workspace } from "@shared/schema";
 
 export function WorkspacesTab() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
+  const [editForm, setEditForm] = useState({ name: "" });
   const { toast } = useToast();
 
   const { data: currentWorkspace } = useQuery<Workspace>({
@@ -51,7 +62,37 @@ export function WorkspacesTab() {
     },
   });
 
+  const updateWorkspaceMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { name: string } }) => {
+      return apiRequest("PATCH", `/api/workspaces/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/workspaces/current"] });
+      setEditOpen(false);
+      setEditingWorkspace(null);
+      toast({ title: "Workspace updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update workspace", variant: "destructive" });
+    },
+  });
+
   const displayWorkspaces = workspaces || (currentWorkspace ? [currentWorkspace] : []);
+
+  const openEditWorkspace = (workspace: Workspace) => {
+    setEditingWorkspace(workspace);
+    setEditForm({ name: workspace.name });
+    setEditOpen(true);
+  };
+
+  const handleUpdateWorkspace = () => {
+    if (!editingWorkspace) return;
+    updateWorkspaceMutation.mutate({
+      id: editingWorkspace.id,
+      data: editForm,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -135,7 +176,7 @@ export function WorkspacesTab() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditWorkspace(workspace)}>
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
@@ -170,6 +211,48 @@ export function WorkspacesTab() {
           )}
         </CardContent>
       </Card>
+
+      <Sheet open={editOpen} onOpenChange={setEditOpen}>
+        <SheetContent className="sm:max-w-[400px]">
+          <SheetHeader>
+            <SheetTitle>Edit Workspace</SheetTitle>
+            <SheetDescription>
+              Update workspace settings
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-6">
+            <div className="space-y-2">
+              <Label htmlFor="edit-workspace-name">Workspace Name</Label>
+              <Input
+                id="edit-workspace-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                data-testid="input-edit-workspace-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Workspace ID</Label>
+              <Input
+                value={editingWorkspace?.id || ""}
+                disabled
+                className="opacity-60"
+              />
+              <p className="text-xs text-muted-foreground">
+                The workspace ID cannot be changed as it is used for system references.
+              </p>
+            </div>
+          </div>
+          <SheetFooter>
+            <Button 
+              onClick={handleUpdateWorkspace} 
+              disabled={updateWorkspaceMutation.isPending || !editForm.name}
+              data-testid="button-update-workspace"
+            >
+              {updateWorkspaceMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

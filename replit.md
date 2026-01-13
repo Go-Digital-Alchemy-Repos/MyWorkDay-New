@@ -57,7 +57,12 @@ DASANA is a fully functional Asana-inspired project management application built
 - **client**: Restricted to assigned clients only via clientUserAccess table
 
 ### Frontend Structure (client/src/)
-- **pages/**: Route components (home.tsx, my-tasks.tsx, project.tsx, clients.tsx, client-detail.tsx, time-tracking.tsx)
+- **pages/**: Route components (home.tsx, my-tasks.tsx, project.tsx, clients.tsx, client-detail.tsx, time-tracking.tsx, settings.tsx)
+- **components/settings/**: Global Settings tab components
+  - team-tab.tsx: User management (create/edit users, invitation management, team assignments, client access)
+  - workspaces-tab.tsx: Workspace management (create/edit workspaces)
+  - reports-tab.tsx: Time tracking reports (organization/employee/team views), project reports, CSV exports
+  - integrations-tab.tsx: Placeholder for integrations
 - **components/**: Reusable UI components
   - app-sidebar.tsx: Navigation sidebar with workspace, projects, teams, clients, time tracking
   - task-card.tsx: Task display for list/board views
@@ -96,7 +101,28 @@ DASANA is a fully functional Asana-inspired project management application built
 ## API Endpoints
 
 ### Workspaces
+- GET /api/workspaces - List all workspaces for current user
 - GET /api/workspaces/current - Get current workspace
+- PATCH /api/workspaces/:id - Update workspace name
+
+### Users
+- POST /api/users - Create new user (firstName, lastName, email, role)
+- PATCH /api/users/:id - Update user
+
+### Teams
+- GET /api/teams - List teams in workspace
+- POST /api/teams - Create team
+- PATCH /api/teams/:id - Update team name
+- DELETE /api/teams/:id - Delete team (and remove all team members)
+
+### Team Members
+- GET /api/teams/:teamId/members - List team members
+- POST /api/teams/:teamId/members - Add user to team
+- DELETE /api/teams/:teamId/members/:userId - Remove user from team
+
+### Invitations
+- POST /api/invitations/for-user - Create invitation for existing user (userId, expiresInDays)
+- PATCH /api/invitations/:id/revoke - Revoke an invitation
 
 ### Projects
 - GET /api/projects - List projects

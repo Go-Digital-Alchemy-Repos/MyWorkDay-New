@@ -1,0 +1,299 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY fixes and refinements to the Admin “Global Settings” area based on the issues listed below. Preserve all existing functionality (Clients→Projects→Tasks/Subtasks, Time Tracking, Attachments+S3, realtime sockets, etc.).
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES (READ FIRST)
+===============================================================================
+These rules exist to prevent breaking changes. You MUST follow them:
+
+1) NO MAJOR REFACTORING
+- Do NOT restructure folders, rename modules, or change app architecture.
+- Do NOT change routing frameworks, state management approach, or UI library choices.
+- Do NOT introduce new major dependencies unless explicitly required by this prompt.
+
+2) NO DATA DESTRUCTION
+- Do NOT drop tables, columns, or constraints.
+- Do NOT rename tables/columns.
+- Only ADD new tables/columns if missing, and make them backward compatible.
+- Do NOT modify existing data in ways that would break legacy records.
+
+3) NO AUTH OVERHAUL
+- Do NOT change authentication/session implementation except to:
+  a) enforce Admin-only access for /settings/* routes, and
+  b) add minimal endpoints needed for the requested features.
+- Do NOT migrate to Better Auth in this prompt.
+- Do NOT change token storage strategy.
+- Do NOT rewrite existing auth middleware; only extend it if necessary.
+
+4) NO API BREAKING CHANGES
+- Do NOT remove or rename existing endpoints.
+- If new endpoints are needed, ADD them.
+- If you must change a response shape, do so in a backward compatible way (add fields, don’t remove).
+
+5) REALTIME RULE
+- If emitting realtime events, ALL socket emits MUST go through:
+  /server/src/realtime/events.ts
+  No direct io.emit calls anywhere else.
+
+6) KEEP CURRENT FEATURES WORKING
+- After implementation, the following must still work exactly as before:
+  - Clients, Projects, Tasks/Subtasks, Assignments, DnD, Attachments/S3, Time Tracking (including timers)
+- Additions must not alter existing workflows.
+
+===============================================================================
+CRITICAL CONSTRAINTS
+===============================================================================
+- React frontend under /client, Express backend under /server
+- Global Settings remains ADMIN ONLY
+- Use existing UI patterns (slide-outs, panels; avoid modals unless already used)
+- Use Drizzle for NEW schema/migrations if needed; do not remove existing ORM if present
+
+===============================================================================
+SCOPE (ONLY THESE ITEMS)
+===============================================================================
+A) Team Tab fixes + enhancements
+B) Workspaces Tab edit functionality
+C) Reports Tab expansion (teams + employees + projects + tasks + time tracking)
+
+===============================================================================
+A) TEAM TAB — REQUIRED CHANGES
+===============================================================================
+
+A1) Rename UI action
+- Change button label from “Invite User” to “New User”.
+
+A2) New user creation WITHOUT email invite (REQUIRED)
+Admins must be able to create a user record without sending an invitation email immediately.
+
+UI/Flow:
+- “New User” opens a slide-out panel with fields:
+  - First Name (required)
+  - Last Name (required)
+  - Email (required)
+  - Role (Admin / Employee / Client)
+  - (If role=Client) Select Client Account(s) to grant access (client_user_access)
+  - (Optional) Assign Team(s) (multi-select)
+  - Create user button
+
+Backend behavior:
+- Create the user in the DB as “pending onboarding”:
+  - passwordHash remains NULL
+  - isActive true
+  - user exists and appears in the user list
+- IMPORTANT: creating user must NOT send any email automatically.
+
+A3) Invitations must become a SECONDARY action per user row
+After users exist in the system, each user row must allow BOTH:
+- “Invite” button (creates invitation token and optionally emails it)
+- “Copy Invite Link” / “Show Invite Link” (always available after invite created)
+
+Row behavior details:
+- If user has never been invited:
+  - show “Invite” button
+- If user has an active invite:
+  - show “Copy Invite Link” button
+  - show “Resend Invite” button (if Mailgun configured)
+  - show “Revoke Invite” button
+- If invite expired/used:
+  - allow “Generate New Invite” button
+
+Backend changes required:
+- Add endpoint to create invite for an EXISTING user:
+  POST /api/v1/invitations/for-user
+  Body: { userId, expiresInDays? }
+  - creates an invite tied to user.email + user.role
+  - returns invite token link for copying
+  - if Mailgun configured and request includes sendEmail=true, email it; otherwise only return link
+- Update accept-invite flow to set password for that user (matching email) and mark invite used
+- NOTE: do not change existing invitation endpoints; add this one if missing.
+
+A4) Add missing first/last name fields everywhere
+- Ensure user list shows full name
+- Ensure edit user slide-out allows editing:
+  - firstName, lastName, email
+  - status active/inactive
+  - role (admin-only; enforce invariants)
+  - team assignments
+  - client access mapping for client-role users
+
+A5) Teams management + assignment (MUST IMPLEMENT)
+Requirements:
+1) Teams CRUD UI inside Team tab:
+- Create Team (name, description)
+- Edit Team
+- Delete Team (confirm; detach members safely)
+
+2) Assign users to teams:
+- In New User slide-out: choose teams multi-select
+- In Edit User slide-out: update teams
+- Team detail view (recommended): view members and add/remove members
+
+Backend endpoints (create/fix if missing; do not remove existing):
+- GET /api/v1/teams
+- POST /api/v1/teams
+- PATCH /api/v1/teams/:teamId
+- DELETE /api/v1/teams/:teamId
+- GET /api/v1/teams/:teamId/members
+- POST /api/v1/teams/:teamId/members { userId }
+- DELETE /api/v1/teams/:teamId/members/:userId
+
+Schema (ONLY if missing; do not duplicate):
+- teams (id, organizationId, name, description, createdAt, updatedAt)
+- team_members (teamId, userId, createdAt)
+Constraints:
+- unique(teamId, userId)
+
+A6) Realtime (optional but recommended)
+Emit via /server/src/realtime/events.ts only:
+- user:created / user:updated
+- team:created / team:updated / team:deleted
+- invitation:created / invitation:revoked
+
+===============================================================================
+B) WORKSPACES TAB — REQUIRED FIXES
+===============================================================================
+Issue: No way to edit a workspace once setup.
+
+Requirements:
+- Add “Edit” action on each workspace row
+- Clicking opens slide-out with editable fields:
+  - Workspace name
+  - Slug (editable only if safe; otherwise read-only with explanation)
+  - Status (active/inactive) if supported
+- Save calls backend update endpoint
+
+Backend:
+- Ensure PATCH /api/v1/workspaces/:id works and is wired correctly
+- Validate slug uniqueness if slug is editable
+- Soft delete/archive must not break existing access
+
+===============================================================================
+C) REPORTS TAB — EXPAND REPORTING (REQUIRED)
+===============================================================================
+Expand Reports to include:
+- Team reports
+- Individual employee time tracking reports
+- Project stats
+- Task productivity
+- Additional cross-dataset report types where feasible
+
+C1) Reports navigation inside Reports tab
+Implement sub-tabs or left menu:
+- Time Tracking (Org)
+- Time Tracking (Employee)
+- Time Tracking (Team)
+- Projects
+- Tasks / Productivity
+
+C2) Common filters for all reports
+- Date range presets: week, month, year, custom
+- Workspace selector (if multiple)
+- Team selector (for team reports)
+- Employee selector (for employee reports)
+- Client filter (optional)
+- Project filter (optional)
+
+C3) Time Tracking — Organization report
+- Total hours
+- In-scope vs out-of-scope totals (if scope exists)
+- Breakdown by client/project/employee
+- Trend chart
+- Export CSV
+
+C4) Time Tracking — Employee report
+- Select employee
+- Totals + weekly trend
+- Top clients/projects/tasks by hours
+- Export CSV
+
+C5) Time Tracking — Team report
+- Select team
+- Aggregate time for team members
+- Per-member breakdown + trend
+- Export CSV
+
+C6) Project reports
+- Active vs inactive projects
+- Projects by client
+- Task counts per project
+- Completed vs open tasks (based on existing status/sections; do not invent a new status system)
+- Time logged per project
+- Top projects by hours
+- Export CSV
+
+C7) Task / Productivity reports
+- Tasks created vs completed over time (infer completion using existing logic; do not require schema changes)
+- Tasks completed by employee
+- Time logged by task (top tasks)
+- Export CSV
+
+C8) Backend reporting endpoints (admin-only)
+Prefer reuse. If missing, ADD these endpoints (do not remove existing):
+Time:
+- GET /api/v1/reports/time/org
+- GET /api/v1/reports/time/employee
+- GET /api/v1/reports/time/team
+- GET /api/v1/reports/time/export.csv
+
+Projects:
+- GET /api/v1/reports/projects/summary
+- GET /api/v1/reports/projects/export.csv
+
+Tasks:
+- GET /api/v1/reports/tasks/summary
+- GET /api/v1/reports/tasks/by-employee
+- GET /api/v1/reports/tasks/export.csv
+
+All endpoints must:
+- be admin-only
+- be scoped to active workspace/org context
+- return aggregate metrics + chart series + table rows
+
+C9) Frontend charts
+- Use existing chart library only (e.g. Recharts if already installed).
+- Keep charts simple and robust.
+- Include loading/empty/error states.
+
+===============================================================================
+DOCUMENTATION (MANDATORY)
+===============================================================================
+Update/add:
+- /client/src/pages/settings/README.md with updated Team/Workspace/Reports behaviors
+- /server/src/api/README-SETTINGS-TEAM.md
+- /server/src/api/README-SETTINGS-WORKSPACES.md
+- /server/src/api/README-SETTINGS-REPORTS.md
+
+Add inline comments for:
+- invitation-for-user flow
+- team aggregation queries
+- report query logic
+
+===============================================================================
+ACCEPTANCE CRITERIA (MUST WORK)
+===============================================================================
+Team Tab:
+1) “Invite User” renamed to “New User”
+2) Admin can create a new user with first/last/email/role WITHOUT emailing
+3) User rows support Invite + Copy Invite Link + Resend (if configured) + Revoke
+4) Admin can create/edit/delete teams
+5) Admin can assign/unassign users to teams via user edit and team detail
+
+Workspaces Tab:
+6) Admin can edit an existing workspace (name and safe fields)
+
+Reports Tab:
+7) Admin can view org, employee, and team time reports with charts + tables
+8) Admin can view project and task productivity reports
+9) CSV export works for major reports
+
+General:
+10) Existing app functionality remains intact
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+When done, output:
+- Summary of fixes per tab
+- Files modified/added
+- Endpoints added/changed
+- Any schema additions (add-only)
+- Manual test steps mapped to acceptance criteria

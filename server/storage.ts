@@ -25,10 +25,11 @@ import {
   type TimeEntryWithRelations, type ActiveTimerWithRelations,
   type Invitation, type InsertInvitation,
   type AppSetting,
+  type ClientUserAccess, type InsertClientUserAccess,
   users, workspaces, workspaceMembers, teams, teamMembers,
   projects, projectMembers, sections, tasks, taskAssignees,
   subtasks, tags, taskTags, comments, activityLog, taskAttachments,
-  clients, clientContacts, clientInvites,
+  clients, clientContacts, clientInvites, clientUserAccess,
   timeEntries, activeTimers,
   invitations, appSettings,
 } from "@shared/schema";
@@ -46,6 +47,7 @@ export interface IStorage {
   
   getWorkspaceMembers(workspaceId: string): Promise<(WorkspaceMember & { user?: User })[]>;
   addWorkspaceMember(member: InsertWorkspaceMember): Promise<WorkspaceMember>;
+  updateWorkspace(id: string, workspace: Partial<InsertWorkspace>): Promise<Workspace | undefined>;
   
   getTeam(id: string): Promise<Team | undefined>;
   getTeamsByWorkspace(workspaceId: string): Promise<Team[]>;
@@ -53,6 +55,9 @@ export interface IStorage {
   
   getTeamMembers(teamId: string): Promise<(TeamMember & { user?: User })[]>;
   addTeamMember(member: InsertTeamMember): Promise<TeamMember>;
+  updateTeam(id: string, team: Partial<InsertTeam>): Promise<Team | undefined>;
+  deleteTeam(id: string): Promise<void>;
+  removeTeamMember(teamId: string, userId: string): Promise<void>;
   
   getProject(id: string): Promise<Project | undefined>;
   getProjectsByWorkspace(workspaceId: string): Promise<Project[]>;
@@ -143,6 +148,9 @@ export interface IStorage {
   // Projects by client
   getProjectsByClient(clientId: string): Promise<Project[]>;
   
+  // Client User Access
+  addClientUserAccess(access: InsertClientUserAccess): Promise<ClientUserAccess>;
+  
   // Time Tracking - Time Entries
   getTimeEntry(id: string): Promise<TimeEntry | undefined>;
   getTimeEntriesByWorkspace(workspaceId: string, filters?: {
@@ -215,6 +223,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async updateWorkspace(id: string, workspace: Partial<InsertWorkspace>): Promise<Workspace | undefined> {
+    const [updated] = await db.update(workspaces).set({ ...workspace, updatedAt: new Date() }).where(eq(workspaces.id, id)).returning();
+    return updated || undefined;
+  }
+
   async getTeam(id: string): Promise<Team | undefined> {
     const [team] = await db.select().from(teams).where(eq(teams.id, id));
     return team || undefined;
@@ -242,6 +255,22 @@ export class DatabaseStorage implements IStorage {
   async addTeamMember(member: InsertTeamMember): Promise<TeamMember> {
     const [result] = await db.insert(teamMembers).values(member).returning();
     return result;
+  }
+
+  async updateTeam(id: string, team: Partial<InsertTeam>): Promise<Team | undefined> {
+    const [updated] = await db.update(teams).set(team).where(eq(teams.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deleteTeam(id: string): Promise<void> {
+    await db.delete(teamMembers).where(eq(teamMembers.teamId, id));
+    await db.delete(teams).where(eq(teams.id, id));
+  }
+
+  async removeTeamMember(teamId: string, userId: string): Promise<void> {
+    await db.delete(teamMembers).where(
+      and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))
+    );
   }
 
   async getProject(id: string): Promise<Project | undefined> {
@@ -847,6 +876,11 @@ export class DatabaseStorage implements IStorage {
   // =============================================================================
   // PROJECTS BY CLIENT
   // =============================================================================
+
+  async addClientUserAccess(access: InsertClientUserAccess): Promise<ClientUserAccess> {
+    const [result] = await db.insert(clientUserAccess).values(access).returning();
+    return result;
+  }
 
   async getProjectsByClient(clientId: string): Promise<Project[]> {
     return db.select()
