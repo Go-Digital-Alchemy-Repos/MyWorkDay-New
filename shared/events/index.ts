@@ -465,6 +465,44 @@ export interface TimeEntryDeletedPayload {
 }
 
 // =============================================================================
+// PERSONAL TASK EVENTS (My Tasks)
+// =============================================================================
+
+export const MY_TASK_EVENTS = {
+  CREATED: 'myTask:created',
+  UPDATED: 'myTask:updated',
+  DELETED: 'myTask:deleted',
+} as const;
+
+export interface MyTaskPayload {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  dueDate: Date | null;
+  isPersonal: boolean;
+  createdBy: string;
+  createdAt: Date;
+}
+
+export interface MyTaskCreatedPayload {
+  userId: string;
+  task: MyTaskPayload;
+}
+
+export interface MyTaskUpdatedPayload {
+  userId: string;
+  taskId: string;
+  updates: Partial<MyTaskPayload>;
+}
+
+export interface MyTaskDeletedPayload {
+  userId: string;
+  taskId: string;
+}
+
+// =============================================================================
 // ALL EVENTS TYPE (for type-safe event handling)
 // =============================================================================
 
@@ -506,6 +544,10 @@ export type ServerToClientEvents = {
   [TIME_ENTRY_EVENTS.CREATED]: (payload: TimeEntryCreatedPayload) => void;
   [TIME_ENTRY_EVENTS.UPDATED]: (payload: TimeEntryUpdatedPayload) => void;
   [TIME_ENTRY_EVENTS.DELETED]: (payload: TimeEntryDeletedPayload) => void;
+  // Personal task events
+  [MY_TASK_EVENTS.CREATED]: (payload: MyTaskCreatedPayload) => void;
+  [MY_TASK_EVENTS.UPDATED]: (payload: MyTaskUpdatedPayload) => void;
+  [MY_TASK_EVENTS.DELETED]: (payload: MyTaskDeletedPayload) => void;
 };
 
 export type ClientToServerEvents = {

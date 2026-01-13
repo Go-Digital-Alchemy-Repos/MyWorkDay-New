@@ -23,6 +23,7 @@ import {
   CLIENT_INVITE_EVENTS,
   TIMER_EVENTS,
   TIME_ENTRY_EVENTS,
+  MY_TASK_EVENTS,
   ProjectCreatedPayload,
   ProjectUpdatedPayload,
   ProjectDeletedPayload,
@@ -60,6 +61,10 @@ import {
   TimeEntryCreatedPayload,
   TimeEntryUpdatedPayload,
   TimeEntryDeletedPayload,
+  MyTaskPayload,
+  MyTaskCreatedPayload,
+  MyTaskUpdatedPayload,
+  MyTaskDeletedPayload,
 } from '@shared/events';
 import { log } from '../index';
 
@@ -494,4 +499,35 @@ export function emitTimeEntryDeleted(timeEntryId: string, workspaceId: string): 
   const payload: TimeEntryDeletedPayload = { timeEntryId, workspaceId };
   emitToWorkspace(workspaceId, TIME_ENTRY_EVENTS.DELETED, payload);
   log(`Emitted ${TIME_ENTRY_EVENTS.DELETED} for time entry ${timeEntryId}`, 'events');
+}
+
+// =============================================================================
+// PERSONAL TASK (MY TASK) EVENTS
+// =============================================================================
+
+/**
+ * Emit when a personal task is created.
+ */
+export function emitMyTaskCreated(userId: string, task: MyTaskPayload, workspaceId: string): void {
+  const payload: MyTaskCreatedPayload = { userId, task };
+  emitToWorkspace(workspaceId, MY_TASK_EVENTS.CREATED, payload);
+  log(`Emitted ${MY_TASK_EVENTS.CREATED} for personal task ${task.id}`, 'events');
+}
+
+/**
+ * Emit when a personal task is updated.
+ */
+export function emitMyTaskUpdated(userId: string, taskId: string, updates: Partial<MyTaskPayload>, workspaceId: string): void {
+  const payload: MyTaskUpdatedPayload = { userId, taskId, updates };
+  emitToWorkspace(workspaceId, MY_TASK_EVENTS.UPDATED, payload);
+  log(`Emitted ${MY_TASK_EVENTS.UPDATED} for personal task ${taskId}`, 'events');
+}
+
+/**
+ * Emit when a personal task is deleted.
+ */
+export function emitMyTaskDeleted(userId: string, taskId: string, workspaceId: string): void {
+  const payload: MyTaskDeletedPayload = { userId, taskId };
+  emitToWorkspace(workspaceId, MY_TASK_EVENTS.DELETED, payload);
+  log(`Emitted ${MY_TASK_EVENTS.DELETED} for personal task ${taskId}`, 'events');
 }
