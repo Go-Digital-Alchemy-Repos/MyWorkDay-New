@@ -570,7 +570,7 @@ export async function registerRoutes(
         status: string;
         priority: string;
         sectionId: string | null;
-        projectId: string;
+        projectId: string | null;
         assignees: any[];
         tags: any[];
         isSubtask: boolean;
@@ -730,7 +730,11 @@ export async function registerRoutes(
 
       // Emit real-time event after successful DB operation
       if (taskWithRelations) {
-        emitTaskCreated(task.projectId, taskWithRelations as any);
+        if (task.isPersonal && task.createdBy) {
+          emitMyTaskCreated(task.createdBy, taskWithRelations as any, getCurrentWorkspaceId(req));
+        } else if (task.projectId) {
+          emitTaskCreated(task.projectId, taskWithRelations as any);
+        }
       }
 
       res.status(201).json(taskWithRelations);
@@ -776,7 +780,7 @@ export async function registerRoutes(
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
       // Emit real-time event after successful DB operation
-      if (taskWithRelations) {
+      if (taskWithRelations && parentTask.projectId) {
         emitTaskCreated(parentTask.projectId, taskWithRelations as any);
       }
 
@@ -799,10 +803,10 @@ export async function registerRoutes(
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
       // Emit real-time event after successful DB operation
-      if (task.isPersonal) {
+      if (task.isPersonal && task.createdBy) {
         // Personal task - emit to workspace
         emitMyTaskUpdated(task.createdBy, task.id, req.body, getCurrentWorkspaceId(req));
-      } else {
+      } else if (task.projectId) {
         // Project task - emit to project room
         emitTaskUpdated(task.id, task.projectId, task.parentTaskId, req.body);
       }
@@ -825,10 +829,10 @@ export async function registerRoutes(
       await storage.deleteTask(req.params.id);
 
       // Emit real-time event after successful DB operation
-      if (task.isPersonal) {
+      if (task.isPersonal && task.createdBy) {
         // Personal task - emit to workspace
         emitMyTaskDeleted(task.createdBy, task.id, getCurrentWorkspaceId(req));
-      } else {
+      } else if (task.projectId) {
         // Project task - emit to project room
         emitTaskDeleted(
           task.id,
@@ -859,14 +863,16 @@ export async function registerRoutes(
       await storage.moveTask(req.params.id, sectionId, targetIndex);
       const task = await storage.getTaskWithRelations(req.params.id);
 
-      // Emit real-time event after successful DB operation
-      emitTaskMoved(
-        req.params.id,
-        taskBefore.projectId,
-        fromSectionId,
-        sectionId,
-        targetIndex,
-      );
+      // Emit real-time event after successful DB operation (only for project tasks)
+      if (taskBefore.projectId) {
+        emitTaskMoved(
+          req.params.id,
+          taskBefore.projectId,
+          fromSectionId,
+          sectionId,
+          targetIndex,
+        );
+      }
 
       res.json(task);
     } catch (error) {
@@ -921,8 +927,8 @@ export async function registerRoutes(
 
       const subtask = await storage.createSubtask(data);
 
-      // Emit real-time event after successful DB operation
-      if (parentTask) {
+      // Emit real-time event after successful DB operation (only for project tasks)
+      if (parentTask && parentTask.projectId) {
         emitSubtaskCreated(
           subtask as any,
           req.params.taskId,
@@ -950,8 +956,8 @@ export async function registerRoutes(
       // Get parent task to emit event with projectId
       const parentTask = await storage.getTask(subtask.taskId);
 
-      // Emit real-time event after successful DB operation
-      if (parentTask) {
+      // Emit real-time event after successful DB operation (only for project tasks)
+      if (parentTask && parentTask.projectId) {
         emitSubtaskUpdated(
           subtask.id,
           subtask.taskId,
@@ -979,8 +985,8 @@ export async function registerRoutes(
 
       await storage.deleteSubtask(req.params.id);
 
-      // Emit real-time event after successful DB operation
-      if (parentTask) {
+      // Emit real-time event after successful DB operation (only for project tasks)
+      if (parentTask && parentTask.projectId) {
         emitSubtaskDeleted(subtask.id, subtask.taskId, parentTask.projectId);
       }
 

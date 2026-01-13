@@ -1,11 +1,12 @@
 import { forwardRef } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { DueDateBadge } from "@/components/due-date-badge";
 import { TagBadge } from "@/components/tag-badge";
 import { AvatarGroup } from "@/components/avatar-group";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Paperclip, GripVertical } from "lucide-react";
+import { MessageSquare, Paperclip, GripVertical, User as UserIcon } from "lucide-react";
 import type { TaskWithRelations, User, Tag } from "@shared/schema";
 
 interface TaskCardProps {
@@ -68,6 +69,15 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
               {task.title}
             </span>
           </div>
+
+          {task.isPersonal && (
+            <div className="pl-6">
+              <Badge variant="outline" className="text-xs gap-1 px-1.5 py-0">
+                <UserIcon className="h-3 w-3" />
+                Personal
+              </Badge>
+            </div>
+          )}
 
           {task.description && (
             <p className="text-xs text-muted-foreground line-clamp-2 pl-6">
@@ -144,6 +154,12 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
           >
             {task.title}
           </span>
+          {task.isPersonal && (
+            <Badge variant="outline" className="text-xs shrink-0 gap-1 px-1.5 py-0">
+              <UserIcon className="h-3 w-3" />
+              Personal
+            </Badge>
+          )}
           {subtaskCount > 0 && (
             <span className="text-xs text-muted-foreground shrink-0">
               ({completedSubtasks}/{subtaskCount})

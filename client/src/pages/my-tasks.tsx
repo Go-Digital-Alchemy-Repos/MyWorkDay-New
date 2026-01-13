@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   CheckSquare,
@@ -8,8 +8,11 @@ import {
   AlertCircle,
   Clock,
   CheckCircle2,
+  Plus,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -74,10 +77,30 @@ export default function MyTasks() {
   const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [showNewTaskInput, setShowNewTaskInput] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: tasks, isLoading } = useQuery<TaskWithRelations[]>({
     queryKey: ["/api/tasks/my"],
   });
+
+  const createPersonalTaskMutation = useMutation({
+    mutationFn: async (title: string) => {
+      return apiRequest("POST", "/api/tasks/personal", { title });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
+      setNewTaskTitle("");
+      setShowNewTaskInput(false);
+    },
+  });
+
+  const handleCreatePersonalTask = () => {
+    if (newTaskTitle.trim()) {
+      createPersonalTaskMutation.mutate(newTaskTitle.trim());
+    }
+  };
 
   const updateTaskMutation = useMutation({
     mutationFn: async ({ taskId, data }: { taskId: string; data: Partial<TaskWithRelations> }) => {
@@ -174,6 +197,18 @@ export default function MyTasks() {
             <h1 className="text-2xl font-semibold">My Tasks</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowNewTaskInput(true);
+                setTimeout(() => inputRef.current?.focus(), 0);
+              }}
+              data-testid="button-add-personal-task"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Personal Task
+            </Button>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[130px]" data-testid="select-status-filter">
                 <Filter className="h-4 w-4 mr-2" />
@@ -202,6 +237,52 @@ export default function MyTasks() {
             </Select>
           </div>
         </div>
+        
+        {showNewTaskInput && (
+          <div className="px-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Personal</span>
+              </div>
+              <Input
+                ref={inputRef}
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleCreatePersonalTask();
+                  } else if (e.key === "Escape") {
+                    setShowNewTaskInput(false);
+                    setNewTaskTitle("");
+                  }
+                }}
+                placeholder="What do you need to do?"
+                className="flex-1"
+                data-testid="input-new-personal-task"
+              />
+              <Button
+                size="sm"
+                onClick={handleCreatePersonalTask}
+                disabled={!newTaskTitle.trim() || createPersonalTaskMutation.isPending}
+                data-testid="button-create-personal-task"
+              >
+                {createPersonalTaskMutation.isPending ? "Creating..." : "Add Task"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setShowNewTaskInput(false);
+                  setNewTaskTitle("");
+                }}
+                data-testid="button-cancel-personal-task"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
