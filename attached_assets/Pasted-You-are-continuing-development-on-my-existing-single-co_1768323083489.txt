@@ -1,0 +1,140 @@
+You are continuing development on my existing single-codebase React + Express app. DO NOT rewrite the app. Implement ONLY a diagnosis + fix for the “must login twice” issue. Preserve ALL existing functionality (Clients→Projects→Tasks/Subtasks, Time Tracking, attachments, sockets, Admin settings, My Tasks, etc.).
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES (READ FIRST)
+===============================================================================
+- NO major refactors, no folder restructures, no framework swaps.
+- Do NOT change database schema.
+- Do NOT remove/rename any endpoints.
+- Do NOT change auth strategy (JWT vs cookies) or token storage mechanism unless strictly necessary to fix the bug.
+- Limit changes to auth/login client flow + auth middleware that reads tokens, and only where needed.
+- Add targeted logs + minimal tests; remove or gate noisy logs behind NODE_ENV.
+
+===============================================================================
+PROBLEM DESCRIPTION
+===============================================================================
+On first login attempt, UI shows “login successful”, but the app does not reflect authenticated state
+until the user logs in a second time.
+
+This usually indicates one of:
+- token is not being persisted before the app checks auth (/me)
+- auth state is cached/stale (TanStack Query or app state not invalidated)
+- token is stored under a different key than what request interceptor uses
+- login response returns token but client doesn’t attach it to subsequent requests until next render
+- race condition between setting token + route redirect + /me fetch
+- server sends token but client expects cookie (or vice versa)
+- /me endpoint is being cached with an unauthenticated response
+
+===============================================================================
+GOAL
+===============================================================================
+Diagnose and fix the issue so that:
+- After first successful login, the app immediately becomes authenticated
+- Sidebar/routes reflect logged-in state without needing a second login
+- No changes to unrelated app areas
+
+===============================================================================
+STEP 1: DIAGNOSE (MANDATORY)
+===============================================================================
+Add targeted instrumentation (minimal and removable):
+A) Frontend (login flow)
+- Log (dev only):
+  - when login request starts/ends
+  - whether token is received
+  - where token is stored (localStorage key)
+  - what the auth client sends in Authorization header on the very next request
+  - whether /auth/me succeeds immediately after login
+
+B) API client / fetch wrapper
+- Identify where Authorization header is added.
+- Confirm it reads the same localStorage key that login writes.
+- Confirm header is attached to /auth/me and other requests.
+
+C) TanStack Query / caching
+- Identify how “currentUser” or “me” is fetched and cached.
+- Verify whether /auth/me query is being cached as unauthenticated and not invalidated after login.
+
+D) Server
+- Confirm /api/v1/auth/login returns token consistently.
+- Confirm /api/v1/auth/me returns correct data when Authorization header is present.
+- Add dev-only log to print whether Authorization header is received on /me.
+
+DO NOT leave verbose logs always-on. Gate with NODE_ENV !== 'production'.
+
+===============================================================================
+STEP 2: FIX (MANDATORY)
+===============================================================================
+Implement the safest fix that addresses the root cause found in diagnosis.
+Possible required fixes (choose only what’s necessary):
+
+A) Ensure token persistence BEFORE navigating / fetching /me
+- After login success:
+  1) store token in localStorage (or whatever is used)
+  2) update in-memory auth state immediately
+  3) invalidate/refetch the /auth/me query
+  4) then navigate to the post-login route
+
+B) Centralize token key usage
+- Ensure login writes to the EXACT key that the API client reads.
+- Example: if API client reads localStorage.getItem("authToken"), login must set "authToken" not "token" or "accessToken".
+- Add a single constant for the token storage key and use it everywhere.
+
+C) Force /me refetch and prevent stale caching
+If using TanStack Query:
+- On login success:
+  - queryClient.setQueryData(["auth","me"], meResponse) OR
+  - queryClient.invalidateQueries(["auth","me"]) then await refetch
+- Ensure /me query does NOT use an excessive staleTime that prevents immediate refetch.
+- Ensure /me query key is consistent everywhere.
+
+D) Ensure API client picks up the token immediately
+If you use Axios or fetch wrapper with a memoized header:
+- Update interceptor to read token fresh per request, not only on initialization.
+- If headers are set once at client creation, switch to per-request header injection.
+
+E) Ensure navigation triggers authenticated layout
+- If app shows logged-out layout until /me resolves, show a loading state after login while /me refetches.
+- Prevent redirecting to a protected route before auth state is updated.
+
+===============================================================================
+STEP 3: VERIFY (MANDATORY)
+===============================================================================
+Add a simple regression check:
+- Manual test steps:
+  1) Logout
+  2) Login once
+  3) Immediately verify:
+     - /auth/me succeeds
+     - UI switches to logged-in state
+     - protected pages load without retry
+- If you have any existing test harness, add a minimal unit/integration test for login->me flow.
+
+===============================================================================
+IMPLEMENTATION DETAILS (DO THIS)
+===============================================================================
+1) Locate:
+- Login page submit handler
+- Token storage logic
+- API client/interceptor
+- “me/current user” query and how it is consumed
+
+2) Implement:
+- After login returns token:
+  - persist token
+  - immediately call /auth/me (or use login response to set user state if it contains user)
+  - update global auth state
+  - invalidate/refetch query cache
+  - navigate
+
+3) Ensure:
+- Authorization header is present on the first /me request after login.
+- No double-login required.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+When done, output:
+- Root cause identified (brief)
+- Exact files changed
+- What was changed in login flow and why
+- Manual test steps confirming the fix
