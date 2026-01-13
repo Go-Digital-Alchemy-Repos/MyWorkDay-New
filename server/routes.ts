@@ -58,7 +58,16 @@ import {
   checkObjectExists,
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
+  validateAvatar,
+  generateAvatarKey,
+  uploadToS3,
 } from "./s3";
+import multer from "multer";
+
+const avatarUpload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 } // 2MB for avatars
+});
 // Import centralized event emitters for real-time updates
 import {
   emitProjectCreated,
@@ -3416,6 +3425,57 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error exporting time entries:", error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============================================================================
+  // USER AVATAR ENDPOINTS
+  // =============================================================================
+
+  // POST /api/v1/me/avatar - Upload user avatar
+  app.post("/api/v1/me/avatar", requireAuth, avatarUpload.single("file"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      
+      if (!isS3Configured()) {
+        return res.status(503).json({ error: "S3 storage is not configured" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      const mimeType = req.file.mimetype;
+      const validation = validateAvatar(mimeType, req.file.size);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      const storageKey = generateAvatarKey(user.tenantId || null, user.id, req.file.originalname);
+      const url = await uploadToS3(req.file.buffer, storageKey, mimeType);
+
+      // Update user avatarUrl
+      await storage.updateUser(user.id, { avatarUrl: url });
+
+      res.json({ url });
+    } catch (error) {
+      console.error("Error uploading avatar:", error);
+      res.status(500).json({ error: "Failed to upload avatar" });
+    }
+  });
+
+  // DELETE /api/v1/me/avatar - Remove user avatar
+  app.delete("/api/v1/me/avatar", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      
+      // Set avatarUrl to null
+      await storage.updateUser(user.id, { avatarUrl: null });
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error removing avatar:", error);
+      res.status(500).json({ error: "Failed to remove avatar" });
     }
   });
 

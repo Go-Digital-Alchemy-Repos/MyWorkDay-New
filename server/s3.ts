@@ -173,4 +173,109 @@ export function getMimeType(fileName: string): string {
   return mime.lookup(fileName) || "application/octet-stream";
 }
 
-export { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES };
+// Brand asset allowed MIME types
+const BRAND_ASSET_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/svg+xml",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+];
+
+// Avatar allowed MIME types
+const AVATAR_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+];
+
+const BRAND_ASSET_MAX_SIZE = 5 * 1024 * 1024; // 5MB
+const AVATAR_MAX_SIZE = 2 * 1024 * 1024; // 2MB
+
+export function validateBrandAsset(mimeType: string, fileSizeBytes: number): { valid: boolean; error?: string } {
+  if (!BRAND_ASSET_MIME_TYPES.includes(mimeType)) {
+    return { 
+      valid: false, 
+      error: `File type "${mimeType}" is not allowed. Allowed types: PNG, JPG, WebP, SVG, ICO.` 
+    };
+  }
+  
+  if (fileSizeBytes > BRAND_ASSET_MAX_SIZE) {
+    return { 
+      valid: false, 
+      error: `File size exceeds maximum allowed size of ${BRAND_ASSET_MAX_SIZE / (1024 * 1024)}MB` 
+    };
+  }
+  
+  return { valid: true };
+}
+
+export function validateAvatar(mimeType: string, fileSizeBytes: number): { valid: boolean; error?: string } {
+  if (!AVATAR_MIME_TYPES.includes(mimeType)) {
+    return { 
+      valid: false, 
+      error: `File type "${mimeType}" is not allowed. Allowed types: PNG, JPG, WebP, GIF.` 
+    };
+  }
+  
+  if (fileSizeBytes > AVATAR_MAX_SIZE) {
+    return { 
+      valid: false, 
+      error: `File size exceeds maximum allowed size of ${AVATAR_MAX_SIZE / (1024 * 1024)}MB` 
+    };
+  }
+  
+  return { valid: true };
+}
+
+export function generateBrandAssetKey(
+  tenantId: string,
+  assetType: "logo" | "icon" | "favicon",
+  fileName: string
+): string {
+  const uuid = crypto.randomUUID();
+  const sanitized = sanitizeFileName(fileName);
+  return `tenants/${tenantId}/branding/${assetType}/${uuid}-${sanitized}`;
+}
+
+export function generateAvatarKey(
+  tenantId: string | null,
+  userId: string,
+  fileName: string
+): string {
+  const uuid = crypto.randomUUID();
+  const sanitized = sanitizeFileName(fileName);
+  if (tenantId) {
+    return `tenants/${tenantId}/users/${userId}/avatar/${uuid}-${sanitized}`;
+  }
+  return `system/users/${userId}/avatar/${uuid}-${sanitized}`;
+}
+
+export async function uploadToS3(
+  buffer: Buffer,
+  storageKey: string,
+  mimeType: string
+): Promise<string> {
+  const client = getS3Client();
+  if (!client) {
+    throw new Error("S3 is not configured. Please set AWS environment variables.");
+  }
+  
+  const bucket = getBucketName();
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: storageKey,
+    Body: buffer,
+    ContentType: mimeType,
+  });
+  
+  await client.send(command);
+  
+  // Return the S3 URL
+  const region = process.env.AWS_REGION;
+  return `https://${bucket}.s3.${region}.amazonaws.com/${storageKey}`;
+}
+
+export { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES, BRAND_ASSET_MIME_TYPES, AVATAR_MIME_TYPES };

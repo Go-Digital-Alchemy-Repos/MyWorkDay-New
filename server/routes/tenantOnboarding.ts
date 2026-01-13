@@ -23,6 +23,13 @@ import { db } from "../db";
 import { tenants, TenantStatus, UserRole } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { tenantIntegrationService, IntegrationProvider } from "../services/tenantIntegrations";
+import multer from "multer";
+import { validateBrandAsset, generateBrandAssetKey, uploadToS3, isS3Configured, getMimeType } from "../s3";
+
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
 
 const router = Router();
 
@@ -424,6 +431,73 @@ router.post("/integrations/:provider/test", requireAuth, requireTenantAdmin, asy
   } catch (error) {
     console.error("Error testing integration:", error);
     res.status(500).json({ error: "Failed to test integration" });
+  }
+});
+
+// =============================================================================
+// BRAND ASSET UPLOAD ENDPOINTS
+// =============================================================================
+
+const validAssetTypes = ["logo", "icon", "favicon"] as const;
+type AssetType = typeof validAssetTypes[number];
+
+function isValidAssetType(type: string): type is AssetType {
+  return validAssetTypes.includes(type as AssetType);
+}
+
+// POST /api/v1/tenant/settings/brand-assets - Upload brand asset
+router.post("/settings/brand-assets", requireAuth, requireTenantAdmin, upload.single("file"), async (req, res) => {
+  try {
+    const user = req.user as any;
+    const tenantId = user.tenantId;
+    const assetType = req.body.type as string;
+
+    if (!isS3Configured()) {
+      return res.status(503).json({ error: "S3 storage is not configured" });
+    }
+
+    if (!assetType || !isValidAssetType(assetType)) {
+      return res.status(400).json({ error: "Invalid asset type. Must be: logo, icon, or favicon" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file provided" });
+    }
+
+    const mimeType = req.file.mimetype;
+    const validation = validateBrandAsset(mimeType, req.file.size);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const storageKey = generateBrandAssetKey(tenantId, assetType, req.file.originalname);
+    const url = await uploadToS3(req.file.buffer, storageKey, mimeType);
+
+    // Update tenant settings with the new URL
+    const fieldMap: Record<AssetType, string> = {
+      logo: "logoUrl",
+      icon: "iconUrl",
+      favicon: "faviconUrl",
+    };
+
+    let settings = await storage.getTenantSettings(tenantId);
+    if (!settings) {
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+      settings = await storage.createTenantSettings({
+        tenantId,
+        displayName: tenant.name,
+      });
+    }
+
+    await storage.updateTenantSettings(tenantId, { [fieldMap[assetType]]: url });
+
+    res.json({ url, type: assetType });
+  } catch (error) {
+    console.error("Error uploading brand asset:", error);
+    res.status(500).json({ error: "Failed to upload brand asset" });
   }
 });
 
