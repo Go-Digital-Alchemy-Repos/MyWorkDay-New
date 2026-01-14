@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory, clients, clientContacts, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory, clients, clientContacts, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
@@ -2713,14 +2713,399 @@ router.get("/admins", requireSuperUser, async (req, res) => {
       lastName: users.lastName,
       isActive: users.isActive,
       createdAt: users.createdAt,
+      passwordHash: users.passwordHash,
     }).from(users)
       .where(eq(users.role, UserRole.SUPER_USER))
       .orderBy(desc(users.createdAt));
     
-    res.json(admins);
+    // Add pending invite status for admins without password
+    const adminsWithStatus = await Promise.all(admins.map(async (admin) => {
+      const pendingInvite = admin.passwordHash === null ? await db.select({
+        id: platformInvitations.id,
+        expiresAt: platformInvitations.expiresAt,
+      }).from(platformInvitations)
+        .where(and(
+          eq(platformInvitations.targetUserId, admin.id),
+          eq(platformInvitations.status, "pending")
+        ))
+        .orderBy(desc(platformInvitations.createdAt))
+        .limit(1) : [];
+      
+      return {
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        isActive: admin.isActive,
+        createdAt: admin.createdAt,
+        hasPendingInvite: pendingInvite.length > 0,
+        inviteExpiresAt: pendingInvite[0]?.expiresAt || null,
+        passwordSet: admin.passwordHash !== null,
+      };
+    }));
+    
+    res.json(adminsWithStatus);
   } catch (error) {
     console.error("[admins] Failed to list platform admins:", error);
     res.status(500).json({ error: "Failed to list platform admins" });
+  }
+});
+
+// GET /api/v1/super/admins/:id - Get single platform admin details
+router.get("/admins/:id", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [admin] = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      isActive: users.isActive,
+      createdAt: users.createdAt,
+      passwordHash: users.passwordHash,
+    }).from(users)
+      .where(and(eq(users.id, id), eq(users.role, UserRole.SUPER_USER)));
+    
+    if (!admin) {
+      return res.status(404).json({ error: "Platform admin not found" });
+    }
+    
+    // Get pending invite if any
+    const pendingInvite = admin.passwordHash === null ? await db.select({
+      id: platformInvitations.id,
+      expiresAt: platformInvitations.expiresAt,
+      createdAt: platformInvitations.createdAt,
+    }).from(platformInvitations)
+      .where(and(
+        eq(platformInvitations.targetUserId, admin.id),
+        eq(platformInvitations.status, "pending")
+      ))
+      .orderBy(desc(platformInvitations.createdAt))
+      .limit(1) : [];
+    
+    // Get recent audit events for this admin
+    const recentAuditEvents = await db.select()
+      .from(platformAuditEvents)
+      .where(eq(platformAuditEvents.targetUserId, id))
+      .orderBy(desc(platformAuditEvents.createdAt))
+      .limit(10);
+    
+    res.json({
+      id: admin.id,
+      email: admin.email,
+      name: admin.name,
+      firstName: admin.firstName,
+      lastName: admin.lastName,
+      isActive: admin.isActive,
+      createdAt: admin.createdAt,
+      hasPendingInvite: pendingInvite.length > 0,
+      inviteExpiresAt: pendingInvite[0]?.expiresAt || null,
+      passwordSet: admin.passwordHash !== null,
+      recentAuditEvents,
+    });
+  } catch (error) {
+    console.error("[admins] Failed to get platform admin:", error);
+    res.status(500).json({ error: "Failed to get platform admin" });
+  }
+});
+
+// POST /api/v1/super/admins - Create platform admin
+const createPlatformAdminSchema = z.object({
+  email: z.string().email(),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+});
+
+router.post("/admins", requireSuperUser, async (req, res) => {
+  try {
+    const actor = req.user as any;
+    const body = createPlatformAdminSchema.parse(req.body);
+    
+    // Check if email already exists
+    const [existing] = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, body.email.toLowerCase()));
+    
+    if (existing) {
+      return res.status(409).json({ error: "A user with this email already exists" });
+    }
+    
+    // Create user with role=super_user, no password (requires invite to set)
+    const [newAdmin] = await db.insert(users).values({
+      email: body.email.toLowerCase(),
+      firstName: body.firstName,
+      lastName: body.lastName,
+      name: `${body.firstName} ${body.lastName}`,
+      role: UserRole.SUPER_USER,
+      isActive: true,
+      passwordHash: null, // Requires invite to set password
+    }).returning();
+    
+    // Log audit event
+    await db.insert(platformAuditEvents).values({
+      actorUserId: actor.id,
+      targetUserId: newAdmin.id,
+      eventType: "platform_admin_created",
+      message: `Platform admin account created for ${body.email}`,
+      metadata: { email: body.email, firstName: body.firstName, lastName: body.lastName },
+    });
+    
+    res.status(201).json({
+      id: newAdmin.id,
+      email: newAdmin.email,
+      name: newAdmin.name,
+      firstName: newAdmin.firstName,
+      lastName: newAdmin.lastName,
+      isActive: newAdmin.isActive,
+      createdAt: newAdmin.createdAt,
+      passwordSet: false,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request body", details: error.errors });
+    }
+    console.error("[admins] Failed to create platform admin:", error);
+    res.status(500).json({ error: "Failed to create platform admin" });
+  }
+});
+
+// PATCH /api/v1/super/admins/:id - Update platform admin
+const updatePlatformAdminSchema = z.object({
+  email: z.string().email().optional(),
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  isActive: z.boolean().optional(),
+});
+
+router.patch("/admins/:id", requireSuperUser, async (req, res) => {
+  try {
+    const actor = req.user as any;
+    const { id } = req.params;
+    const body = updatePlatformAdminSchema.parse(req.body);
+    
+    // Get current admin
+    const [currentAdmin] = await db.select()
+      .from(users)
+      .where(and(eq(users.id, id), eq(users.role, UserRole.SUPER_USER)));
+    
+    if (!currentAdmin) {
+      return res.status(404).json({ error: "Platform admin not found" });
+    }
+    
+    // Guardrail: Cannot deactivate the last active super admin
+    if (body.isActive === false && currentAdmin.isActive) {
+      const activeAdminCount = await db.select({ count: count() })
+        .from(users)
+        .where(and(
+          eq(users.role, UserRole.SUPER_USER),
+          eq(users.isActive, true)
+        ));
+      
+      if (activeAdminCount[0]?.count <= 1) {
+        return res.status(400).json({ 
+          error: "Cannot deactivate the last active platform admin",
+          code: "LAST_ADMIN_PROTECTION"
+        });
+      }
+    }
+    
+    // Check email uniqueness if changing email
+    if (body.email && body.email.toLowerCase() !== currentAdmin.email) {
+      const [existing] = await db.select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, body.email.toLowerCase()));
+      
+      if (existing) {
+        return res.status(409).json({ error: "A user with this email already exists" });
+      }
+    }
+    
+    // Build update object
+    const updateData: any = {};
+    if (body.email) updateData.email = body.email.toLowerCase();
+    if (body.firstName !== undefined) updateData.firstName = body.firstName;
+    if (body.lastName !== undefined) updateData.lastName = body.lastName;
+    if (body.firstName || body.lastName) {
+      updateData.name = `${body.firstName || currentAdmin.firstName} ${body.lastName || currentAdmin.lastName}`;
+    }
+    if (body.isActive !== undefined) updateData.isActive = body.isActive;
+    
+    const [updatedAdmin] = await db.update(users)
+      .set(updateData)
+      .where(eq(users.id, id))
+      .returning();
+    
+    // Log audit event
+    const eventType = body.isActive === false ? "platform_admin_deactivated" 
+      : body.isActive === true && !currentAdmin.isActive ? "platform_admin_reactivated"
+      : "platform_admin_updated";
+    
+    await db.insert(platformAuditEvents).values({
+      actorUserId: actor.id,
+      targetUserId: id,
+      eventType,
+      message: `Platform admin ${eventType === "platform_admin_deactivated" ? "deactivated" : eventType === "platform_admin_reactivated" ? "reactivated" : "updated"}: ${updatedAdmin.email}`,
+      metadata: { changes: body },
+    });
+    
+    res.json({
+      id: updatedAdmin.id,
+      email: updatedAdmin.email,
+      name: updatedAdmin.name,
+      firstName: updatedAdmin.firstName,
+      lastName: updatedAdmin.lastName,
+      isActive: updatedAdmin.isActive,
+      createdAt: updatedAdmin.createdAt,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request body", details: error.errors });
+    }
+    console.error("[admins] Failed to update platform admin:", error);
+    res.status(500).json({ error: "Failed to update platform admin" });
+  }
+});
+
+// POST /api/v1/super/admins/:id/invite - Generate invite link for platform admin
+const generateInviteSchema = z.object({
+  expiresInDays: z.number().min(1).max(30).default(7),
+  sendEmail: z.boolean().default(false),
+});
+
+router.post("/admins/:id/invite", requireSuperUser, async (req, res) => {
+  try {
+    const actor = req.user as any;
+    const { id } = req.params;
+    const body = generateInviteSchema.parse(req.body || {});
+    
+    // Get the admin
+    const [admin] = await db.select()
+      .from(users)
+      .where(and(eq(users.id, id), eq(users.role, UserRole.SUPER_USER)));
+    
+    if (!admin) {
+      return res.status(404).json({ error: "Platform admin not found" });
+    }
+    
+    // Revoke any existing pending invites for this admin
+    await db.update(platformInvitations)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(and(
+        eq(platformInvitations.targetUserId, id),
+        eq(platformInvitations.status, "pending")
+      ));
+    
+    // Generate new token
+    const { randomBytes, createHash } = await import("crypto");
+    const token = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + body.expiresInDays);
+    
+    // Create new invite
+    const [invite] = await db.insert(platformInvitations).values({
+      email: admin.email,
+      tokenHash,
+      targetUserId: id,
+      createdByUserId: actor.id,
+      expiresAt,
+      status: "pending",
+    }).returning();
+    
+    // Build invite URL
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const inviteUrl = `${baseUrl}/auth/platform-invite?token=${token}`;
+    
+    // Log audit event
+    await db.insert(platformAuditEvents).values({
+      actorUserId: actor.id,
+      targetUserId: id,
+      eventType: "platform_admin_invite_generated",
+      message: `Invite link generated for ${admin.email}`,
+      metadata: { expiresAt: expiresAt.toISOString(), expiresInDays: body.expiresInDays },
+    });
+    
+    // Optionally send email
+    let emailSent = false;
+    if (body.sendEmail) {
+      try {
+        const mailgunConfigured = !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN);
+        if (mailgunConfigured) {
+          // Import and use email service
+          const formData = (await import("form-data")).default;
+          const Mailgun = (await import("mailgun.js")).default;
+          const mailgun = new Mailgun(formData);
+          const mg = mailgun.client({
+            username: "api",
+            key: process.env.MAILGUN_API_KEY!,
+          });
+          
+          await mg.messages.create(process.env.MAILGUN_DOMAIN!, {
+            from: process.env.MAILGUN_FROM_EMAIL || `noreply@${process.env.MAILGUN_DOMAIN}`,
+            to: admin.email,
+            subject: "You've been invited as a Platform Administrator",
+            html: `
+              <h1>Platform Administrator Invitation</h1>
+              <p>You've been invited to become a platform administrator for MyWorkDay.</p>
+              <p>Click the link below to set your password and activate your account:</p>
+              <p><a href="${inviteUrl}" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Set Password & Activate</a></p>
+              <p>This link will expire in ${body.expiresInDays} day(s).</p>
+              <p>If you did not expect this invitation, you can safely ignore this email.</p>
+            `,
+          });
+          
+          emailSent = true;
+          
+          // Log email sent event
+          await db.insert(platformAuditEvents).values({
+            actorUserId: actor.id,
+            targetUserId: id,
+            eventType: "platform_admin_invite_emailed",
+            message: `Invite email sent to ${admin.email}`,
+          });
+        }
+      } catch (emailError) {
+        console.error("[admins] Failed to send invite email:", emailError);
+        // Don't fail the request, just note email wasn't sent
+      }
+    }
+    
+    res.json({
+      inviteUrl,
+      expiresAt: expiresAt.toISOString(),
+      tokenMasked: `${token.substring(0, 8)}...`,
+      emailSent,
+      mailgunConfigured: !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request body", details: error.errors });
+    }
+    console.error("[admins] Failed to generate invite:", error);
+    res.status(500).json({ error: "Failed to generate invite link" });
+  }
+});
+
+// GET /api/v1/super/admins/:id/audit-events - Get audit events for platform admin
+router.get("/admins/:id/audit-events", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    
+    const events = await db.select()
+      .from(platformAuditEvents)
+      .where(eq(platformAuditEvents.targetUserId, id))
+      .orderBy(desc(platformAuditEvents.createdAt))
+      .limit(limit);
+    
+    res.json(events);
+  } catch (error) {
+    console.error("[admins] Failed to get audit events:", error);
+    res.status(500).json({ error: "Failed to get audit events" });
   }
 });
 

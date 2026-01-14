@@ -734,6 +734,47 @@ export const invitations = pgTable("invitations", {
 ]);
 
 /**
+ * Platform Invitations table - for inviting platform administrators (super_user)
+ * Separate from tenant invitations as these have no tenantId/workspaceId
+ * Tokens are hashed before storage for security
+ */
+export const platformInvitations = pgTable("platform_invitations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  status: text("status").notNull().default("pending"), // pending, accepted, expired, revoked
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  revokedAt: timestamp("revoked_at"),
+  targetUserId: varchar("target_user_id").references(() => users.id), // The user this invite is for
+  createdByUserId: varchar("created_by_user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("platform_invitations_email_idx").on(table.email),
+  index("platform_invitations_status_idx").on(table.status),
+  index("platform_invitations_target_user_idx").on(table.targetUserId),
+]);
+
+/**
+ * Platform Audit Events table - for auditing platform admin actions
+ * Separate from tenant audit events as these are platform-level
+ */
+export const platformAuditEvents = pgTable("platform_audit_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actorUserId: varchar("actor_user_id").references(() => users.id),
+  targetUserId: varchar("target_user_id").references(() => users.id),
+  eventType: text("event_type").notNull(),
+  message: text("message").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("platform_audit_events_actor_idx").on(table.actorUserId),
+  index("platform_audit_events_target_idx").on(table.targetUserId),
+  index("platform_audit_events_type_idx").on(table.eventType),
+  index("platform_audit_events_created_at_idx").on(table.createdAt),
+]);
+
+/**
  * Client User Access table - grants client portal users access to specific clients
  * Only users with role='client' should have records here
  */
@@ -1358,6 +1399,18 @@ export const insertInvitationSchema = createInsertSchema(invitations).omit({
   status: z.enum([InvitationStatus.PENDING, InvitationStatus.ACCEPTED, InvitationStatus.EXPIRED, InvitationStatus.REVOKED]).default(InvitationStatus.PENDING),
 });
 
+export const insertPlatformInvitationSchema = createInsertSchema(platformInvitations).omit({
+  id: true,
+  createdAt: true,
+  usedAt: true,
+  revokedAt: true,
+});
+
+export const insertPlatformAuditEventSchema = createInsertSchema(platformAuditEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertClientUserAccessSchema = createInsertSchema(clientUserAccess).omit({
   id: true,
   createdAt: true,
@@ -1550,6 +1603,12 @@ export type ActiveTimerWithRelations = ActiveTimer & {
 // User Management & Auth Types
 export type Invitation = typeof invitations.$inferSelect;
 export type InsertInvitation = z.infer<typeof insertInvitationSchema>;
+
+export type PlatformInvitation = typeof platformInvitations.$inferSelect;
+export type InsertPlatformInvitation = z.infer<typeof insertPlatformInvitationSchema>;
+
+export type PlatformAuditEvent = typeof platformAuditEvents.$inferSelect;
+export type InsertPlatformAuditEvent = z.infer<typeof insertPlatformAuditEventSchema>;
 
 export type ClientUserAccess = typeof clientUserAccess.$inferSelect;
 export type InsertClientUserAccess = z.infer<typeof insertClientUserAccessSchema>;

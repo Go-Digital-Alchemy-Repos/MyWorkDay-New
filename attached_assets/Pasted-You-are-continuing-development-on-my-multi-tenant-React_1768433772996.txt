@@ -1,0 +1,206 @@
+You are continuing development on my multi-tenant React + Express app (single codebase).
+REFINEMENT: Super Admin → System Settings → Platform Admins
+Goal: Implement a complete Platform Admin (Super Admin) user management system with invite/link generator and onboarding flow.
+This is super_user-only and must not affect tenant users.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove/rename existing endpoints.
+- Do NOT change endpoint paths that already exist.
+- Do NOT change DB schema unless absolutely necessary (prefer reusing users + invitations tables).
+- Do NOT weaken auth or tenancy enforcement.
+- Super Admin creation must be tightly controlled:
+  - Never allow open registration of super admins
+  - Never allow promoting arbitrary users without explicit super_user intent + audit logs
+- Never expose secrets or password hashes.
+- Use full-width drawers/panels for forms; no small modals (confirm dialogs OK).
+
+===============================================================================
+GOAL
+===============================================================================
+In Super Admin mode, add a robust “Platform Admins” management tool that supports:
+1) Create platform admin accounts (role=super_user) WITHOUT sending email immediately
+2) Generate invite links (token URLs) that allow the admin to set their password and activate account
+3) Optionally send invite email if Mailgun is configured (but link copy must always exist)
+4) Edit/Deactivate platform admins
+5) Promote/demote roles with guardrails (cannot remove last super admin)
+6) Full auditing of actions
+
+IMPORTANT: This is separate from tenant user management. It only manages platform admins (super_user).
+
+===============================================================================
+DATA MODEL REQUIREMENTS (REUSE EXISTING)
+===============================================================================
+Prefer reusing existing tables:
+- users table with role field including "super_user"
+- invitations table (if it exists) with:
+  - token
+  - email
+  - role
+  - expiresAt
+  - usedAt
+  - createdBy
+If invitations currently assume a tenantId, add support for platform invites WITHOUT tenantId.
+Do NOT change schema unless required. If tenantId is NOT NULL today, add a nullable column OR add a dedicated table
+platform_invitations (add-only) — choose the least disruptive.
+
+Invite link behavior:
+- platform admin invite tokens are single-use
+- expire after configurable duration (default 7 days)
+
+===============================================================================
+UI REQUIREMENTS (Platform Admins Tab)
+===============================================================================
+A) Admin List Table
+Columns:
+- Name (First + Last)
+- Email
+- Status (Active/Deactivated)
+- Last Login (if tracked; otherwise omit)
+- Created At
+- Actions: View/Edit, Generate Invite Link, Copy Invite Link, Deactivate/Reactivate, (Optional) Resend Email
+
+B) “New Platform Admin” Button
+Opens full-width drawer with form:
+- First Name (required)
+- Last Name (required)
+- Email (required)
+- Option: “Generate invite link now” (default ON)
+- Option: “Send email invite” (default OFF; only enabled if Mailgun configured)
+
+On save:
+- Create user record with role=super_user, isActive=true
+- User should be created in a “pending” state if your model supports it
+  (or set passwordHash null and require invite to set password)
+
+C) Admin Detail Drawer
+- Edit first/last name, email (with caution)
+- Toggle isActive
+- View recent audit events for this admin account (optional)
+- “Generate new invite link” (invalidates previous unused token)
+
+D) Guardrails
+- Demoting/removing super_user must be blocked if it would result in 0 active super admins.
+- Deactivating last active super admin must be blocked.
+- Promoting existing non-super users to super_user should require:
+  - typed confirmation phrase: PROMOTE_TO_SUPER_ADMIN
+  - audit event
+  (Optional: do not implement promotions yet—focus on creating new platform admins safely.)
+
+===============================================================================
+BACKEND ENDPOINTS (ADD-ONLY IF MISSING)
+===============================================================================
+All endpoints super_user only. No tenant scoping.
+
+1) List platform admins
+GET /api/v1/super/admins
+Returns:
+[{ id, email, firstName, lastName, isActive, createdAt, lastLoginAt? }]
+
+2) Create platform admin user
+POST /api/v1/super/admins
+Body: { email, firstName, lastName }
+Creates user with role=super_user.
+Return created user.
+
+3) Update platform admin user
+PATCH /api/v1/super/admins/:id
+Body: { firstName?, lastName?, email?, isActive? }
+Must validate email uniqueness.
+
+4) Generate invite link
+POST /api/v1/super/admins/:id/invite
+Body: { expiresInDays?: number, sendEmail?: boolean }
+Returns:
+{ inviteUrl, expiresAt, tokenMasked, emailSent?: boolean }
+
+Rules:
+- Invalidate prior unused invites for that email/role (mark usedAt or revokedAt if available)
+- Never return raw token if you prefer; returning inviteUrl is fine, but do not log it.
+
+5) Optional: Promote existing user to super admin (guarded)
+POST /api/v1/super/admins/promote
+Body: { userId }
+Requires header: X-Confirm: PROMOTE_TO_SUPER_ADMIN
+(If you want to keep scope smaller, skip this endpoint in this prompt.)
+
+===============================================================================
+INVITE ACCEPTANCE FLOW (COOKIE-BASED AUTH)
+===============================================================================
+Implement or reuse a “Set Password from Invite” page for platform admins:
+
+Frontend:
+- Route: /auth/invite?token=...
+- Page reads token, calls:
+  GET /api/v1/auth/invite/verify?token=...
+  Displays email + role and allows setting password.
+
+Backend:
+- GET /api/v1/auth/invite/verify?token=...
+- POST /api/v1/auth/invite/accept
+  Body: { token, password }
+Behavior:
+- validates token not expired/used
+- sets password hash
+- marks invite usedAt
+- logs in user (sets auth cookie)
+- redirects user to /super/dashboard
+
+IMPORTANT:
+- Ensure this flow supports BOTH tenant invites and platform invites without breaking existing tenant invite flows.
+
+===============================================================================
+AUDIT EVENTS (MANDATORY)
+===============================================================================
+Write audit events for:
+- platform_admin_created
+- platform_admin_updated
+- platform_admin_deactivated / reactivated
+- platform_admin_invite_generated
+- platform_admin_invite_emailed (if email)
+- platform_admin_invite_accepted
+Include: actorUserId, targetUserId, timestamp, metadata safe fields.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) platform_admins_crud_super_only.test.ts
+- super can list/create/update
+- non-super cannot
+
+2) platform_admin_invite_link_generation.test.ts
+- generating invite returns URL
+- prior invite invalidated
+- expires enforced
+
+3) cannot_deactivate_last_super_admin.test.ts
+- guardrail enforced
+
+4) invite_accept_sets_password_and_logs_in_cookie.test.ts
+- accept invite sets password + sets cookie + /auth/me works
+
+===============================================================================
+DOCUMENTATION STANDARD (REQUIRED)
+===============================================================================
+- Update /docs/FEATURE_INVENTORY.md (Platform Admins)
+- Update /docs/AUTHENTICATION.md (Invite acceptance)
+- Add /docs/PLATFORM_ADMINS.md describing workflow and guardrails
+- Add file/module header comments for the new routes and UI components
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Platform Admins tab provides full list/create/edit/activate/deactivate.
+- Can generate/copy invite links for onboarding new platform admins.
+- Invite acceptance lets admin set password and logs them in (cookie-based).
+- Guardrails prevent locking yourself out (cannot remove/deactivate last super admin).
+- No tenant user management affected; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Files changed
+- Endpoints added/used
+- Invite URL format and expiration rule
+- Manual test checklist (Railway + local)
