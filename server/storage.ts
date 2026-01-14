@@ -1814,6 +1814,7 @@ export class DatabaseStorage implements IStorage {
   async getOpenTaskCountsByProjectIds(projectIds: string[]): Promise<Map<string, number>> {
     if (projectIds.length === 0) return new Map();
     
+    // Match prior JS behavior: null !== 'done' is true, so null counts as open
     const result = await db.select({
       projectId: tasks.projectId,
       count: sql<number>`count(*)::int`,
@@ -1821,7 +1822,7 @@ export class DatabaseStorage implements IStorage {
       .from(tasks)
       .where(and(
         inArray(tasks.projectId, projectIds),
-        sql`${tasks.status} != 'done'`
+        sql`(${tasks.status} IS NULL OR ${tasks.status} != 'done')`
       ))
       .groupBy(tasks.projectId);
 
@@ -1954,11 +1955,14 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    return allTenants.map(tenant => ({
-      ...tenant,
-      settings: settingsMap.get(tenant.id) || null,
-      userCount: userCountMap.get(tenant.id) || 0,
-    }));
+    return allTenants.map(tenant => {
+      const settings = settingsMap.get(tenant.id);
+      return {
+        ...tenant,
+        settings, // undefined when missing, preserving prior JSON serialization behavior
+        userCount: userCountMap.get(tenant.id) || 0,
+      };
+    });
   }
 }
 
