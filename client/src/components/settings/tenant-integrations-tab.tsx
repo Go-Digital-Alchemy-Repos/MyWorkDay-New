@@ -73,12 +73,26 @@ export function TenantIntegrationsTab() {
 
   const { data: mailgunIntegration } = useQuery<any>({
     queryKey: ["/api/v1/tenant/integrations", "mailgun"],
-    queryFn: () => fetch("/api/v1/tenant/integrations/mailgun", { credentials: "include" }).then(r => r.json()),
+    queryFn: async () => {
+      const res = await fetch("/api/v1/tenant/integrations/mailgun", { credentials: "include" });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to fetch Mailgun integration");
+      }
+      return res.json();
+    },
   });
 
   const { data: s3Integration } = useQuery<any>({
     queryKey: ["/api/v1/tenant/integrations", "s3"],
-    queryFn: () => fetch("/api/v1/tenant/integrations/s3", { credentials: "include" }).then(r => r.json()),
+    queryFn: async () => {
+      const res = await fetch("/api/v1/tenant/integrations/s3", { credentials: "include" });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to fetch S3 integration");
+      }
+      return res.json();
+    },
   });
 
   useEffect(() => {

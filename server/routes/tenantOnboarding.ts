@@ -41,15 +41,36 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-// Middleware to ensure user is tenant admin
+// Helper to get effective tenant ID (supports super_user X-Tenant-Id header)
+function getEffectiveTenantId(req: any): string | null {
+  const user = req.user as any;
+  if (!user) return null;
+  
+  // Super users can use X-Tenant-Id header to access other tenants
+  if (user.role === UserRole.SUPER_USER) {
+    const headerTenantId = req.headers["x-tenant-id"] as string | undefined;
+    if (headerTenantId) {
+      return headerTenantId;
+    }
+  }
+  
+  return user.tenantId || null;
+}
+
+// Middleware to ensure user is tenant admin (supports super_user with X-Tenant-Id)
 function requireTenantAdmin(req: any, res: any, next: any) {
   const user = req.user as any;
-  if (!user.tenantId) {
+  const effectiveTenantId = getEffectiveTenantId(req);
+  
+  if (!effectiveTenantId) {
     return res.status(403).json({ error: "No tenant context" });
   }
   if (user.role !== UserRole.ADMIN && user.role !== UserRole.SUPER_USER) {
     return res.status(403).json({ error: "Admin access required" });
   }
+  
+  // Attach effective tenant ID to request for use in route handlers
+  req.effectiveTenantId = effectiveTenantId;
   next();
 }
 
@@ -60,7 +81,7 @@ function requireTenantAdmin(req: any, res: any, next: any) {
 router.get("/me", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
     const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const tenant = await storage.getTenant(tenantId);
     if (!tenant) {
@@ -117,8 +138,7 @@ const updateSettingsSchema = z.object({
 
 router.patch("/settings", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const data = updateSettingsSchema.parse(req.body);
 
@@ -156,8 +176,7 @@ router.patch("/settings", requireAuth, requireTenantAdmin, async (req, res) => {
 
 router.get("/onboarding/status", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const tenant = await storage.getTenant(tenantId);
     if (!tenant) {
@@ -199,7 +218,7 @@ router.get("/onboarding/status", requireAuth, requireTenantAdmin, async (req, re
 router.post("/onboarding/complete", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
     const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const tenant = await storage.getTenant(tenantId);
     if (!tenant) {
@@ -253,8 +272,7 @@ router.post("/onboarding/complete", requireAuth, requireTenantAdmin, async (req,
 
 router.get("/settings", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const settings = await storage.getTenantSettings(tenantId);
     
@@ -296,8 +314,7 @@ function isValidProvider(provider: string): provider is IntegrationProvider {
 // GET /api/v1/tenant/integrations - List all integrations
 router.get("/integrations", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const integrations = await tenantIntegrationService.listIntegrations(tenantId);
     res.json({ integrations });
@@ -310,8 +327,7 @@ router.get("/integrations", requireAuth, requireTenantAdmin, async (req, res) =>
 // GET /api/v1/tenant/integrations/:provider - Get specific integration
 router.get("/integrations/:provider", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
     const { provider } = req.params;
 
     if (!isValidProvider(provider)) {
@@ -355,8 +371,7 @@ const s3UpdateSchema = z.object({
 
 router.put("/integrations/:provider", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
     const { provider } = req.params;
 
     if (!isValidProvider(provider)) {
@@ -417,8 +432,7 @@ router.put("/integrations/:provider", requireAuth, requireTenantAdmin, async (re
 // POST /api/v1/tenant/integrations/:provider/test - Test integration
 router.post("/integrations/:provider/test", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
     const { provider } = req.params;
 
     if (!isValidProvider(provider)) {
@@ -448,8 +462,7 @@ function isValidAssetType(type: string): type is AssetType {
 // POST /api/v1/tenant/settings/brand-assets - Upload brand asset
 router.post("/settings/brand-assets", requireAuth, requireTenantAdmin, upload.single("file"), async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
     const assetType = req.body.type as string;
 
     if (!isS3Configured()) {
@@ -521,8 +534,7 @@ const agreementPatchSchema = z.object({
 // GET /api/v1/tenant/agreement - Get current agreement state
 router.get("/agreement", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     // Get active agreement
     const activeAgreements = await db.select()
@@ -577,7 +589,7 @@ router.get("/agreement", requireAuth, requireTenantAdmin, async (req, res) => {
 router.post("/agreement/draft", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
     const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const validation = agreementDraftSchema.safeParse(req.body);
     if (!validation.success) {
@@ -638,8 +650,7 @@ router.post("/agreement/draft", requireAuth, requireTenantAdmin, async (req, res
 // PATCH /api/v1/tenant/agreement/draft - Update current draft
 router.patch("/agreement/draft", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     const validation = agreementPatchSchema.safeParse(req.body);
     if (!validation.success) {
@@ -679,8 +690,7 @@ router.patch("/agreement/draft", requireAuth, requireTenantAdmin, async (req, re
 // POST /api/v1/tenant/agreement/publish - Publish draft as active
 router.post("/agreement/publish", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     // Find the draft
     const drafts = await db.select()
@@ -728,8 +738,7 @@ router.post("/agreement/publish", requireAuth, requireTenantAdmin, async (req, r
 // POST /api/v1/tenant/agreement/unpublish - Archive active agreement (disable enforcement)
 router.post("/agreement/unpublish", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     // Archive current active agreement
     const result = await db.update(tenantAgreements)
@@ -757,8 +766,7 @@ router.post("/agreement/unpublish", requireAuth, requireTenantAdmin, async (req,
 // GET /api/v1/tenant/agreement/stats - Get acceptance statistics
 router.get("/agreement/stats", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
-    const user = req.user as any;
-    const tenantId = user.tenantId;
+    const tenantId = req.effectiveTenantId;
 
     // Get active agreement
     const activeAgreements = await db.select()
