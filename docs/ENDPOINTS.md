@@ -315,6 +315,42 @@ This document provides a comprehensive inventory of all API endpoints in the app
 
 ---
 
+## Workload Reports (`server/routes/workloadReports.ts`)
+
+| Method | Path | Auth | Tenant | Description |
+|--------|------|------|--------|-------------|
+| GET | `/api/v1/workload/tasks-by-employee` | Admin | Scoped | Tasks grouped by employee with completion metrics |
+| GET | `/api/v1/workload/employee/:userId/tasks` | Admin | Scoped | Drill-down: tasks for specific employee |
+| GET | `/api/v1/workload/unassigned` | Admin | Scoped | Unassigned task queue |
+| GET | `/api/v1/workload/by-status` | Admin | Scoped | Tasks grouped by status |
+| GET | `/api/v1/workload/by-priority` | Admin | Scoped | Tasks grouped by priority |
+| GET | `/api/v1/workload/summary` | Admin | Scoped | Overall workload summary stats |
+
+---
+
+## Projects Dashboard (`server/routes/projectsDashboard.ts`)
+
+| Method | Path | Auth | Tenant | Description |
+|--------|------|------|--------|-------------|
+| GET | `/api/v1/projects` | Auth | Scoped | Projects with filters (status, team, client) |
+| GET | `/api/v1/projects/analytics/summary` | Auth | Scoped | Dashboard analytics summary |
+| GET | `/api/v1/projects/:projectId/analytics` | Auth | Scoped | Single project analytics |
+| GET | `/api/v1/projects/:projectId/forecast` | Auth | Scoped | Project workload forecast |
+| GET | `/api/v1/projects/forecast/summary` | Auth | Scoped | Cross-project forecast summary |
+
+---
+
+## User Profile & Agreement (`server/routes.ts`)
+
+| Method | Path | Auth | Tenant | Description |
+|--------|------|------|--------|-------------|
+| POST | `/api/v1/me/avatar` | Auth | Scoped | Upload user avatar |
+| DELETE | `/api/v1/me/avatar` | Auth | Scoped | Delete user avatar |
+| GET | `/api/v1/me/agreement/status` | Auth | Scoped | Check if user accepted current agreement |
+| POST | `/api/v1/me/agreement/accept` | Auth | Scoped | Accept current tenant agreement |
+
+---
+
 ## Request/Response Patterns
 
 ### Standard Success Response
