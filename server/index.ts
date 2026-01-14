@@ -7,6 +7,7 @@ import { initializeSocketIO } from "./realtime/socket";
 import { setupAuth } from "./auth";
 import { bootstrapAdminUser } from "./bootstrap";
 import { tenantContextMiddleware } from "./middleware/tenantContext";
+import { agreementEnforcementGuard } from "./middleware/agreementEnforcement";
 
 const app = express();
 const httpServer = createServer(app);
@@ -38,6 +39,9 @@ setupAuth(app);
 
 // Setup tenant context middleware (must be after auth)
 app.use(tenantContextMiddleware);
+
+// Setup agreement enforcement (must be after tenant context)
+app.use(agreementEnforcementGuard);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
