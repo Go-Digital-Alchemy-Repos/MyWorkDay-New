@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
@@ -192,19 +192,40 @@ router.post("/tenants", requireSuperUser, async (req, res) => {
       return res.status(409).json({ error: "A tenant with this slug already exists" });
     }
     
-    // Phase 3A: New tenants start as inactive
-    const tenant = await storage.createTenant({
-      ...data,
-      status: TenantStatus.INACTIVE,
+    // Transactional: Create tenant + primary workspace + tenant_settings
+    const result = await db.transaction(async (tx) => {
+      // 1. Create tenant (inactive by default)
+      const [tenant] = await tx.insert(tenants).values({
+        ...data,
+        status: TenantStatus.INACTIVE,
+      }).returning();
+
+      // 2. Create primary workspace with exact business name
+      const [primaryWorkspace] = await tx.insert(workspaces).values({
+        name: data.name.trim(),
+        tenantId: tenant.id,
+        isPrimary: true,
+      }).returning();
+
+      // 3. Create tenant_settings record (inside transaction for rollback safety)
+      await tx.insert(tenantSettings).values({
+        tenantId: tenant.id,
+        displayName: tenant.name,
+      });
+
+      return { tenant, primaryWorkspace };
     });
 
-    // Phase 3A: Create tenant_settings record
-    await storage.createTenantSettings({
-      tenantId: tenant.id,
-      displayName: tenant.name,
-    });
+    console.log(`[SuperAdmin] Created tenant ${result.tenant.id} with primary workspace ${result.primaryWorkspace.id}`);
 
-    res.status(201).json(tenant);
+    res.status(201).json({
+      ...result.tenant,
+      primaryWorkspaceId: result.primaryWorkspace.id,
+      primaryWorkspace: {
+        id: result.primaryWorkspace.id,
+        name: result.primaryWorkspace.name,
+      },
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "Validation error", details: error.errors });
@@ -348,6 +369,30 @@ router.post("/tenants/:tenantId/deactivate", requireSuperUser, async (req, res) 
   } catch (error) {
     console.error("Error deactivating tenant:", error);
     res.status(500).json({ error: "Failed to deactivate tenant" });
+  }
+});
+
+// =============================================================================
+// TENANT WORKSPACES
+// =============================================================================
+
+// GET /api/v1/super/tenants/:tenantId/workspaces - Get all workspaces for a tenant
+router.get("/tenants/:tenantId/workspaces", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const tenantWorkspaces = await db.select().from(workspaces)
+      .where(eq(workspaces.tenantId, tenantId));
+
+    res.json(tenantWorkspaces);
+  } catch (error) {
+    console.error("Error fetching tenant workspaces:", error);
+    res.status(500).json({ error: "Failed to fetch tenant workspaces" });
   }
 });
 

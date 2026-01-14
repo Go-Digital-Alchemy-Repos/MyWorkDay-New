@@ -56,6 +56,9 @@ This document provides a comprehensive inventory of all API endpoints in the app
 | PUT | `/api/v1/super/tenants/:tenantId/integration/:provider` | Super | Global | Update integration |
 | POST | `/api/v1/super/tenants/:tenantId/integration/:provider/test` | Super | Global | Test integration |
 | POST | `/api/v1/super/tenants/:tenantId/brand-assets` | Super | Global | Upload brand asset |
+| GET | `/api/v1/super/tenants/:tenantId/workspaces` | Super | Global | List tenant workspaces |
+
+**Note:** POST `/api/v1/super/tenants` now transactionally creates tenant + primary workspace + tenant_settings.
 
 ---
 

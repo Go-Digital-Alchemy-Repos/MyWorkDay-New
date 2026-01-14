@@ -268,13 +268,18 @@ export const users = pgTable("users", {
 ]);
 
 // Workspaces table
+// Note: tenantId and isPrimary are nullable for backward compatibility during migration
 export const workspaces = pgTable("workspaces", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  tenantId: varchar("tenant_id").references(() => tenants.id),
+  isPrimary: boolean("is_primary").default(false),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("workspaces_tenant_idx").on(table.tenantId),
+]);
 
 // Workspace Members table
 export const workspaceMembers = pgTable("workspace_members", {

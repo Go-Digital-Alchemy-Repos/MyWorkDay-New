@@ -16,6 +16,7 @@ import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { TenantSettingsDialog } from "@/components/super-admin/tenant-settings-dialog";
+import { TenantDrawer } from "@/components/super-admin/tenant-drawer";
 import type { Tenant } from "@shared/schema";
 
 interface TenantSettings {
@@ -119,6 +120,7 @@ export default function SuperAdminPage() {
   const [csvUsers, setCsvUsers] = useState<CSVUser[]>([]);
   const [importResults, setImportResults] = useState<ImportResponse | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ type: "activate" | "suspend" | "deactivate"; tenant: Tenant } | null>(null);
+  const [selectedTenant, setSelectedTenant] = useState<TenantWithDetails | null>(null);
   const [, setLocation] = useLocation();
 
   const { data: tenants = [], isLoading } = useQuery<TenantWithDetails[]>({
@@ -535,12 +537,16 @@ export default function SuperAdminPage() {
                   className="flex items-center justify-between p-4 rounded-lg border bg-card hover-elevate"
                   data-testid={`tenant-row-${tenant.id}`}
                 >
-                  <div className="flex items-center gap-4">
+                  <div 
+                    className="flex items-center gap-4 cursor-pointer"
+                    onClick={() => setSelectedTenant(tenant)}
+                    data-testid={`button-select-tenant-${tenant.id}`}
+                  >
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                       <Building2 className="h-5 w-5 text-primary" />
                     </div>
                     <div>
-                      <div className="font-medium">{tenant.settings?.displayName || tenant.name}</div>
+                      <div className="font-medium hover:underline">{tenant.settings?.displayName || tenant.name}</div>
                       <div className="text-sm text-muted-foreground">/{tenant.slug}</div>
                       {tenant.userCount !== undefined && tenant.userCount > 0 && (
                         <div className="text-xs text-muted-foreground mt-1">
@@ -1340,6 +1346,16 @@ export default function SuperAdminPage() {
           </Button>
         </div>
       )}
+
+      {/* Tenant Detail Drawer */}
+      <TenantDrawer
+        tenant={selectedTenant}
+        open={!!selectedTenant}
+        onOpenChange={(open) => !open && setSelectedTenant(null)}
+        onTenantUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
+        }}
+      />
     </div>
   );
 }

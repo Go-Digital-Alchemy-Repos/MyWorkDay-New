@@ -1,0 +1,232 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+NEXT PROMPT: Super Admin Tenant Onboarding — Seed “Welcome Project” + Bulk-create Task Sections + Tasks (optionally with subtasks) per project.
+Implement ONLY what is described below. DO NOT rewrite the app.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename any existing endpoints.
+- Do NOT change endpoint paths.
+- Do NOT break response shapes (additive fields ok).
+- Do NOT drop/rename DB tables/columns. Add-only schema changes only if absolutely necessary.
+- Do NOT modify auth, tenancy enforcement behavior, or Phase 3C agreement logic.
+- Use full-width drawer UI; no small modals (confirm dialogs ok).
+- Strict tenant isolation. No cross-tenant data leakage.
+- Bulk operations must be safe: validate everything; per-row results; partial failures allowed.
+- Must NOT require tenant admin invite acceptance to create seeded data.
+- Do NOT auto-change existing project/task logic or status enums; reuse existing values.
+
+===============================================================================
+GOAL
+===============================================================================
+Enable Super Admins to quickly initialize a tenant with:
+A) Optional “Welcome Project” template (one-click)
+B) Bulk creation of Task Sections and Tasks for selected projects
+C) Optional Subtasks creation (one level deep, consistent with your app rules)
+
+All from within the Super Admin Tenant Drawer onboarding “Data Setup” area.
+
+===============================================================================
+FEATURE A: ONE-CLICK “WELCOME PROJECT” SEED (SAFE TEMPLATE)
+===============================================================================
+A1) UI Placement
+In Super Admin Tenant Drawer > Onboarding (or Projects tab) add:
+- Button: “Create Welcome Project”
+- Small explanation: seeds a starter project + sections + tasks to demonstrate workflow
+
+A2) Behavior
+On click:
+- Create a new project in the tenant:
+  - name: “Welcome to <TenantName>” (or “Welcome Project” if you prefer)
+  - client: optional (leave unassigned or create a client “Internal” ONLY if your system requires a client)
+  - workspace: primary workspace
+  - status: active (or default)
+- Create default sections (if your system supports task sections on projects):
+  - “Getting Started”
+  - “Your First Workflow”
+  - “Next Steps”
+- Create sample tasks (minimal but useful):
+  - “Invite your team”
+  - “Create your first client”
+  - “Create your first project”
+  - “Add tasks and due dates”
+  - “Track time and run reports”
+- Optional subtasks under “Invite your team”:
+  - “Add employees”
+  - “Add clients”
+  - “Assign roles”
+
+A3) Idempotency / duplicate prevention
+- Only allow one Welcome Project per tenant by default:
+  - If an existing project with the same name exists, return “already exists” and do not create duplicates.
+- Return the created projectId and a link/route to open it.
+
+A4) Audit events
+- Record “welcome project seeded” with projectId.
+
+A5) Endpoint (add-only)
+POST /api/v1/super/tenants/:tenantId/seed/welcome-project
+Returns:
+{
+  status: "created"|"skipped"|"error",
+  projectId?,
+  reason?
+}
+
+===============================================================================
+FEATURE B: BULK TASK SECTIONS + TASKS (CSV IMPORT) FOR A PROJECT
+===============================================================================
+B1) UI Placement
+In Tenant Drawer > Projects tab, when viewing a project row:
+- Add actions:
+  - “Seed Tasks”
+  - “Bulk Import Tasks (CSV)”
+Opens an inline panel (not a modal) within the drawer:
+- Project selector (if not already in context)
+- Section builder/import tool
+
+B2) CSV Format (tasks)
+Required columns:
+- projectName OR projectId (choose one; prefer projectId if available in UI)
+- sectionName
+- taskTitle
+Optional columns:
+- description
+- status
+- priority
+- dueDate (YYYY-MM-DD)
+- assigneeEmail (single) OR assigneeEmails (comma-separated if multi-assign exists)
+- tags (comma-separated)
+- parentTaskTitle (for subtasks linking by title; optional)
+- isSubtask (true/false) OR infer if parentTaskTitle present
+
+Rules:
+- Sections created if they do not exist for that project (safe).
+- Tasks created under section.
+- Subtasks:
+  - Only one level deep.
+  - If parentTaskTitle references a task created in the same import batch, link it.
+  - If parent task not found, mark row error (do not create orphan subtasks).
+- Validate status/priority against existing enums; if invalid => error row.
+- If assigneeEmail not found => error row unless “create placeholder users” option is explicitly enabled (default OFF).
+
+B3) Backend endpoint (add-only)
+POST /api/v1/super/tenants/:tenantId/projects/:projectId/tasks/bulk
+Body:
+{
+  rows: [
+    { sectionName, taskTitle, description?, status?, priority?, dueDate?, assigneeEmails?, tags?, parentTaskTitle? }
+  ],
+  options?: {
+    createMissingSections?: boolean,      // default true
+    allowUnknownAssignees?: boolean,      // default false
+    splitMultiAssigneeEstimate?: boolean  // ignore unless you already have estimates
+  }
+}
+Returns:
+{
+  createdSections: number,
+  createdTasks: number,
+  createdSubtasks: number,
+  skipped: number,
+  errors: number,
+  results: [
+    { rowIndex, status: "created"|"skipped"|"error", reason?, sectionId?, taskId?, parentTaskId? }
+  ]
+}
+
+Implementation notes:
+- Must be per-row safe; one bad row does not block others.
+- Must be tenant-scoped and super_user only.
+- Must not create tasks for the wrong tenant/project.
+
+B4) Section model compatibility
+- If your app already has “task sections” for projects, reuse it.
+- If your app DOES NOT have project task sections in schema:
+  - Do NOT invent a brand new complex model here.
+  - Instead, represent “sections” using an existing field (e.g., task.sectionName) if present.
+  - If no existing field exists, add a minimal ADD-ONLY table:
+    project_task_sections
+    - id, tenantId, projectId, name, sortOrder, createdAt
+  and add tasks.sectionId nullable FK
+  But only do this if necessary and keep it minimal.
+
+===============================================================================
+FEATURE C: ONE-CLICK “SEED TASK TEMPLATE” (NO CSV REQUIRED)
+===============================================================================
+C1) UI
+Within a project in Tenant Drawer:
+- Button: “Apply Task Template”
+- Choose template:
+  - “Client Onboarding”
+  - “Website Build”
+  - “General Project Setup”
+(templates can be hardcoded in code for now; admin-editable templates can come later)
+
+C2) Behavior
+- Creates a set of sections + tasks + optional subtasks
+- Does not overwrite existing tasks; only adds missing
+- Avoid duplicates by checking task titles within a section
+
+C3) Endpoint (add-only)
+POST /api/v1/super/tenants/:tenantId/projects/:projectId/seed/task-template
+Body: { templateKey: "client_onboarding"|"website_build"|"general_setup" }
+Returns:
+{
+  status: "applied"|"skipped"|"error",
+  created: { sections, tasks, subtasks },
+  reason?
+}
+
+===============================================================================
+FEATURE D: UI/UX REQUIREMENTS (CONSISTENT + SAFE)
+===============================================================================
+- Reuse the shared CSV import panel component if it exists:
+  /client/src/components/common/CsvImportPanel.tsx
+- Provide “Download template CSV” for bulk task import.
+- Provide clear preview and per-row validation results before import.
+- After import/seed:
+  - show summary counts
+  - show a link/button “Open Project” and “View Tasks”
+- No small modals.
+
+===============================================================================
+AUDIT EVENTS
+===============================================================================
+Write tenant audit events for:
+- welcome project seeded
+- task template applied
+- bulk tasks imported (counts)
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) seed_welcome_project_idempotent.test.ts
+- second call => skipped without duplicates
+
+2) bulk_tasks_partial_failure.test.ts
+- one bad row doesn’t block other rows; returns per-row results
+
+3) bulk_subtask_parent_linking.test.ts
+- subtasks link only when parent exists; missing parent => error
+
+4) tenant_isolation_seed_and_bulk.test.ts
+- cannot seed/import into tenant B while operating on tenant A
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Super Admin can create a Welcome Project for a tenant with sections + tasks.
+2) Super Admin can apply a task template to a project without overwriting existing tasks.
+3) Super Admin can bulk import tasks (and subtasks) for a project safely with per-row feedback.
+4) All actions are super_user only and tenant-scoped.
+5) No breaking changes; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Endpoints added
+- Any schema changes (only if necessary; list migrations)
+- UI component paths
+- Sample CSV template content
+- Manual test checklist
