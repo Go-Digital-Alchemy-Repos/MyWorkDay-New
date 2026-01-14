@@ -2,9 +2,38 @@
  * @module server/lib/errors
  * @description Centralized error handling utilities for the API.
  * Provides consistent error responses and validation helpers.
+ * 
+ * STANDARD ERROR ENVELOPE:
+ * All API errors return a consistent structure:
+ * {
+ *   error: {
+ *     code: "STRING_CODE",      // stable, machine-readable
+ *     message: "Human message", // safe to display to users
+ *     status: 400,              // HTTP status code
+ *     requestId: "uuid",        // correlation ID for logs
+ *     details?: any             // optional additional info
+ *   }
+ * }
+ * 
+ * STABLE ERROR CODES:
+ * - VALIDATION_ERROR: Request data failed validation (400)
+ * - UNAUTHORIZED: Authentication required or invalid (401)
+ * - FORBIDDEN: Authenticated but not permitted (403)
+ * - NOT_FOUND: Resource does not exist (404)
+ * - CONFLICT: Resource state conflict (409)
+ * - TENANT_REQUIRED: Tenant context missing (400/403)
+ * - AGREEMENT_REQUIRED: Agreement acceptance needed (451)
+ * - TENANCY_VIOLATION: Cross-tenant access attempt (403)
+ * - RATE_LIMITED: Too many requests (429)
+ * - INTERNAL_ERROR: Server error (500)
+ * 
+ * COMPATIBILITY:
+ * For backward compatibility, some endpoints may also include legacy
+ * fields like { error: "message" } or { message: "..." } alongside
+ * the standard envelope.
  */
 
-import { Response } from "express";
+import { Request, Response } from "express";
 import { z, ZodError } from "zod";
 
 export type ErrorCode =
@@ -14,7 +43,10 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "INTERNAL_ERROR"
-  | "TENANCY_VIOLATION";
+  | "TENANCY_VIOLATION"
+  | "TENANT_REQUIRED"
+  | "AGREEMENT_REQUIRED"
+  | "RATE_LIMITED";
 
 /**
  * Custom application error with HTTP status code and error code.
@@ -64,6 +96,18 @@ export class AppError extends Error {
 
   static tenancyViolation(message: string): AppError {
     return new AppError(403, "TENANCY_VIOLATION", message);
+  }
+
+  static tenantRequired(message = "Tenant context required"): AppError {
+    return new AppError(400, "TENANT_REQUIRED", message);
+  }
+
+  static agreementRequired(message = "Agreement acceptance required", redirectTo?: string): AppError {
+    return new AppError(451, "AGREEMENT_REQUIRED", message, { redirectTo });
+  }
+
+  static rateLimited(message = "Too many requests"): AppError {
+    return new AppError(429, "RATE_LIMITED", message);
   }
 }
 
@@ -130,11 +174,61 @@ export function validateQuery<T>(
 }
 
 /**
+ * Standard error envelope structure.
+ */
+export interface StandardErrorEnvelope {
+  error: {
+    code: ErrorCode | string;
+    message: string;
+    status: number;
+    requestId: string;
+    details?: unknown;
+  };
+  // Legacy compatibility fields (kept for backward compatibility)
+  message?: string;
+  code?: string;
+}
+
+/**
+ * Converts an error to the standard envelope format.
+ */
+export function toErrorResponse(
+  err: Error,
+  req: Request,
+  statusCode: number,
+  code: ErrorCode | string,
+  details?: unknown
+): StandardErrorEnvelope {
+  const requestId = req.requestId || "unknown";
+  return {
+    error: {
+      code,
+      message: err.message,
+      status: statusCode,
+      requestId,
+      details,
+    },
+    // Legacy compatibility
+    message: err.message,
+    code,
+  };
+}
+
+/**
  * Sends a standardized error response from an AppError.
  */
-export function sendError(res: Response, error: AppError): Response {
+export function sendError(res: Response, error: AppError, req?: Request): Response {
+  const requestId = req?.requestId || "unknown";
   return res.status(error.statusCode).json({
-    error: error.message,
+    error: {
+      code: error.code,
+      message: error.message,
+      status: error.statusCode,
+      requestId,
+      details: error.details,
+    },
+    // Legacy compatibility fields
+    message: error.message,
     code: error.code,
     details: error.details,
   });
@@ -144,18 +238,26 @@ export function sendError(res: Response, error: AppError): Response {
  * Handles unknown errors in route handlers.
  * Logs the error and sends appropriate response.
  */
-export function handleRouteError(res: Response, error: unknown, context?: string): Response {
+export function handleRouteError(res: Response, error: unknown, context?: string, req?: Request): Response {
   if (error instanceof AppError) {
-    return sendError(res, error);
+    return sendError(res, error, req);
   }
 
   const message = error instanceof Error ? error.message : "Unknown error";
-  console.error(`[RouteError]${context ? ` ${context}:` : ""}`, error);
+  const requestId = req?.requestId || "unknown";
+  console.error(`[RouteError]${context ? ` ${context}:` : ""} requestId=${requestId}`, error);
   
   return res.status(500).json({
-    error: "Internal server error",
+    error: {
+      code: "INTERNAL_ERROR",
+      message: "Internal server error",
+      status: 500,
+      requestId,
+      details: process.env.NODE_ENV === "development" ? message : undefined,
+    },
+    // Legacy compatibility
+    message: "Internal server error",
     code: "INTERNAL_ERROR",
-    details: process.env.NODE_ENV === "development" ? message : undefined,
   });
 }
 

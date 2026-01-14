@@ -242,9 +242,17 @@ export async function agreementEnforcementGuard(
       path: req.path,
     });
     
+    // Uses standard error envelope for consistency
     res.status(451).json({
-      error: "Account configuration error",
-      code: "NO_TENANT_ASSIGNED",
+      error: {
+        code: "TENANT_REQUIRED",
+        message: "Your account is not properly configured. Please contact your administrator.",
+        status: 451,
+        requestId,
+        details: { redirectTo: "/accept-terms" },
+      },
+      // Legacy compatibility fields
+      code: "TENANT_REQUIRED",
       message: "Your account is not properly configured. Please contact your administrator.",
       redirectTo: "/accept-terms",
     });
@@ -277,8 +285,16 @@ export async function agreementEnforcementGuard(
     }
 
     // User has NOT accepted - block with 451
+    // Uses standard error envelope for consistency
     res.status(451).json({
-      error: "Agreement acceptance required",
+      error: {
+        code: "AGREEMENT_REQUIRED",
+        message: "You must accept the terms of service before continuing.",
+        status: 451,
+        requestId,
+        details: { redirectTo: "/accept-terms" },
+      },
+      // Legacy compatibility fields
       code: "AGREEMENT_REQUIRED",
       message: "You must accept the terms of service before continuing.",
       redirectTo: "/accept-terms",
@@ -295,8 +311,16 @@ export async function agreementEnforcementGuard(
     });
 
     // Block access on error - fail-closed for security
+    // Uses standard error envelope for consistency
     res.status(451).json({
-      error: "Agreement verification failed",
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Unable to verify agreement status. Please try again or contact support.",
+        status: 451,
+        requestId,
+        details: { redirectTo: "/accept-terms" },
+      },
+      // Legacy compatibility fields
       code: "AGREEMENT_CHECK_ERROR",
       message: "Unable to verify agreement status. Please try again or contact support.",
       redirectTo: "/accept-terms",

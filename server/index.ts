@@ -8,6 +8,8 @@ import { setupAuth } from "./auth";
 import { bootstrapAdminUser } from "./bootstrap";
 import { tenantContextMiddleware } from "./middleware/tenantContext";
 import { agreementEnforcementGuard } from "./middleware/agreementEnforcement";
+import { requestIdMiddleware } from "./middleware/requestId";
+import { errorHandler } from "./middleware/errorHandler";
 
 const app = express();
 const httpServer = createServer(app);
@@ -23,6 +25,9 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Request ID middleware (must be first for error correlation)
+app.use(requestIdMiddleware);
 
 app.use(
   express.json({
@@ -86,13 +91,8 @@ app.use((req, res, next) => {
   
   await registerRoutes(httpServer, app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Error:", err);
-    res.status(status).json({ message });
-  });
+  // Global error handler (uses standard error envelope)
+  app.use(errorHandler);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
