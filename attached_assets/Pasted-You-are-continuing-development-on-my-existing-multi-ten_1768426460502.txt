@@ -1,0 +1,102 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+Create a SAFE “Refinement Roadmap” of the next 3–5 implementation prompts based on the current system,
+AND establish an ongoing documentation standard: continue annotating code and updating/creating READMEs
+whenever notable new features/modules are added.
+
+IMPORTANT: This prompt is primarily planning + documentation standards.
+Do NOT rewrite the app or refactor broadly. Only propose the roadmap and implement the documentation standard
+in a lightweight, non-destructive way.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename any endpoints.
+- Do NOT change endpoint paths or response shapes.
+- Do NOT change database schema.
+- Do NOT change auth strategy or tenancy enforcement behavior.
+- Do NOT redesign UI layouts in this prompt.
+- If you must touch code, it should only be to add lightweight documentation scaffolding (docs files/templates),
+  NOT functional behavior changes.
+
+===============================================================================
+PART 1 — REFINEMENT ROADMAP (NEXT 3–5 PROMPTS)
+===============================================================================
+1) Scan the codebase and list the highest-value refinement targets from:
+- tenant health blockers / tenantId integrity (if any remain)
+- agreement gating edge cases (Phase 3C)
+- super admin tenant onboarding drawer usability
+- mailgun settings persistence / masking
+- S3 upload consistency (tenant branding + user avatar)
+- time tracking editability and task/subtask selection
+- navigation mode switching (super vs tenant) + impersonation safety
+- performance issues (N+1 queries, heavy list endpoints)
+- missing tests for critical flows
+- error handling consistency
+
+2) Produce a “Roadmap” document at:
+- /docs/REFINEMENT_ROADMAP.md
+Include:
+- 3–5 next prompts (each titled and scoped)
+- for each prompt:
+  - objective
+  - exact scope boundaries (what NOT to touch)
+  - acceptance criteria
+  - test coverage to add
+  - risk level (low/med/high)
+  - recommended run order
+
+3) Ensure the roadmap prompts are SAFE:
+- small, isolated, rollback-friendly steps
+- avoid merging too many features into one prompt
+
+===============================================================================
+PART 2 — ONGOING DOCUMENTATION STANDARD (MANDATORY GOING FORWARD)
+===============================================================================
+Establish a “Documentation & Annotation Policy” and implement minimal scaffolding:
+
+A) Create /docs/DOCUMENTATION_POLICY.md with rules:
+- Every new feature/module must include:
+  1) a short module-level comment header in key files (routes/services/ui pages)
+  2) a brief docs entry in /docs/FEATURE_INVENTORY.md
+  3) updates to README or a module README when appropriate
+- Annotate *why* something exists, not obvious syntax.
+- For security-sensitive areas (auth, tenancy, agreement guard, impersonation, uploads):
+  - include invariants + “do not break” notes
+- Keep comments concise; avoid noise.
+
+B) Create a lightweight “Docs Checklist” file:
+- /docs/DOCS_CHECKLIST.md
+Include checkboxes developers can follow:
+- Added/updated endpoints documented?
+- Tenancy isolation enforced?
+- New env vars added to /docs/ENVIRONMENT_VARIABLES.md?
+- Tests added?
+- UI routes documented?
+
+C) Add “Documentation Required” reminders in the repo in a non-invasive way:
+- Add a short section to root README.md:
+  “Documentation rule: When adding features, update FEATURE_INVENTORY + ENV vars + relevant README and annotate key files.”
+
+D) Optional (but recommended) minimal conventions:
+- For any new server route module created, add a small header block comment:
+  - purpose
+  - auth/role requirements
+  - tenancy assumptions
+- For any new major UI page, add a short header comment describing:
+  - user roles
+  - main API dependencies
+  - key state flows
+
+NOTE:
+- Do NOT mass-edit all files now.
+- Only implement these policy/docs scaffold files + README section.
+- Future feature prompts should follow this policy automatically.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- /docs/REFINEMENT_ROADMAP.md created with 3–5 next safe prompts in recommended order
+- /docs/DOCUMENTATION_POLICY.md created
+- /docs/DOCS_CHECKLIST.md created
+- README.md updated with short “Documentation Standard” section
+- A brief summary of what was produced and where
