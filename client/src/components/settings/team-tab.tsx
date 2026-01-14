@@ -3,27 +3,11 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-} from "@/components/ui/sheet";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { UserDrawer } from "@/components/user-drawer";
+import { TeamDrawer } from "@/components/team-drawer";
 import {
   Table,
   TableBody,
@@ -43,7 +27,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Checkbox } from "@/components/ui/checkbox";
 import type { User, Team, Invitation, Client } from "@shared/schema";
 
 interface TeamMember {
@@ -60,29 +43,8 @@ export function TeamTab() {
   const [editTeamOpen, setEditTeamOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   
-  const [newUserForm, setNewUserForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    role: "employee" as "admin" | "employee" | "client",
-    teamIds: [] as string[],
-    clientIds: [] as string[],
-  });
-  
-  const [editUserForm, setEditUserForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    role: "employee" as "admin" | "employee" | "client",
-    isActive: true,
-    teamIds: [] as string[],
-    clientIds: [] as string[],
-  });
-
-  const [editTeamForm, setEditTeamForm] = useState({
-    name: "",
-    description: "",
-  });
+  const [editingUserTeamIds, setEditingUserTeamIds] = useState<string[]>([]);
+  const [editingUserClientIds, setEditingUserClientIds] = useState<string[]>([]);
 
   const { toast } = useToast();
 
@@ -103,20 +65,11 @@ export function TeamTab() {
   });
 
   const createUserMutation = useMutation({
-    mutationFn: async (data: typeof newUserForm) => {
+    mutationFn: async (data: { firstName: string; lastName: string; email: string; role: string; teamIds: string[]; clientIds: string[] }) => {
       return apiRequest("POST", "/api/users", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      setNewUserOpen(false);
-      setNewUserForm({
-        firstName: "",
-        lastName: "",
-        email: "",
-        role: "employee",
-        teamIds: [],
-        clientIds: [],
-      });
       toast({ title: "User created successfully" });
     },
     onError: () => {
@@ -130,8 +83,6 @@ export function TeamTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      setEditUserOpen(false);
-      setEditingUser(null);
       toast({ title: "User updated successfully" });
     },
     onError: () => {
@@ -140,12 +91,11 @@ export function TeamTab() {
   });
 
   const createTeamMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string }) => {
+    mutationFn: async (data: { name: string }) => {
       return apiRequest("POST", "/api/teams", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
-      setCreateTeamOpen(false);
       toast({ title: "Team created successfully" });
     },
     onError: () => {
@@ -159,8 +109,6 @@ export function TeamTab() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
-      setEditTeamOpen(false);
-      setEditingTeam(null);
       toast({ title: "Team updated successfully" });
     },
     onError: () => {
@@ -246,53 +194,37 @@ export function TeamTab() {
 
   const openEditUser = (user: User) => {
     setEditingUser(user);
-    setEditUserForm({
-      firstName: user.firstName || "",
-      lastName: user.lastName || "",
-      email: user.email,
-      role: (user.role as "admin" | "employee" | "client") || "employee",
-      isActive: user.isActive ?? true,
-      teamIds: [],
-      clientIds: [],
-    });
+    setEditingUserTeamIds([]);
+    setEditingUserClientIds([]);
     setEditUserOpen(true);
   };
 
   const openEditTeam = (team: Team) => {
     setEditingTeam(team);
-    setEditTeamForm({
-      name: team.name,
-      description: "",
-    });
     setEditTeamOpen(true);
   };
 
-  const handleCreateUser = () => {
-    createUserMutation.mutate(newUserForm);
+  const handleCreateUser = async (data: { firstName: string; lastName: string; email: string; role: string; teamIds: string[]; clientIds: string[] }) => {
+    await createUserMutation.mutateAsync(data);
   };
 
-  const handleUpdateUser = () => {
+  const handleUpdateUser = async (data: { firstName: string; lastName: string; email: string; role: string; isActive: boolean; teamIds: string[]; clientIds: string[] }) => {
     if (!editingUser) return;
-    updateUserMutation.mutate({
+    await updateUserMutation.mutateAsync({
       id: editingUser.id,
-      data: editUserForm,
+      data,
     });
   };
 
-  const handleCreateTeam = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    createTeamMutation.mutate({
-      name: formData.get("name") as string,
-      description: formData.get("description") as string || undefined,
-    });
+  const handleCreateTeam = async (data: { name: string }) => {
+    await createTeamMutation.mutateAsync(data);
   };
 
-  const handleUpdateTeam = () => {
+  const handleUpdateTeam = async (data: { name: string }) => {
     if (!editingTeam) return;
-    updateTeamMutation.mutate({
+    await updateTeamMutation.mutateAsync({
       id: editingTeam.id,
-      data: editTeamForm,
+      data,
     });
   };
 
@@ -571,340 +503,45 @@ export function TeamTab() {
         </CardContent>
       </Card>
 
-      <Sheet open={newUserOpen} onOpenChange={setNewUserOpen}>
-        <SheetContent className="sm:max-w-[480px]">
-          <SheetHeader>
-            <SheetTitle>New User</SheetTitle>
-            <SheetDescription>
-              Create a new user without sending an email invitation
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 py-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="new-firstName">First Name *</Label>
-                <Input
-                  id="new-firstName"
-                  value={newUserForm.firstName}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, firstName: e.target.value })}
-                  placeholder="John"
-                  required
-                  data-testid="input-new-user-firstname"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new-lastName">Last Name *</Label>
-                <Input
-                  id="new-lastName"
-                  value={newUserForm.lastName}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, lastName: e.target.value })}
-                  placeholder="Doe"
-                  required
-                  data-testid="input-new-user-lastname"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-email">Email *</Label>
-              <Input
-                id="new-email"
-                type="email"
-                value={newUserForm.email}
-                onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
-                placeholder="john@example.com"
-                required
-                data-testid="input-new-user-email"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-role">Role</Label>
-              <Select 
-                value={newUserForm.role} 
-                onValueChange={(v: "admin" | "employee" | "client") => setNewUserForm({ ...newUserForm, role: v })}
-              >
-                <SelectTrigger data-testid="select-new-user-role">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="employee">Employee</SelectItem>
-                  <SelectItem value="client">Client</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+      <UserDrawer
+        open={newUserOpen}
+        onOpenChange={setNewUserOpen}
+        onSubmit={handleCreateUser}
+        isLoading={createUserMutation.isPending}
+        mode="create"
+        teams={teams}
+        clients={clients}
+      />
 
-            {teams && teams.length > 0 && (
-              <div className="space-y-2">
-                <Label>Assign to Teams</Label>
-                <div className="border rounded-md p-3 space-y-2 max-h-[150px] overflow-y-auto">
-                  {teams.map((team) => (
-                    <div key={team.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`new-team-${team.id}`}
-                        checked={newUserForm.teamIds.includes(team.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setNewUserForm({ ...newUserForm, teamIds: [...newUserForm.teamIds, team.id] });
-                          } else {
-                            setNewUserForm({ ...newUserForm, teamIds: newUserForm.teamIds.filter(id => id !== team.id) });
-                          }
-                        }}
-                      />
-                      <label htmlFor={`new-team-${team.id}`} className="text-sm cursor-pointer">
-                        {team.name}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+      <UserDrawer
+        open={editUserOpen}
+        onOpenChange={setEditUserOpen}
+        onSubmit={handleUpdateUser}
+        user={editingUser}
+        isLoading={updateUserMutation.isPending}
+        mode="edit"
+        teams={teams}
+        clients={clients}
+        userTeamIds={editingUserTeamIds}
+        userClientIds={editingUserClientIds}
+      />
 
-            {newUserForm.role === "client" && clients && clients.length > 0 && (
-              <div className="space-y-2">
-                <Label>Client Account Access</Label>
-                <div className="border rounded-md p-3 space-y-2 max-h-[150px] overflow-y-auto">
-                  {clients.map((client) => (
-                    <div key={client.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`new-client-${client.id}`}
-                        checked={newUserForm.clientIds.includes(client.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setNewUserForm({ ...newUserForm, clientIds: [...newUserForm.clientIds, client.id] });
-                          } else {
-                            setNewUserForm({ ...newUserForm, clientIds: newUserForm.clientIds.filter(id => id !== client.id) });
-                          }
-                        }}
-                      />
-                      <label htmlFor={`new-client-${client.id}`} className="text-sm cursor-pointer">
-                        {client.displayName || client.companyName}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          <SheetFooter>
-            <Button 
-              onClick={handleCreateUser} 
-              disabled={createUserMutation.isPending || !newUserForm.firstName || !newUserForm.lastName || !newUserForm.email}
-              data-testid="button-create-user"
-            >
-              {createUserMutation.isPending ? "Creating..." : "Create User"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      <TeamDrawer
+        open={createTeamOpen}
+        onOpenChange={setCreateTeamOpen}
+        onSubmit={handleCreateTeam}
+        isLoading={createTeamMutation.isPending}
+        mode="create"
+      />
 
-      <Sheet open={editUserOpen} onOpenChange={setEditUserOpen}>
-        <SheetContent className="sm:max-w-[480px]">
-          <SheetHeader>
-            <SheetTitle>Edit User</SheetTitle>
-            <SheetDescription>
-              Update user details and permissions
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 py-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-firstName">First Name</Label>
-                <Input
-                  id="edit-firstName"
-                  value={editUserForm.firstName}
-                  onChange={(e) => setEditUserForm({ ...editUserForm, firstName: e.target.value })}
-                  data-testid="input-edit-user-firstname"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-lastName">Last Name</Label>
-                <Input
-                  id="edit-lastName"
-                  value={editUserForm.lastName}
-                  onChange={(e) => setEditUserForm({ ...editUserForm, lastName: e.target.value })}
-                  data-testid="input-edit-user-lastname"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-email">Email</Label>
-              <Input
-                id="edit-email"
-                type="email"
-                value={editUserForm.email}
-                onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
-                data-testid="input-edit-user-email"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-role">Role</Label>
-              <Select 
-                value={editUserForm.role} 
-                onValueChange={(v: "admin" | "employee" | "client") => setEditUserForm({ ...editUserForm, role: v })}
-              >
-                <SelectTrigger data-testid="select-edit-user-role">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="employee">Employee</SelectItem>
-                  <SelectItem value="client">Client</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="edit-isActive"
-                checked={editUserForm.isActive}
-                onCheckedChange={(checked) => setEditUserForm({ ...editUserForm, isActive: !!checked })}
-              />
-              <label htmlFor="edit-isActive" className="text-sm cursor-pointer">
-                User is active
-              </label>
-            </div>
-
-            {teams && teams.length > 0 && (
-              <div className="space-y-2">
-                <Label>Team Assignments</Label>
-                <div className="border rounded-md p-3 space-y-2 max-h-[150px] overflow-y-auto">
-                  {teams.map((team) => (
-                    <div key={team.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`edit-team-${team.id}`}
-                        checked={editUserForm.teamIds.includes(team.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setEditUserForm({ ...editUserForm, teamIds: [...editUserForm.teamIds, team.id] });
-                          } else {
-                            setEditUserForm({ ...editUserForm, teamIds: editUserForm.teamIds.filter(id => id !== team.id) });
-                          }
-                        }}
-                      />
-                      <label htmlFor={`edit-team-${team.id}`} className="text-sm cursor-pointer">
-                        {team.name}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {editUserForm.role === "client" && clients && clients.length > 0 && (
-              <div className="space-y-2">
-                <Label>Client Account Access</Label>
-                <div className="border rounded-md p-3 space-y-2 max-h-[150px] overflow-y-auto">
-                  {clients.map((client) => (
-                    <div key={client.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`edit-client-${client.id}`}
-                        checked={editUserForm.clientIds.includes(client.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setEditUserForm({ ...editUserForm, clientIds: [...editUserForm.clientIds, client.id] });
-                          } else {
-                            setEditUserForm({ ...editUserForm, clientIds: editUserForm.clientIds.filter(id => id !== client.id) });
-                          }
-                        }}
-                      />
-                      <label htmlFor={`edit-client-${client.id}`} className="text-sm cursor-pointer">
-                        {client.displayName || client.companyName}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          <SheetFooter>
-            <Button 
-              onClick={handleUpdateUser} 
-              disabled={updateUserMutation.isPending}
-              data-testid="button-save-user"
-            >
-              {updateUserMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet open={createTeamOpen} onOpenChange={setCreateTeamOpen}>
-        <SheetContent className="sm:max-w-[400px]">
-          <SheetHeader>
-            <SheetTitle>Create Team</SheetTitle>
-            <SheetDescription>
-              Create a new team to organize users
-            </SheetDescription>
-          </SheetHeader>
-          <form onSubmit={handleCreateTeam}>
-            <div className="space-y-4 py-6">
-              <div className="space-y-2">
-                <Label htmlFor="team-name">Team Name *</Label>
-                <Input
-                  id="team-name"
-                  name="name"
-                  placeholder="Engineering"
-                  required
-                  data-testid="input-team-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="team-description">Description</Label>
-                <Textarea
-                  id="team-description"
-                  name="description"
-                  placeholder="Team description..."
-                  data-testid="input-team-description"
-                />
-              </div>
-            </div>
-            <SheetFooter>
-              <Button type="submit" disabled={createTeamMutation.isPending} data-testid="button-save-team">
-                {createTeamMutation.isPending ? "Creating..." : "Create Team"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet open={editTeamOpen} onOpenChange={setEditTeamOpen}>
-        <SheetContent className="sm:max-w-[400px]">
-          <SheetHeader>
-            <SheetTitle>Edit Team</SheetTitle>
-            <SheetDescription>
-              Update team details
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 py-6">
-            <div className="space-y-2">
-              <Label htmlFor="edit-team-name">Team Name</Label>
-              <Input
-                id="edit-team-name"
-                value={editTeamForm.name}
-                onChange={(e) => setEditTeamForm({ ...editTeamForm, name: e.target.value })}
-                data-testid="input-edit-team-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-team-description">Description</Label>
-              <Textarea
-                id="edit-team-description"
-                value={editTeamForm.description}
-                onChange={(e) => setEditTeamForm({ ...editTeamForm, description: e.target.value })}
-                data-testid="input-edit-team-description"
-              />
-            </div>
-          </div>
-          <SheetFooter>
-            <Button 
-              onClick={handleUpdateTeam} 
-              disabled={updateTeamMutation.isPending || !editTeamForm.name}
-              data-testid="button-update-team"
-            >
-              {updateTeamMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      <TeamDrawer
+        open={editTeamOpen}
+        onOpenChange={setEditTeamOpen}
+        onSubmit={handleUpdateTeam}
+        team={editingTeam}
+        isLoading={updateTeamMutation.isPending}
+        mode="edit"
+      />
     </div>
   );
 }

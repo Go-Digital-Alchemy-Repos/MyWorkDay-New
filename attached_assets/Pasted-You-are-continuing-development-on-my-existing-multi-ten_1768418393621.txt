@@ -1,0 +1,230 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+NEXT FOLLOW-UP PROMPT: Super Admin Onboarding Booster — Bulk-create Clients + Projects inside a Tenant during onboarding.
+Implement ONLY what is described below. DO NOT rewrite the app.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename any existing endpoints.
+- Do NOT change endpoint paths.
+- Do NOT break response shapes (additive fields ok).
+- Do NOT drop/rename DB tables/columns. Add-only schema changes only if absolutely necessary.
+- Do NOT modify authentication, tenancy enforcement behavior, or Phase 3C agreement logic.
+- Use full-width drawer UI; no small modals (confirm dialogs ok).
+- Strict tenant isolation. No cross-tenant data leakage.
+- Bulk operations must be safe: validate everything; per-row results; partial failures allowed.
+- Do NOT require tenant admin invite acceptance to create data for the tenant.
+
+===============================================================================
+GOAL
+===============================================================================
+Enable Super Admins to rapidly onboard tenants by bulk-creating:
+A) Clients
+B) Projects (linked to Clients and primary workspace)
+from within the Super Admin Tenant Drawer (Onboarding / Clients / Projects area).
+
+This is an onboarding accelerant: create initial structure before tenant users log in.
+
+===============================================================================
+FEATURE A: SUPER ADMIN — CLIENTS BULK IMPORT (CSV)
+===============================================================================
+A1) UI placement
+In Super Admin Tenant Drawer add a new tab (or section):
+- “Clients” (or “Data Setup”)
+Include:
+- “Add Client” (drawer/panel)
+- “Bulk Add Clients” (CSV import panel)
+
+No small modals.
+
+A2) CSV format (clients)
+Required columns:
+- companyName
+Optional columns:
+- industry
+- website
+- phone
+- address1
+- address2
+- city
+- state
+- zip
+- country
+- notes
+- primaryContactEmail
+- primaryContactFirstName
+- primaryContactLastName
+
+Rules:
+- companyName required, trimmed
+- dedupe within CSV by companyName (case-insensitive)
+- if a client with same companyName already exists in tenant:
+  - default action: skip with reason “already exists”
+- return per-row results
+
+A3) Backend bulk endpoint (add-only)
+POST /api/v1/super/tenants/:tenantId/clients/bulk
+Body:
+{
+  clients: [
+    { companyName, industry?, website?, phone?, address1?, address2?, city?, state?, zip?, country?, notes?, primaryContactEmail?, primaryContactFirstName?, primaryContactLastName? }
+  ]
+}
+Returns:
+{
+  created: number,
+  skipped: number,
+  errors: number,
+  results: [
+    { companyName, status: "created"|"skipped"|"error", reason?, clientId? }
+  ]
+}
+
+Implementation details:
+- Use existing client creation logic/services if present.
+- Ensure all created clients have tenantId set and (if your model requires) workspaceId set to primary workspace.
+- If your client model supports contacts:
+  - If primaryContactEmail present, create a contact record linked to client (safe, optional).
+  - Do NOT invite clients as users here unless your model already supports it; keep this import focused.
+
+A4) Audit events
+Write tenant audit events:
+- “clients bulk imported” counts
+- “client created” optionally for individual rows (optional, can be noisy)
+
+===============================================================================
+FEATURE B: SUPER ADMIN — PROJECTS BULK IMPORT (CSV)
+===============================================================================
+B1) UI placement
+In Super Admin Tenant Drawer add:
+- “Projects” tab or section under “Data Setup”
+Include:
+- “Add Project”
+- “Bulk Add Projects” (CSV import panel)
+
+B2) CSV format (projects)
+Required columns:
+- projectName
+Optional but strongly recommended:
+- clientCompanyName (to link project to client by name)
+Optional columns:
+- clientId (if you prefer explicit link)
+- workspaceName (defaults to primary workspace)
+- description
+- status (active/inactive or your existing enum)
+- startDate
+- dueDate
+- color
+- projectOwnerEmail (optional if you have owner concept)
+
+Rules:
+- projectName required
+- If clientCompanyName provided:
+  - attempt to find existing client by companyName in tenant
+  - if not found: either (a) create client automatically OR (b) mark row as error.
+  Choose safe default: mark as error and recommend importing clients first.
+  Add a checkbox in UI: “Auto-create missing clients” (OFF by default).
+- If workspaceName provided and not found:
+  - default: use primary workspace and add warning in results
+
+B3) Backend bulk endpoint (add-only)
+POST /api/v1/super/tenants/:tenantId/projects/bulk
+Body:
+{
+  projects: [
+    { projectName, clientId?, clientCompanyName?, workspaceName?, description?, status?, startDate?, dueDate?, color? }
+  ],
+  options?: {
+    autoCreateMissingClients?: boolean
+  }
+}
+Returns:
+{
+  created: number,
+  skipped: number,
+  errors: number,
+  results: [
+    { projectName, status: "created"|"skipped"|"error", reason?, projectId?, clientIdUsed?, workspaceIdUsed? }
+  ]
+}
+
+Implementation details:
+- Use existing project creation logic.
+- Ensure every created project has tenantId and workspaceId.
+- Ensure project is linked to client if provided.
+- Add idempotency guard:
+  - skip if projectName already exists for that tenant+client (case-insensitive) if you have a unique constraint or can safely check.
+
+B4) Audit events
+Write tenant audit events:
+- “projects bulk imported” counts
+
+===============================================================================
+FEATURE C: CLIENTS/PROJECTS LIST VIEW INSIDE TENANT DRAWER (READONLY + QUICK OPEN)
+===============================================================================
+C1) Inside Tenant Drawer:
+- Clients tab shows:
+  - searchable list
+  - clicking client opens client detail drawer (reuse existing client editor if it exists)
+- Projects tab shows:
+  - searchable list
+  - clicking project opens project drawer (reuse existing project detail drawer)
+
+C2) Keep it safe:
+- Do not rebuild full CRM UI here; just embed existing views/drawers for convenience.
+
+===============================================================================
+FEATURE D: CSV IMPORT UX (CONSISTENT WITH USER BULK IMPORT)
+===============================================================================
+- Reuse the same CSV import panel component from bulk users prompt if you built one:
+  - /client/src/components/common/CsvImportPanel.tsx (recommended)
+- Required capabilities:
+  - upload CSV (drag/drop)
+  - parse + preview
+  - row validation results
+  - “Import” action
+  - post-import results table with copyable IDs/links where helpful
+- Provide “Download template CSV” button for both clients and projects.
+
+===============================================================================
+SECURITY & TENANT SAFETY
+===============================================================================
+- All endpoints are super_user only.
+- tenantId is path param; enforce super_user permission.
+- Do not allow writing to other tenants unintentionally.
+- Never expose secrets in responses.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) bulk_clients_partial_failures.test.ts
+- one bad row doesn’t block others
+- per-row status returned
+
+2) bulk_projects_requires_client.test.ts
+- missing client results in error when autoCreateMissingClients=false
+- when autoCreateMissingClients=true, missing client is created and project succeeds
+
+3) tenant_isolation_bulk_data_setup.test.ts
+- cannot import into tenant B while operating on tenant A
+
+4) audit_events_bulk_import.test.ts
+- bulk imports write summary audit event
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Super Admin can bulk import Clients and see per-row results.
+2) Super Admin can bulk import Projects linked to Clients and primary workspace safely.
+3) Imports do not require tenant admin invite acceptance.
+4) UI is embedded in Tenant Drawer with templates, preview, validation, results.
+5) All routes are super_user only; tenant isolation holds; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Endpoints added
+- Any schema changes (prefer none)
+- UI component paths
+- Sample template CSV contents (clients + projects)
+- Manual test checklist
