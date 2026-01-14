@@ -174,12 +174,36 @@ npm run test:watch       # Watch mode
 | `S3_ACCESS_KEY_ID` | AWS access key | - |
 | `S3_SECRET_ACCESS_KEY` | AWS secret key | - |
 
+## Documentation Standard
+
+When adding features, follow these documentation requirements:
+
+1. **Update FEATURE_INVENTORY.md** - Add new features/endpoints
+2. **Update ENVIRONMENT_VARIABLES.md** - Add new env vars
+3. **Add module header comments** - Annotate key files with purpose and invariants
+4. **Update relevant README** - If changing setup or configuration
+
+See `/docs/DOCUMENTATION_POLICY.md` for full guidelines and `/docs/DOCS_CHECKLIST.md` for verification.
+
+## Recovery & Backups
+
+Before major changes, create a recovery point:
+
+```bash
+git tag pre-refinement-roadmap-YYYYMMDD
+```
+
+For database backups, use Replit's checkpoint feature or manual `pg_dump`.
+
+See `/docs/RECOVERY.md` for full rollback and restore procedures.
+
 ## Contributing
 
 1. Create feature branch
 2. Make changes
 3. Add tests if applicable
-4. Submit pull request
+4. Follow documentation checklist
+5. Submit pull request
 
 ## License
 
