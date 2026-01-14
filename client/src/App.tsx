@@ -29,6 +29,7 @@ import SuperAdminPage from "@/pages/super-admin";
 import SuperAdminReportsPage from "@/pages/super-admin-reports";
 import SuperAdminSettingsPage from "@/pages/super-admin-settings";
 import SuperAdminStatusPage from "@/pages/super-admin-status";
+import SuperAdminDocsPage from "@/pages/super-admin-docs";
 import TenantOnboardingPage from "@/pages/tenant-onboarding";
 import AccountPage from "@/pages/account";
 import UserProfilePage from "@/pages/user-profile";
@@ -125,6 +126,9 @@ function SuperAdminRouter() {
       </Route>
       <Route path="/super-admin/status">
         {() => <SuperRouteGuard component={SuperAdminStatusPage} />}
+      </Route>
+      <Route path="/super-admin/docs">
+        {() => <SuperRouteGuard component={SuperAdminDocsPage} />}
       </Route>
       <Route>
         {() => <Redirect to="/super-admin" />}

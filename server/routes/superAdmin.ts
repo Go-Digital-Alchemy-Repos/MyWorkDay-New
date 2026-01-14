@@ -11,6 +11,8 @@ import { tenantIntegrationService, IntegrationProvider } from "../services/tenan
 import multer from "multer";
 import { validateBrandAsset, generateBrandAssetKey, uploadToS3, isS3Configured } from "../s3";
 import * as schema from "@shared/schema";
+import { promises as fs } from "fs";
+import path from "path";
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -3517,6 +3519,82 @@ router.post("/impersonate/stop", requireSuperUser, async (req, res) => {
   } catch (error) {
     console.error("[impersonate/stop] Failed to stop impersonation:", error);
     res.status(500).json({ error: "Failed to stop impersonation" });
+  }
+});
+
+// =============================================================================
+// APP DOCUMENTATION - Browse and view application documentation
+// =============================================================================
+
+const DOCS_DIR = path.join(process.cwd(), "docs");
+
+// GET /api/v1/super/docs - List all documentation files
+router.get("/docs", requireSuperUser, async (req, res) => {
+  try {
+    const files = await fs.readdir(DOCS_DIR);
+    const mdFiles = files.filter(f => f.endsWith(".md"));
+    
+    const docs = await Promise.all(mdFiles.map(async (filename) => {
+      const filepath = path.join(DOCS_DIR, filename);
+      const stat = await fs.stat(filepath);
+      const content = await fs.readFile(filepath, "utf-8");
+      const firstLine = content.split("\n").find(l => l.startsWith("# "));
+      const title = firstLine ? firstLine.replace(/^#\s*/, "") : filename.replace(".md", "");
+      
+      return {
+        filename,
+        title,
+        sizeBytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+      };
+    }));
+    
+    docs.sort((a, b) => a.title.localeCompare(b.title));
+    res.json({ docs });
+  } catch (error) {
+    console.error("[docs] Failed to list documentation:", error);
+    res.status(500).json({ error: "Failed to list documentation" });
+  }
+});
+
+// GET /api/v1/super/docs/:filename - Get a specific documentation file
+router.get("/docs/:filename", requireSuperUser, async (req, res) => {
+  try {
+    const { filename } = req.params;
+    
+    // Security: prevent directory traversal
+    if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+      return res.status(400).json({ error: "Invalid filename" });
+    }
+    
+    if (!filename.endsWith(".md")) {
+      return res.status(400).json({ error: "Only markdown files are allowed" });
+    }
+    
+    const filepath = path.join(DOCS_DIR, filename);
+    
+    try {
+      const content = await fs.readFile(filepath, "utf-8");
+      const stat = await fs.stat(filepath);
+      const firstLine = content.split("\n").find(l => l.startsWith("# "));
+      const title = firstLine ? firstLine.replace(/^#\s*/, "") : filename.replace(".md", "");
+      
+      res.json({
+        filename,
+        title,
+        content,
+        sizeBytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+      });
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        return res.status(404).json({ error: "Documentation file not found" });
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error("[docs] Failed to read documentation:", error);
+    res.status(500).json({ error: "Failed to read documentation" });
   }
 });
 

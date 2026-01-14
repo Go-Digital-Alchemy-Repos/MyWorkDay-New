@@ -6,6 +6,7 @@ import {
   Wrench,
   Activity,
   LayoutDashboard,
+  FileText,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -28,6 +29,7 @@ const superAdminNavItems = [
   { title: "Global Reports", url: "/super-admin/reports", icon: BarChart3, exact: false },
   { title: "System Settings", url: "/super-admin/settings", icon: Wrench, exact: false },
   { title: "System Status", url: "/super-admin/status", icon: Activity, exact: false },
+  { title: "App Docs", url: "/super-admin/docs", icon: FileText, exact: false },
 ];
 
 export function SuperSidebar() {
