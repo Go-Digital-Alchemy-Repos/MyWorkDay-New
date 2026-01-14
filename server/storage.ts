@@ -1,3 +1,22 @@
+/**
+ * @module server/storage
+ * @description Database storage layer implementing the IStorage interface.
+ * 
+ * This module provides all CRUD operations for the application's entities.
+ * It uses Drizzle ORM for type-safe database operations.
+ * 
+ * ## Key Features
+ * - Multi-tenant data isolation via tenantId scoping
+ * - Relational data loading for tasks, comments, etc.
+ * - Time tracking with active timers and time entries
+ * - Client (CRM) management with contacts and invites
+ * 
+ * ## Tenant Scoping
+ * Many methods have tenant-scoped variants (e.g., getClientsByTenant).
+ * Use these methods when enforcing tenant isolation in routes.
+ * 
+ * @see IStorage for the interface definition
+ */
 import {
   type User, type InsertUser,
   type Workspace, type InsertWorkspace,
