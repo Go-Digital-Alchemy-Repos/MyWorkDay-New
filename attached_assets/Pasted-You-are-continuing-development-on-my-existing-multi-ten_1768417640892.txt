@@ -1,0 +1,201 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+FOLLOW-UP PROMPT: Enhance Super Admin Tenant Drawer into a “single pane of glass” with:
+1) Tenant Notes + Audit Timeline
+2) Tenant Health Summary embedded in the drawer
+3) Bulk User Invite / Import (CSV) for tenant onboarding
+Implement ONLY what is described below. DO NOT rewrite the app.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change endpoint paths.
+- Do NOT break response shapes (additive fields ok).
+- Do NOT drop/rename DB tables/columns. Add-only schema changes only.
+- Do NOT modify authentication, tenancy enforcement behavior, onboarding logic, or Phase 3C agreement logic.
+- Use full-width drawer UI; no small modals (confirm dialogs ok).
+- Strict tenant isolation. No cross-tenant data leakage.
+- Bulk operations must be safe: validate everything; partial failures must be reported clearly.
+
+===============================================================================
+GOAL
+===============================================================================
+Improve Super Admin tenant onboarding effectiveness by adding:
+A) Notes & activity timeline to track onboarding work and support actions
+B) Tenant Health summary inside the Tenant Drawer (no need to navigate away)
+C) Bulk user creation + invite via CSV import for faster onboarding
+
+This must work without requiring tenant admin invite acceptance.
+
+===============================================================================
+FEATURE A: TENANT NOTES + AUDIT TIMELINE
+===============================================================================
+A1) Tenant Notes (Super Admin only)
+Add a tab (or section) in the Tenant Drawer: “Notes & Activity”
+- Notes are chronological, stack like comments.
+- Each note includes:
+  - author (super user id/name)
+  - createdAt timestamp
+  - body (text)
+  - optional category tag (e.g., “Onboarding”, “Support”, “Billing”, “Technical”)
+
+A2) Audit Timeline (event stream)
+Show a chronological event timeline that includes important changes (minimum):
+- tenant created
+- primary workspace created/renamed
+- tenant status changed (active/suspended)
+- tenant admin invite created/sent
+- user created
+- white label updated
+- integrations updated (mailgun configured flag changes)
+- agreement published status changed (Phase 3C status visibility)
+
+Implementation notes:
+- Prefer server-side event logging if you already have an audit/event table.
+- If none exists, implement a minimal ADD-ONLY audit table:
+
+TABLE: tenant_audit_events
+- id (uuid)
+- tenantId (uuid, indexed)
+- actorUserId (uuid nullable)
+- eventType (text)
+- message (text)
+- metadata (jsonb nullable)
+- createdAt
+
+Events should be written only for key actions performed by super admin endpoints.
+DO NOT attempt to instrument every route; keep it minimal and safe.
+
+A3) Endpoints (add-only)
+- GET  /api/v1/super/tenants/:tenantId/notes
+- POST /api/v1/super/tenants/:tenantId/notes { body, category? }
+
+- GET  /api/v1/super/tenants/:tenantId/audit
+  - returns last 100 events, paginated via cursor or page/limit
+
+Authorization:
+- super_user only
+Tenant scope:
+- tenantId param; enforce super_user permission.
+
+===============================================================================
+FEATURE B: EMBED TENANT HEALTH SUMMARY IN TENANT DRAWER
+===============================================================================
+B1) Embed “Tenant Health” panel in Tenant Drawer (tab: “Health” or section in Overview)
+- Display health status and readiness signals:
+  - tenant status (active/inactive)
+  - primary workspace exists (yes/no)
+  - # users (admins/employees/clients)
+  - Phase 3C agreement status: active agreement? version?
+  - integrations configured flags (mailgun configured yes/no)
+  - warnings summary (if your Tenant Health endpoint provides it)
+  - canEnableStrict + reasons[] if available
+
+B2) Data source
+- Prefer reusing your existing Tenant Health endpoint (fix already done or in progress):
+  - GET /api/v1/super/tenants/:tenantId/health (or existing)
+- If missing, add add-only endpoint with stable JSON keys:
+  - GET /api/v1/super/tenants/:tenantId/health
+
+Must be fast and not N+1.
+
+===============================================================================
+FEATURE C: BULK USER INVITE / IMPORT (CSV)
+===============================================================================
+C1) UI: Bulk Import Panel (in “Users & Invites” tab)
+Add “Bulk Add Users” button inside Tenant Drawer → Users & Invites tab.
+This opens an inline panel (not a modal) with:
+- CSV upload (drag/drop)
+- Template download button (generate client-side)
+- Preview table after parsing
+- Validation results row-by-row
+- Confirm import button
+
+C2) CSV format (simple)
+Columns (required):
+- email
+- role (admin|employee|client)
+Optional:
+- firstName
+- lastName
+- teamName (optional if you support teams)
+- sendInvite (true/false; default false)
+- workspaceName (optional; default primary workspace)
+
+Rules:
+- Normalize emails to lowercase
+- Validate role is allowed
+- Deduplicate within CSV
+- If user already exists in tenant: mark as “skip” with reason
+- If sendInvite=true: generate invite token/link (do not require email sending)
+- Provide per-row result summary after import
+
+C3) Backend bulk endpoint (add-only)
+POST /api/v1/super/tenants/:tenantId/users/bulk
+Body:
+{
+  users: [
+    { email, role, firstName?, lastName?, teamName?, sendInvite?, workspaceName? }
+  ]
+}
+Returns:
+{
+  created: number,
+  skipped: number,
+  invited: number,
+  results: [
+    { email, status: "created"|"skipped"|"error"|"invited", reason?, userId?, inviteUrl? }
+  ]
+}
+
+Implementation details:
+- Server performs validation again (never trust client parsing).
+- Must be safe and transactional at per-row level:
+  - Do NOT fail whole batch because one row fails.
+- Must enforce tenant isolation.
+- Must not expose secrets.
+- InviteUrl/token should be returned for copy use (even if not emailed).
+
+C4) If you already have invitation endpoints
+- Reuse existing invitation creation logic internally.
+- Do not duplicate invitation token formats.
+
+C5) Write audit events for bulk operations
+- Record “bulk users imported” with counts.
+- Record “invite created” events when sendInvite=true.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) notes_crud_super_only.test.ts
+- super can create/read notes; non-super cannot
+
+2) audit_events_written.test.ts
+- tenant created/workspace created triggers audit events
+- bulk import triggers audit event
+
+3) bulk_user_import_partial_failures.test.ts
+- 1 invalid email doesn’t block others
+- response includes per-row statuses
+
+4) tenant_health_endpoint_stable_shape.test.ts
+- health endpoint returns consistent keys for drawer rendering
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Tenant Drawer has Notes & Activity timeline with chronological stacking.
+2) Key onboarding actions write audit events and appear in timeline.
+3) Tenant Health summary renders inside Tenant Drawer and loads real data.
+4) Bulk user import supports CSV upload, preview, validation, import, and returns invite links.
+5) All features are super_user only and tenant-scoped.
+6) No breaking changes; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Schema changes (if audit table added)
+- Endpoints added
+- UI locations (tabs/sections)
+- CSV template sample
+- Manual test checklist

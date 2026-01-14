@@ -2,7 +2,7 @@ import { useLocation, useRoute, Redirect } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Building2, BarChart3, Puzzle, Settings as SettingsIcon, Palette, HardDrive, FileText } from "lucide-react";
+import { Users, Building2, BarChart3, Puzzle, Settings as SettingsIcon, Palette, HardDrive, FileText, ClipboardList } from "lucide-react";
 import { TeamTab } from "@/components/settings/team-tab";
 import { WorkspacesTab } from "@/components/settings/workspaces-tab";
 import { ReportsTab } from "@/components/settings/reports-tab";
@@ -10,6 +10,7 @@ import { IntegrationsTab } from "@/components/settings/integrations-tab";
 import { BrandingTab } from "@/components/settings/branding-tab";
 import { TenantIntegrationsTab } from "@/components/settings/tenant-integrations-tab";
 import { AgreementTab } from "@/components/settings/agreement-tab";
+import { WorkloadTab } from "@/components/settings/workload-tab";
 
 const SETTINGS_TABS = [
   { id: "team", label: "Team", icon: Users },
@@ -17,6 +18,7 @@ const SETTINGS_TABS = [
   { id: "branding", label: "Branding", icon: Palette },
   { id: "tenant-integrations", label: "Services", icon: HardDrive },
   { id: "agreement", label: "Agreement", icon: FileText },
+  { id: "workload", label: "Workload", icon: ClipboardList },
   { id: "reports", label: "Reports", icon: BarChart3 },
   { id: "integrations", label: "Integrations", icon: Puzzle },
 ];
@@ -51,7 +53,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7 h-auto p-1">
+          <TabsList className="grid w-full grid-cols-8 h-auto p-1">
             {SETTINGS_TABS.map((tab) => (
               <TabsTrigger
                 key={tab.id}
@@ -83,6 +85,10 @@ export default function SettingsPage() {
 
           <TabsContent value="agreement" className="mt-6">
             <AgreementTab />
+          </TabsContent>
+
+          <TabsContent value="workload" className="mt-6">
+            <WorkloadTab />
           </TabsContent>
 
           <TabsContent value="reports" className="mt-6">
