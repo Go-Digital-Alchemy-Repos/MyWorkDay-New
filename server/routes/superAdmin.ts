@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
 import { users } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, desc, and } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import { tenantIntegrationService, IntegrationProvider } from "../services/tenantIntegrations";
 import multer from "multer";
@@ -218,6 +218,23 @@ router.post("/tenants", requireSuperUser, async (req, res) => {
 
     console.log(`[SuperAdmin] Created tenant ${result.tenant.id} with primary workspace ${result.primaryWorkspace.id}`);
 
+    // Record audit events
+    const superUser = req.user as any;
+    await recordTenantAuditEvent(
+      result.tenant.id,
+      "tenant_created",
+      `Tenant "${result.tenant.name}" created`,
+      superUser?.id,
+      { slug: result.tenant.slug }
+    );
+    await recordTenantAuditEvent(
+      result.tenant.id,
+      "workspace_created",
+      `Primary workspace "${result.primaryWorkspace.name}" created`,
+      superUser?.id,
+      { workspaceId: result.primaryWorkspace.id, isPrimary: true }
+    );
+
     res.status(201).json({
       ...result.tenant,
       primaryWorkspaceId: result.primaryWorkspace.id,
@@ -289,6 +306,16 @@ router.post("/tenants/:tenantId/activate", requireSuperUser, async (req, res) =>
 
     console.log(`[SuperAdmin] Tenant ${tenantId} activated by super user`);
 
+    // Record audit event
+    const superUser = req.user as any;
+    await recordTenantAuditEvent(
+      tenantId,
+      "tenant_status_changed",
+      `Tenant status changed to active (activated by super user)`,
+      superUser?.id,
+      { previousStatus: tenant.status, newStatus: "active" }
+    );
+
     res.json({
       success: true,
       message: "Tenant activated successfully",
@@ -325,6 +352,16 @@ router.post("/tenants/:tenantId/suspend", requireSuperUser, async (req, res) => 
 
     console.log(`[SuperAdmin] Tenant ${tenantId} suspended by super user`);
 
+    // Record audit event
+    const superUser = req.user as any;
+    await recordTenantAuditEvent(
+      tenantId,
+      "tenant_status_changed",
+      `Tenant status changed to suspended`,
+      superUser?.id,
+      { previousStatus: tenant.status, newStatus: "suspended" }
+    );
+
     res.json({
       success: true,
       message: "Tenant suspended successfully",
@@ -360,6 +397,16 @@ router.post("/tenants/:tenantId/deactivate", requireSuperUser, async (req, res) 
       .returning();
 
     console.log(`[SuperAdmin] Tenant ${tenantId} deactivated by super user`);
+
+    // Record audit event
+    const superUser = req.user as any;
+    await recordTenantAuditEvent(
+      tenantId,
+      "tenant_status_changed",
+      `Tenant status changed to inactive`,
+      superUser?.id,
+      { previousStatus: tenant.status, newStatus: "inactive" }
+    );
 
     res.json({
       success: true,
@@ -495,6 +542,15 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
       }
     }
 
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "invite_created",
+      `Admin invitation created for ${data.email}`,
+      superUser.id,
+      { email: data.email, role: "admin", emailSent }
+    );
+
     res.status(201).json({
       invitation: {
         id: invitation.id,
@@ -535,6 +591,8 @@ const csvUserSchema = z.object({
 const bulkImportSchema = z.object({
   users: z.array(csvUserSchema).min(1, "At least one user is required").max(500, "Maximum 500 users per import"),
   expiresInDays: z.number().min(1).max(30).optional(),
+  sendInvite: z.boolean().optional().default(false),
+  workspaceName: z.string().min(1).optional(),
 });
 
 interface ImportResult {
@@ -544,6 +602,7 @@ interface ImportResult {
   role: string;
   success: boolean;
   inviteUrl?: string;
+  emailSent?: boolean;
   error?: string;
 }
 
@@ -558,16 +617,21 @@ router.post("/tenants/:tenantId/import-users", requireSuperUser, async (req, res
       return res.status(404).json({ error: "Tenant not found" });
     }
 
-    // Get or create a default workspace for the tenant
+    // Get or create a workspace for the tenant (use workspaceName if provided)
     let workspaceId: string;
-    const allWorkspaces = await db.select().from(workspaces);
-    const tenantWorkspace = allWorkspaces.find(w => w.name === `${tenant.name} Workspace`);
+    const targetWorkspaceName = data.workspaceName || `${tenant.name} Workspace`;
+    const allWorkspaces = await db.select().from(workspaces).where(eq(workspaces.tenantId, tenantId));
+    const tenantWorkspace = allWorkspaces.find(w => w.name === targetWorkspaceName) 
+      || allWorkspaces.find(w => w.isPrimary === true)
+      || allWorkspaces[0];
     
     if (tenantWorkspace) {
       workspaceId = tenantWorkspace.id;
     } else {
       const [newWorkspace] = await db.insert(workspaces).values({
-        name: `${tenant.name} Workspace`,
+        name: targetWorkspaceName,
+        tenantId,
+        isPrimary: true,
       }).returning();
       workspaceId = newWorkspace.id;
     }
@@ -624,6 +688,35 @@ router.post("/tenants/:tenantId/import-users", requireSuperUser, async (req, res
 
         const inviteUrl = `${baseUrl}/invite/${token}`;
 
+        // Send email if sendInvite is true
+        let emailSent = false;
+        if (data.sendInvite) {
+          try {
+            const mailgunIntegration = await tenantIntegrationService.getIntegration(tenantId, "mailgun");
+            if (mailgunIntegration?.status === "configured" && mailgunIntegration.config) {
+              const inviteEmailService = new InviteEmailService({
+                apiKey: mailgunIntegration.config.apiKey as string,
+                domain: mailgunIntegration.config.domain as string,
+                senderEmail: mailgunIntegration.config.senderEmail as string,
+                senderName: mailgunIntegration.config.senderName as string,
+              });
+              
+              const tenantSettings = await storage.getTenantSettings(tenantId);
+              const appName = tenantSettings?.appName || tenantSettings?.displayName || "MyWorkDay";
+              
+              await inviteEmailService.sendInviteEmail({
+                recipientEmail: user.email,
+                recipientName: user.firstName || user.email.split("@")[0],
+                inviteUrl,
+                appName,
+              });
+              emailSent = true;
+            }
+          } catch (emailErr) {
+            console.error(`Failed to send invite email to ${user.email}:`, emailErr);
+          }
+        }
+
         results.push({
           email: user.email,
           firstName: user.firstName,
@@ -631,6 +724,7 @@ router.post("/tenants/:tenantId/import-users", requireSuperUser, async (req, res
           role: user.role || "employee",
           success: true,
           inviteUrl,
+          emailSent,
         });
       } catch (err) {
         console.error(`Error creating invitation for ${user.email}:`, err);
@@ -647,6 +741,16 @@ router.post("/tenants/:tenantId/import-users", requireSuperUser, async (req, res
 
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;
+    const emailsSent = results.filter(r => r.emailSent).length;
+
+    // Record audit event for bulk import
+    await recordTenantAuditEvent(
+      tenantId,
+      "bulk_users_imported",
+      `Bulk import: ${successCount} users imported, ${failCount} failed${data.sendInvite ? `, ${emailsSent} emails sent` : ''}`,
+      superUser.id,
+      { totalProcessed: data.users.length, successCount, failCount, emailsSent, sendInvite: data.sendInvite }
+    );
 
     res.status(201).json({
       message: `Imported ${successCount} user(s) successfully. ${failCount} failed.`,
@@ -1048,6 +1152,266 @@ router.post("/tenants/:tenantId/settings/brand-assets", requireSuperUser, upload
     res.status(500).json({ error: "Failed to upload brand asset" });
   }
 });
+
+// =============================================================================
+// TENANT NOTES (Super Admin only)
+// =============================================================================
+
+const createNoteSchema = z.object({
+  body: z.string().min(1, "Note body is required").max(10000, "Note too long"),
+  category: z.enum(["onboarding", "support", "billing", "technical", "general"]).optional().default("general"),
+});
+
+// GET /api/v1/super/tenants/:tenantId/notes - Get all notes for a tenant
+router.get("/tenants/:tenantId/notes", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const notes = await db.select({
+      id: tenantNotes.id,
+      tenantId: tenantNotes.tenantId,
+      authorUserId: tenantNotes.authorUserId,
+      body: tenantNotes.body,
+      category: tenantNotes.category,
+      createdAt: tenantNotes.createdAt,
+    })
+      .from(tenantNotes)
+      .where(eq(tenantNotes.tenantId, tenantId))
+      .orderBy(desc(tenantNotes.createdAt));
+
+    // Enrich with author info
+    const userIds = Array.from(new Set(notes.map(n => n.authorUserId)));
+    const authorUsers = userIds.length > 0
+      ? await db.select({ id: users.id, name: users.name, email: users.email })
+          .from(users)
+          .where(sql`${users.id} = ANY(${userIds})`)
+      : [];
+    const authorMap = new Map(authorUsers.map(u => [u.id, u]));
+
+    const enrichedNotes = notes.map(note => ({
+      ...note,
+      author: authorMap.get(note.authorUserId) || { id: note.authorUserId, name: "Unknown", email: "" },
+    }));
+
+    res.json(enrichedNotes);
+  } catch (error) {
+    console.error("Error fetching tenant notes:", error);
+    res.status(500).json({ error: "Failed to fetch notes" });
+  }
+});
+
+// POST /api/v1/super/tenants/:tenantId/notes - Create a note
+router.post("/tenants/:tenantId/notes", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const data = createNoteSchema.parse(req.body);
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const superUser = req.user as any;
+    if (!superUser?.id) {
+      return res.status(401).json({ error: "User not authenticated" });
+    }
+
+    const [note] = await db.insert(tenantNotes).values({
+      tenantId,
+      authorUserId: superUser.id,
+      body: data.body,
+      category: data.category,
+    }).returning();
+
+    res.status(201).json({
+      ...note,
+      author: { id: superUser.id, name: superUser.name || "Super Admin", email: superUser.email },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error creating tenant note:", error);
+    res.status(500).json({ error: "Failed to create note" });
+  }
+});
+
+// =============================================================================
+// TENANT AUDIT EVENTS
+// =============================================================================
+
+// GET /api/v1/super/tenants/:tenantId/audit - Get audit events for a tenant
+router.get("/tenants/:tenantId/audit", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const events = await db.select()
+      .from(tenantAuditEvents)
+      .where(eq(tenantAuditEvents.tenantId, tenantId))
+      .orderBy(desc(tenantAuditEvents.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Enrich with actor info
+    const actorIds = Array.from(new Set(events.filter(e => e.actorUserId).map(e => e.actorUserId!)));
+    const actorUsers = actorIds.length > 0
+      ? await db.select({ id: users.id, name: users.name, email: users.email })
+          .from(users)
+          .where(sql`${users.id} = ANY(${actorIds})`)
+      : [];
+    const actorMap = new Map(actorUsers.map(u => [u.id, u]));
+
+    const enrichedEvents = events.map(event => ({
+      ...event,
+      actor: event.actorUserId ? actorMap.get(event.actorUserId) || null : null,
+    }));
+
+    res.json({
+      events: enrichedEvents,
+      pagination: {
+        limit,
+        offset,
+        hasMore: events.length === limit,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching tenant audit events:", error);
+    res.status(500).json({ error: "Failed to fetch audit events" });
+  }
+});
+
+// =============================================================================
+// TENANT HEALTH (Per-tenant)
+// =============================================================================
+
+// GET /api/v1/super/tenants/:tenantId/health - Get health summary for a specific tenant
+router.get("/tenants/:tenantId/health", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    // Get tenant settings
+    const settings = await storage.getTenantSettings(tenantId);
+
+    // Count users by role
+    const userCounts = await db.select({
+      role: users.role,
+      count: sql<number>`count(*)::int`,
+    })
+      .from(users)
+      .where(eq(users.tenantId, tenantId))
+      .groupBy(users.role);
+
+    const userCountMap: Record<string, number> = {};
+    for (const uc of userCounts) {
+      userCountMap[uc.role] = uc.count;
+    }
+    const totalUsers = Object.values(userCountMap).reduce((a, b) => a + b, 0);
+
+    // Check if primary workspace exists
+    const primaryWorkspace = await db.select()
+      .from(workspaces)
+      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)))
+      .limit(1);
+
+    // Get mailgun integration status (check if configured)
+    let mailgunConfigured = false;
+    try {
+      const mailgunIntegration = await tenantIntegrationService.getIntegration(tenantId, "mailgun");
+      mailgunConfigured = mailgunIntegration?.status === "configured";
+    } catch {
+      mailgunConfigured = false;
+    }
+
+    // Get active agreement (Phase 3C)
+    const { tenantAgreements } = await import("@shared/schema");
+    const activeAgreement = await db.select()
+      .from(tenantAgreements)
+      .where(and(eq(tenantAgreements.tenantId, tenantId), eq(tenantAgreements.status, "active")))
+      .limit(1);
+
+    // Build health summary
+    const warnings: string[] = [];
+    if (!primaryWorkspace.length) {
+      warnings.push("No primary workspace configured");
+    }
+    if (totalUsers === 0) {
+      warnings.push("No users in tenant");
+    }
+    if (!settings?.displayName) {
+      warnings.push("Display name not configured");
+    }
+
+    res.json({
+      tenantId,
+      status: tenant.status,
+      primaryWorkspaceExists: primaryWorkspace.length > 0,
+      primaryWorkspace: primaryWorkspace[0] || null,
+      users: {
+        total: totalUsers,
+        byRole: userCountMap,
+      },
+      agreement: {
+        hasActiveAgreement: activeAgreement.length > 0,
+        version: activeAgreement[0]?.version || null,
+        title: activeAgreement[0]?.title || null,
+      },
+      integrations: {
+        mailgunConfigured,
+      },
+      branding: {
+        displayName: settings?.displayName || null,
+        whiteLabelEnabled: settings?.whiteLabelEnabled || false,
+        logoConfigured: !!settings?.logoUrl,
+      },
+      warnings,
+      canEnableStrict: warnings.length === 0,
+    });
+  } catch (error) {
+    console.error("Error fetching tenant health:", error);
+    res.status(500).json({ error: "Failed to fetch tenant health" });
+  }
+});
+
+// =============================================================================
+// AUDIT EVENT HELPER
+// =============================================================================
+
+export async function recordTenantAuditEvent(
+  tenantId: string,
+  eventType: string,
+  message: string,
+  actorUserId?: string | null,
+  metadata?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await db.insert(tenantAuditEvents).values({
+      tenantId,
+      actorUserId: actorUserId || null,
+      eventType,
+      message,
+      metadata: metadata || null,
+    });
+  } catch (error) {
+    console.error(`[Audit] Failed to record event ${eventType} for tenant ${tenantId}:`, error);
+  }
+}
 
 // =============================================================================
 // SYSTEM PURGE ENDPOINT - Delete all application data (DANGER ZONE)

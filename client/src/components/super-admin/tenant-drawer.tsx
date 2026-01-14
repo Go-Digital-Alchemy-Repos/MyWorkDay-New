@@ -33,8 +33,15 @@ import {
   Copy,
   UserPlus,
   Briefcase,
-  ExternalLink
+  ExternalLink,
+  MessageSquare,
+  Activity,
+  Send,
+  Upload,
+  FileSpreadsheet,
+  Heart
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Tenant } from "@shared/schema";
 
 interface TenantSettings {
@@ -66,6 +73,61 @@ interface Workspace {
   name: string;
   tenantId: string | null;
   isPrimary: boolean | null;
+}
+
+interface TenantNote {
+  id: string;
+  tenantId: string;
+  authorUserId: string;
+  body: string;
+  category: string;
+  createdAt: string;
+  author: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+interface TenantAuditEvent {
+  id: string;
+  tenantId: string;
+  actorUserId: string | null;
+  eventType: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actor?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+}
+
+interface TenantHealth {
+  tenantId: string;
+  status: string;
+  primaryWorkspaceExists: boolean;
+  primaryWorkspace: Workspace | null;
+  users: {
+    total: number;
+    byRole: Record<string, number>;
+  };
+  agreement: {
+    hasActiveAgreement: boolean;
+    version: number | null;
+    title: string | null;
+  };
+  integrations: {
+    mailgunConfigured: boolean;
+  };
+  branding: {
+    displayName: string | null;
+    whiteLabelEnabled: boolean;
+    logoConfigured: boolean;
+  };
+  warnings: string[];
+  canEnableStrict: boolean;
 }
 
 interface TenantDrawerProps {
@@ -119,6 +181,11 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   const [inviteFirstName, setInviteFirstName] = useState("");
   const [inviteLastName, setInviteLastName] = useState("");
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
+  const [newNoteBody, setNewNoteBody] = useState("");
+  const [newNoteCategory, setNewNoteCategory] = useState("general");
+  const [csvData, setCsvData] = useState<Array<{ email: string; firstName?: string; lastName?: string; role?: string }>>([]);
+  const [sendInviteEmails, setSendInviteEmails] = useState(false);
+  const [bulkImportResults, setBulkImportResults] = useState<Array<{ email: string; success: boolean; inviteUrl?: string; emailSent?: boolean; error?: string }>>([]);
 
   useEffect(() => {
     if (tenant) {
@@ -137,6 +204,57 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
     queryKey: ["/api/v1/super/tenants", tenant?.id, "settings"],
     queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/settings`, { credentials: "include" }).then(r => r.json()),
     enabled: !!tenant && open,
+  });
+
+  const { data: healthData, isLoading: healthLoading } = useQuery<TenantHealth>({
+    queryKey: ["/api/v1/super/tenants", tenant?.id, "health"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/health`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!tenant && open && (activeTab === "overview" || activeTab === "notes"),
+  });
+
+  const { data: notesResponse, isLoading: notesLoading } = useQuery<{ notes: TenantNote[] }>({
+    queryKey: ["/api/v1/super/tenants", tenant?.id, "notes"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/notes`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!tenant && open && activeTab === "notes",
+  });
+
+  const { data: auditResponse, isLoading: auditLoading } = useQuery<{ events: TenantAuditEvent[] }>({
+    queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/audit?limit=50`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!tenant && open && activeTab === "notes",
+  });
+
+  const createNoteMutation = useMutation({
+    mutationFn: async (data: { body: string; category: string }) => {
+      return apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/notes`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "notes"] });
+      setNewNoteBody("");
+      toast({ title: "Note added successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add note", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const bulkImportMutation = useMutation({
+    mutationFn: async (data: { users: typeof csvData; sendInvite: boolean }) => {
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/import-users`, data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setBulkImportResults(data.results || []);
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      toast({ 
+        title: "Bulk import complete", 
+        description: `${data.successCount} imported, ${data.failCount} failed` 
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Bulk import failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const updateTenantMutation = useMutation({
@@ -228,6 +346,64 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
     }
   };
 
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split('\n').filter(line => line.trim());
+      if (lines.length < 2) {
+        toast({ title: "Invalid CSV", description: "CSV must have a header row and at least one data row", variant: "destructive" });
+        return;
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const emailIndex = headers.indexOf('email');
+      const firstNameIndex = headers.indexOf('firstname') >= 0 ? headers.indexOf('firstname') : headers.indexOf('first_name');
+      const lastNameIndex = headers.indexOf('lastname') >= 0 ? headers.indexOf('lastname') : headers.indexOf('last_name');
+      const roleIndex = headers.indexOf('role');
+
+      if (emailIndex === -1) {
+        toast({ title: "Invalid CSV", description: "CSV must have an 'email' column", variant: "destructive" });
+        return;
+      }
+
+      const parsedUsers: Array<{ email: string; firstName?: string; lastName?: string; role?: string }> = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+        const email = values[emailIndex];
+        if (!email || !email.includes('@')) continue;
+
+        parsedUsers.push({
+          email,
+          firstName: firstNameIndex >= 0 ? values[firstNameIndex] : undefined,
+          lastName: lastNameIndex >= 0 ? values[lastNameIndex] : undefined,
+          role: roleIndex >= 0 && ['admin', 'employee'].includes(values[roleIndex]?.toLowerCase()) 
+            ? values[roleIndex].toLowerCase() as 'admin' | 'employee'
+            : 'employee',
+        });
+      }
+
+      setCsvData(parsedUsers);
+      setBulkImportResults([]);
+      toast({ title: "CSV parsed", description: `${parsedUsers.length} users found` });
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBulkImport = () => {
+    if (csvData.length === 0) return;
+    bulkImportMutation.mutate({ users: csvData, sendInvite: sendInviteEmails });
+  };
+
+  const copyAllInviteUrls = () => {
+    const urls = bulkImportResults.filter(r => r.success && r.inviteUrl).map(r => `${r.email}: ${r.inviteUrl}`).join('\n');
+    navigator.clipboard.writeText(urls);
+    toast({ title: "Copied", description: "All invite URLs copied to clipboard" });
+  };
+
   if (!tenant) return null;
 
   const onboardingProgress: OnboardingProgress = {
@@ -293,10 +469,14 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview" data-testid="tab-overview">
               <Building2 className="h-4 w-4 mr-2" />
               Overview
+            </TabsTrigger>
+            <TabsTrigger value="notes" data-testid="tab-notes">
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Notes
             </TabsTrigger>
             <TabsTrigger value="onboarding" data-testid="tab-onboarding">
               <Settings className="h-4 w-4 mr-2" />
@@ -394,6 +574,198 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
                 </CardContent>
               </Card>
             )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Heart className="h-4 w-4" />
+                  Health Summary
+                </CardTitle>
+                <CardDescription>Quick status overview of tenant configuration</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {healthLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : healthData ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center gap-2">
+                        {healthData.primaryWorkspaceExists ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        )}
+                        <span className="text-sm">Primary Workspace</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {healthData.users.total > 0 ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        )}
+                        <span className="text-sm">{healthData.users.total} Users</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {healthData.integrations.mailgunConfigured ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        )}
+                        <span className="text-sm">Email Integration</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {healthData.branding.logoConfigured ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        )}
+                        <span className="text-sm">Logo Configured</span>
+                      </div>
+                    </div>
+                    {healthData.warnings.length > 0 && (
+                      <div className="pt-2 border-t space-y-1">
+                        <div className="text-sm font-medium text-amber-600">Warnings:</div>
+                        {healthData.warnings.map((warning, i) => (
+                          <div key={i} className="text-sm text-muted-foreground flex items-center gap-2">
+                            <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                            {warning}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {healthData.canEnableStrict && (
+                      <div className="pt-2 border-t">
+                        <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/20">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Ready for Strict Tenancy
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">Failed to load health data</div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="notes" className="space-y-6 mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Internal Notes
+                </CardTitle>
+                <CardDescription>Private notes visible only to super admins</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <Select value={newNoteCategory} onValueChange={setNewNoteCategory}>
+                      <SelectTrigger className="w-32" data-testid="select-note-category">
+                        <SelectValue placeholder="Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="general">General</SelectItem>
+                        <SelectItem value="support">Support</SelectItem>
+                        <SelectItem value="billing">Billing</SelectItem>
+                        <SelectItem value="technical">Technical</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Add a note..."
+                      value={newNoteBody}
+                      onChange={(e) => setNewNoteBody(e.target.value)}
+                      className="flex-1"
+                      data-testid="input-new-note"
+                    />
+                    <Button
+                      onClick={() => createNoteMutation.mutate({ body: newNoteBody, category: newNoteCategory })}
+                      disabled={!newNoteBody.trim() || createNoteMutation.isPending}
+                      data-testid="button-add-note"
+                    >
+                      <Send className="h-4 w-4 mr-2" />
+                      Add
+                    </Button>
+                  </div>
+                </div>
+
+                {notesLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : notesResponse?.notes && notesResponse.notes.length > 0 ? (
+                  <div className="space-y-3">
+                    {notesResponse.notes.map((note) => (
+                      <div key={note.id} className="border rounded-md p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">
+                              {note.category}
+                            </Badge>
+                            <span className="text-sm font-medium">{note.author?.name || "Unknown"}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(note.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-sm">{note.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-sm text-muted-foreground">
+                    No notes yet. Add a note above.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Activity className="h-4 w-4" />
+                  Audit Timeline
+                </CardTitle>
+                <CardDescription>Recent actions and events for this tenant</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {auditLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : auditResponse?.events && auditResponse.events.length > 0 ? (
+                  <div className="space-y-3">
+                    {auditResponse.events.map((event) => (
+                      <div key={event.id} className="flex items-start gap-3 border-l-2 border-muted pl-3 pb-3">
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs font-mono">
+                              {event.eventType.replace(/_/g, " ")}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(event.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-sm">{event.message}</p>
+                          {event.actor && (
+                            <div className="text-xs text-muted-foreground">
+                              by {event.actor.name || event.actor.email}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-sm text-muted-foreground">
+                    No audit events recorded yet.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="onboarding" className="space-y-6 mt-6">
@@ -575,6 +947,171 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
                 <div className="text-center py-8 text-muted-foreground">
                   User list coming soon
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Bulk CSV Import
+                </CardTitle>
+                <CardDescription>Import multiple users at once from a CSV file</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="csv-upload">Upload CSV File</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="csv-upload"
+                      type="file"
+                      accept=".csv"
+                      onChange={handleCsvFileChange}
+                      className="flex-1"
+                      data-testid="input-csv-upload"
+                    />
+                    {csvData.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setCsvData([]); setBulkImportResults([]); }}
+                        data-testid="button-clear-csv"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Required columns: email. Optional: firstName, lastName, role (admin/employee)
+                  </p>
+                </div>
+
+                {csvData.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="border rounded-md max-h-40 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-background border-b">
+                          <tr>
+                            <th className="text-left p-2">Email</th>
+                            <th className="text-left p-2">Name</th>
+                            <th className="text-left p-2">Role</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {csvData.slice(0, 10).map((user, i) => (
+                            <tr key={i} className="border-b last:border-0">
+                              <td className="p-2 font-mono text-xs">{user.email}</td>
+                              <td className="p-2">{[user.firstName, user.lastName].filter(Boolean).join(' ') || '-'}</td>
+                              <td className="p-2">
+                                <Badge variant="secondary" className="text-xs">{user.role || 'employee'}</Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {csvData.length > 10 && (
+                        <div className="p-2 text-center text-xs text-muted-foreground border-t">
+                          ...and {csvData.length - 10} more
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sendInviteEmails}
+                          onChange={(e) => setSendInviteEmails(e.target.checked)}
+                          className="rounded"
+                          data-testid="checkbox-send-invite-emails"
+                        />
+                        Send invite emails (requires Mailgun)
+                      </label>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleBulkImport}
+                        disabled={bulkImportMutation.isPending}
+                        data-testid="button-bulk-import"
+                      >
+                        {bulkImportMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 mr-2" />
+                            Import {csvData.length} Users
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {bulkImportResults.length > 0 && (
+                  <div className="space-y-3 pt-4 border-t">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium">Import Results</div>
+                      <Button size="sm" variant="outline" onClick={copyAllInviteUrls} data-testid="button-copy-all-urls">
+                        <Copy className="h-4 w-4 mr-2" />
+                        Copy All URLs
+                      </Button>
+                    </div>
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-background border-b">
+                          <tr>
+                            <th className="text-left p-2">Email</th>
+                            <th className="text-left p-2">Status</th>
+                            <th className="text-left p-2">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulkImportResults.map((result, i) => (
+                            <tr key={i} className="border-b last:border-0">
+                              <td className="p-2 font-mono text-xs">{result.email}</td>
+                              <td className="p-2">
+                                {result.success ? (
+                                  <div className="flex items-center gap-1">
+                                    <CheckCircle className="h-3 w-3 text-green-500" />
+                                    <span className="text-green-600 text-xs">Success</span>
+                                    {result.emailSent && (
+                                      <Badge variant="secondary" className="text-xs ml-1">Emailed</Badge>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <AlertTriangle className="h-3 w-3 text-red-500" />
+                                    <span className="text-red-600 text-xs">{result.error}</span>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-2">
+                                {result.success && result.inviteUrl && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(result.inviteUrl!);
+                                      toast({ title: "Copied", description: "Invite URL copied" });
+                                    }}
+                                    data-testid={`button-copy-url-${i}`}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

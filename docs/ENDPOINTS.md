@@ -57,8 +57,45 @@ This document provides a comprehensive inventory of all API endpoints in the app
 | POST | `/api/v1/super/tenants/:tenantId/integration/:provider/test` | Super | Global | Test integration |
 | POST | `/api/v1/super/tenants/:tenantId/brand-assets` | Super | Global | Upload brand asset |
 | GET | `/api/v1/super/tenants/:tenantId/workspaces` | Super | Global | List tenant workspaces |
+| GET | `/api/v1/super/tenants/:tenantId/health` | Super | Global | Get tenant health summary |
+| GET | `/api/v1/super/tenants/:tenantId/notes` | Super | Global | List tenant internal notes |
+| POST | `/api/v1/super/tenants/:tenantId/notes` | Super | Global | Create tenant note |
+| GET | `/api/v1/super/tenants/:tenantId/audit` | Super | Global | Get tenant audit events |
 
 **Note:** POST `/api/v1/super/tenants` now transactionally creates tenant + primary workspace + tenant_settings.
+
+### Request/Response Details
+
+**POST `/api/v1/super/tenants/:tenantId/import-users`**
+```json
+{
+  "users": [
+    { "email": "user@example.com", "firstName": "John", "lastName": "Doe", "role": "admin|employee" }
+  ],
+  "expiresInDays": 7,
+  "sendInvite": false,
+  "workspaceName": "Optional Workspace Name"
+}
+```
+Response includes `results` array with `inviteUrl` and `emailSent` for each user.
+
+**GET `/api/v1/super/tenants/:tenantId/health`**
+Returns health summary including:
+- `primaryWorkspaceExists`: boolean
+- `users`: { total, byRole }
+- `integrations`: { mailgunConfigured }
+- `branding`: { displayName, whiteLabelEnabled, logoConfigured }
+- `warnings`: string[]
+- `canEnableStrict`: boolean
+
+**POST `/api/v1/super/tenants/:tenantId/notes`**
+```json
+{ "body": "Note content", "category": "general|support|billing|technical" }
+```
+
+**GET `/api/v1/super/tenants/:tenantId/audit`**
+Query params: `limit` (default 50), `offset` (default 0)
+Returns `events` array with actor enrichment.
 
 ---
 

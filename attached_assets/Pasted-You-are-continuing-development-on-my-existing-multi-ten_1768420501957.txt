@@ -1,0 +1,274 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+Implement an expanded Super Admin toolset with new navigation items and a “System Settings” area.
+This must be SAFE and non-destructive: add capabilities without breaking tenant-scoped features.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change existing endpoint paths.
+- Do NOT break response shapes (additive only).
+- Do NOT drop/rename DB tables/columns. Add-only schema changes only if absolutely necessary.
+- Do NOT modify auth strategy, tenancy enforcement behavior, or Phase 3C agreement logic already implemented.
+- Super Admin (super_user) tools must be clearly separated from Tenant Admin tools.
+- Never leak tenant data to non-super users. Super-only routes must be protected by role middleware.
+- UI: Replace small modals with full-width drawers/panels where configuration is complex. Confirm dialogs ok.
+
+===============================================================================
+GOAL
+===============================================================================
+Create a complete Super Admin suite:
+1) Expanded Super Admin navigation (system-level)
+2) New “System Settings” area (system admins manage the platform itself)
+3) “Global Reports” across all tenants (tenants/projects/users/tasks/time, etc.)
+4) “System Status” with logs/debug views and health checks
+5) Ensure Tenant Admin settings remain tenant-scoped and unchanged (no privilege leaks)
+
+===============================================================================
+STEP 1 — SUPER ADMIN NAVIGATION (UI ONLY FIRST)
+===============================================================================
+Update Super Admin sidebar/navigation to include a distinct “System” section.
+Add these menu items (super_user only):
+- Dashboard (existing)
+- Tenants (existing)
+- Global Reports (new)
+- System Settings (new)
+- System Status (new)
+
+Rules:
+- Tenant users must never see these items.
+- Tenant Admin “Global Settings” remains separate and unchanged.
+
+Route structure (recommended):
+- /super/dashboard
+- /super/tenants
+- /super/reports
+- /super/settings
+- /super/status
+
+===============================================================================
+STEP 2 — SYSTEM SETTINGS (NEW AREA)
+===============================================================================
+Create /super/settings with tabs:
+A) Platform Admins (Super Admin User Management)
+B) Tenant SaaS Agreements (global oversight)
+C) Global Branding (platform defaults)
+D) Platform Integrations (optional placeholders; do NOT implement new integrations unless easy)
+E) Security & Access (optional; read-only summary)
+
+----------------------------------------
+2A) Platform Admins (Super Admin User Mgmt)
+----------------------------------------
+Goal:
+Manage super_user accounts (platform admins) and only platform admins.
+
+Requirements:
+- List platform admins (users with role=super_user)
+- Create platform admin user (no email required immediately)
+- Invite platform admin (send invite OR copy invite link)
+- Promote/demote to super_user:
+  - Demotion must prevent removing the last remaining super_user (safety)
+- Deactivate platform admin account (soft deactivate)
+
+Endpoints:
+- Prefer reuse of existing super user endpoints.
+- If missing, add add-only endpoints:
+  - GET /api/v1/super/admins
+  - POST /api/v1/super/admins
+  - PATCH /api/v1/super/admins/:id (role/isActive)
+  - POST /api/v1/super/admins/:id/invite (or reuse invitations system)
+
+----------------------------------------
+2B) Tenant SaaS Agreements (Global oversight)
+----------------------------------------
+Goal:
+Super Admin can view and manage agreement status across tenants.
+NOT a replacement for tenant admin agreement editor—this is oversight + support.
+
+Requirements:
+- Table of tenants with:
+  - active agreement? (yes/no)
+  - current version
+  - effective date
+  - accepted % (optional)
+- Actions:
+  - Open tenant agreement drawer (view/edit/publish) using existing 3C mechanisms
+  - “Remind tenant admins” (optional placeholder if Mailgun configured globally)
+- Do NOT create a new agreement system; reuse Phase 3C tenant agreement tables/endpoints.
+
+Add endpoints only if needed:
+- GET /api/v1/super/agreements/tenants-summary
+  returns list of tenants + agreement status fields
+
+----------------------------------------
+2C) Global Branding (Platform defaults)
+----------------------------------------
+Goal:
+Define platform-level defaults used when a tenant has not configured white label.
+
+Store:
+- defaultLogoUrl (S3 upload)
+- defaultFaviconUrl (S3 upload)
+- defaultPrimaryColor (string)
+- defaultSecondaryColor (string)
+- defaultAppName (string) (optional)
+- supportEmail (optional)
+
+Requirements:
+- Use S3 upload like tenant branding (reuse FileDropzone component)
+- These defaults do NOT overwrite tenant branding; tenant branding overrides platform defaults.
+- UI preview.
+
+Schema (add-only) if needed:
+Table: system_settings (single-row)
+- id (fixed=1)
+- defaultLogoUrl, defaultFaviconUrl, defaultPrimaryColor, defaultSecondaryColor, defaultAppName, supportEmail
+- createdAt, updatedAt
+
+Endpoints (add-only if needed):
+- GET /api/v1/super/system-settings
+- PATCH /api/v1/super/system-settings
+
+----------------------------------------
+2D) Platform Integrations (Placeholder)
+----------------------------------------
+Add a tab to show:
+- global Mailgun configured? (flag only)
+- global S3 configured? (flag only)
+No secrets displayed.
+
+(Do not build new integration logic unless it already exists; this is a visibility page.)
+
+===============================================================================
+STEP 3 — GLOBAL REPORTS (SYSTEM-WIDE)
+===============================================================================
+Create /super/reports with tabs:
+
+A) Tenants Overview
+- total tenants, active vs inactive
+- tenant growth over time (simple)
+- tenants with missing agreement, missing branding, missing admin user
+
+B) Projects Overview (cross-tenant)
+- total projects, active projects
+- projects with overdue tasks
+- top tenants by project count
+
+C) Users Overview (cross-tenant)
+- total users by role (tenant admins, employees, clients)
+- active users by last login (if tracked)
+- invites pending
+
+D) Tasks Overview (cross-tenant)
+- open tasks, overdue tasks, due today, upcoming
+- tasks by status/priority
+- unassigned tasks count (if applicable)
+- optional: top users by open tasks
+
+E) Time Tracking Overview (if module exists)
+- total hours this week/month
+- hours by tenant
+- hours by user
+- billable vs non-billable summary
+
+IMPORTANT PERFORMANCE REQUIREMENT:
+- Global reports must be server-aggregated; do NOT fetch all tenants/projects/tasks and aggregate client-side.
+- Use pagination for any drill-down lists.
+
+Endpoints (add-only; super_user only):
+- GET /api/v1/super/reports/tenants-summary
+- GET /api/v1/super/reports/projects-summary
+- GET /api/v1/super/reports/users-summary
+- GET /api/v1/super/reports/tasks-summary
+- GET /api/v1/super/reports/time-summary (optional)
+- GET /api/v1/super/reports/drilldown?type=...&tenantId=...&page=...
+
+Ensure every report endpoint:
+- uses efficient SQL aggregates
+- avoids N+1 queries
+- returns stable JSON shapes for charts
+
+===============================================================================
+STEP 4 — SYSTEM STATUS (HEALTH, LOGS, DEBUGGING)
+===============================================================================
+Create /super/status with tabs:
+
+A) System Health
+- DB connection status
+- migrations status (if detectable)
+- queue/worker status (if any)
+- websocket status (if any)
+- S3 connectivity check (optional quick HEAD)
+- Mailgun connectivity check (optional safe ping)
+- app version/build info
+
+B) Tenant Health (embedded)
+- reuse existing tenant health endpoint and UI
+- allow selecting tenant to view health within this page
+
+C) Logs (safe)
+- Provide a UI to view application logs ONLY if you already store logs in DB.
+- If you do NOT store logs in DB, show instructions for Railway logs and add a placeholder page.
+- Do NOT attempt to scrape Railway logs automatically.
+Optional (if you want DB logs):
+- Add add-only table system_logs with capped retention (future), but do NOT implement unless requested.
+
+D) Debug Tools (safe)
+- “Recompute Tenant Health” (if you have a compute function)
+- “Validate Tenant Isolation” (runs a lightweight self-check)
+All debug tools must be gated and require confirm phrase.
+
+Endpoints (add-only):
+- GET /api/v1/super/status/health
+- POST /api/v1/super/status/checks/run (optional)
+
+===============================================================================
+STEP 5 — ACCESS CONTROL & TENANT/PLATFORM SEPARATION (CRITICAL)
+===============================================================================
+- Create a clear route grouping on server:
+  - /server/routes/super/* for super endpoints
+  - Ensure super middleware checks role=super_user
+- Ensure Tenant Admin settings remain tenant scoped:
+  - /api/v1/tenant/* unchanged
+- Ensure Super Admin “global reports” NEVER appear in tenant navigation
+- Ensure Phase 3C agreement enforcement does not block /api/v1/super/* routes
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) super_routes_not_blocked_by_agreement_guard.test.ts
+- super endpoints accessible even if a tenant agreement would gate tenant endpoints
+
+2) super_only_access.test.ts
+- non-super cannot access /api/v1/super/*
+
+3) system_settings_persist.test.ts
+- patch system settings persists and returns masked/expected values
+
+4) global_reports_shapes.test.ts
+- endpoints return stable JSON keys even when there is no data
+
+5) tenant_admin_settings_unchanged.test.ts
+- verify tenant endpoints still function and are unchanged (smoke test)
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Super Admin navigation includes: Tenants, Global Reports, System Settings, System Status.
+2) System Settings provides:
+   - Platform Admin management
+   - Tenant agreements oversight
+   - Global branding defaults (S3 upload)
+3) Global Reports provides cross-tenant summaries for tenants, projects, users, tasks (+ time optional).
+4) System Status provides health checks and safe debug tools and references logs safely.
+5) Tenant Admin tools remain tenant-scoped and unchanged; no privilege leakage.
+6) Tests pass and no breaking changes introduced.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Routes/pages added (client)
+- Endpoints added (server) + how they’re mounted
+- Any schema additions/migrations (system_settings table if created)
+- Manual test checklist
+- Notes on performance strategy (how aggregates avoid N+1)
