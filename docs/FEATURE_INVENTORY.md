@@ -166,8 +166,28 @@ This document provides a comprehensive inventory of all features and API route g
 |---------|-------------|
 | Time Entries | CRUD for time entries |
 | Stopwatch | Active timer with pause/resume |
-| Entry Editing | Inline editing of entries |
+| Entry Editing | Full-screen drawer with cascading selection |
+| Manual Entry | Create entries with Client → Project → Task → Subtask selection |
 | Reports | Time by project, task, user |
+
+#### Time Entry Selection Cascade
+Both create and edit forms use a cascading selection pattern:
+1. **Client** → filters available Projects to that client
+2. **Project** → enables Task dropdown with open tasks from project
+3. **Task** → if task has subtasks, shows Subtask dropdown
+
+Clear cascade behavior:
+- Changing Client clears Project/Task/Subtask
+- Changing Project clears Task/Subtask
+- Changing Task clears Subtask
+
+Final task assignment: `finalTaskId = subtaskId || taskId`
+
+**Components:**
+- `ManualEntryDialog` - Create time entry via full-screen drawer with cascade selection
+- `EditTimeEntryDrawer` - Edit existing entry with same cascade pattern
+
+**Tests:** `server/tests/time-entry-edit.test.ts` - Pattern tests for validation, authorization, relationship scoping
 
 ---
 

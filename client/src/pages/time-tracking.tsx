@@ -455,6 +455,19 @@ function ActiveTimerPanel() {
   );
 }
 
+/**
+ * ManualEntryDialog - Full-screen drawer for creating manual time entries
+ * 
+ * SELECTION CASCADE LOGIC:
+ * 1. Client selection → filters available Projects to that client
+ * 2. Project selection → enables Task dropdown with open tasks from project
+ * 3. Task selection → if task has subtasks, shows Subtask dropdown
+ * 4. Clear cascade: changing Client clears Project/Task/Subtask
+ *                   changing Project clears Task/Subtask
+ *                   changing Task clears Subtask
+ * 
+ * Final task assignment: finalTaskId = subtaskId || taskId
+ */
 function ManualEntryDialog({ 
   open, 
   onOpenChange 
@@ -470,19 +483,46 @@ function ManualEntryDialog({
   const [clientId, setClientId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [subtaskId, setSubtaskId] = useState<string | null>(null);
   const [scope, setScope] = useState<"in_scope" | "out_of_scope">("in_scope");
-
-  const { data: projects = [] } = useQuery<Array<{ id: string; name: string }>>({
-    queryKey: ["/api/projects"],
-  });
 
   const { data: clients = [] } = useQuery<Array<{ id: string; companyName: string; displayName: string | null }>>({
     queryKey: ["/api/clients"],
+    enabled: open,
   });
+
+  const { data: clientProjects = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ["/api/clients", clientId, "projects"],
+    queryFn: () => fetch(`/api/clients/${clientId}/projects`, { credentials: "include" }).then((r) => r.json()),
+    enabled: !!clientId && open,
+  });
+
+  const { data: projectTasks = [] } = useQuery<Array<{ id: string; title: string; parentTaskId: string | null; status: string }>>({
+    queryKey: ["/api/projects", projectId, "tasks"],
+    queryFn: () => fetch(`/api/projects/${projectId}/tasks`, { credentials: "include" }).then((r) => r.json()),
+    enabled: !!projectId && open,
+  });
+
+  const openTasks = projectTasks.filter((t) => t.status !== "done" && !t.parentTaskId);
+  const subtasks = projectTasks.filter((t) => t.parentTaskId === taskId && t.status !== "done");
+  const hasSubtasks = subtasks.length > 0;
+
+  const handleClientChange = (newClientId: string | null) => {
+    setClientId(newClientId);
+    setProjectId(null);
+    setTaskId(null);
+    setSubtaskId(null);
+  };
 
   const handleProjectChange = (newProjectId: string | null) => {
     setProjectId(newProjectId);
     setTaskId(null);
+    setSubtaskId(null);
+  };
+
+  const handleTaskChange = (newTaskId: string | null) => {
+    setTaskId(newTaskId);
+    setSubtaskId(null);
   };
 
   const createMutation = useMutation({
@@ -502,7 +542,12 @@ function ManualEntryDialog({
       setDescription("");
       setHours("0");
       setMinutes("30");
+      setClientId(null);
+      setProjectId(null);
       setTaskId(null);
+      setSubtaskId(null);
+      setScope("in_scope");
+      setDate(format(new Date(), "yyyy-MM-dd"));
     },
     onError: (error: Error) => {
       toast({ title: "Failed to create entry", description: error.message, variant: "destructive" });
@@ -516,13 +561,14 @@ function ManualEntryDialog({
       return;
     }
     const startTime = new Date(`${date}T09:00:00`);
+    const finalTaskId = subtaskId || taskId;
     createMutation.mutate({
       description,
       durationSeconds,
       startTime: startTime.toISOString(),
       clientId,
       projectId,
-      taskId,
+      taskId: finalTaskId,
       scope,
     });
   };
@@ -535,6 +581,7 @@ function ManualEntryDialog({
     clientId !== null || 
     projectId !== null || 
     taskId !== null ||
+    subtaskId !== null ||
     date !== initialDate ||
     scope !== "in_scope";
 
@@ -601,9 +648,9 @@ function ManualEntryDialog({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Label>Client</Label>
-            <Select value={clientId || "none"} onValueChange={(v) => setClientId(v === "none" ? null : v)}>
+            <Select value={clientId || "none"} onValueChange={(v) => handleClientChange(v === "none" ? null : v)}>
               <SelectTrigger data-testid="select-manual-client">
-                <SelectValue placeholder="Select client" />
+                <SelectValue placeholder="Select client (optional)" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No client</SelectItem>
@@ -617,13 +664,17 @@ function ManualEntryDialog({
           </div>
           <div className="space-y-2">
             <Label>Project</Label>
-            <Select value={projectId || "none"} onValueChange={(v) => handleProjectChange(v === "none" ? null : v)}>
+            <Select 
+              value={projectId || "none"} 
+              onValueChange={(v) => handleProjectChange(v === "none" ? null : v)}
+              disabled={!clientId}
+            >
               <SelectTrigger data-testid="select-manual-project">
-                <SelectValue placeholder="Select project" />
+                <SelectValue placeholder={clientId ? "Select project" : "Select client first"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No project</SelectItem>
-                {projects.map((project) => (
+                {clientProjects.map((project) => (
                   <SelectItem key={project.id} value={project.id}>
                     {project.name}
                   </SelectItem>
@@ -632,11 +683,49 @@ function ManualEntryDialog({
             </Select>
           </div>
         </div>
-        <TaskSelectorWithCreate
-          projectId={projectId}
-          taskId={taskId}
-          onTaskChange={setTaskId}
-        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <Label>Task</Label>
+            <Select 
+              value={taskId || "none"} 
+              onValueChange={(v) => handleTaskChange(v === "none" ? null : v)}
+              disabled={!projectId}
+            >
+              <SelectTrigger data-testid="select-manual-task">
+                <SelectValue placeholder={projectId ? "Select task" : "Select project first"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No task</SelectItem>
+                {openTasks.map((task) => (
+                  <SelectItem key={task.id} value={task.id}>
+                    {task.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {hasSubtasks && (
+            <div className="space-y-2">
+              <Label>Subtask</Label>
+              <Select 
+                value={subtaskId || "none"} 
+                onValueChange={(v) => setSubtaskId(v === "none" ? null : v)}
+              >
+                <SelectTrigger data-testid="select-manual-subtask">
+                  <SelectValue placeholder="Select subtask (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No subtask</SelectItem>
+                  {subtasks.map((st) => (
+                    <SelectItem key={st.id} value={st.id}>
+                      {st.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
         <div className="space-y-2">
           <Label>Scope</Label>
           <Select value={scope} onValueChange={(v) => setScope(v as "in_scope" | "out_of_scope")}>
@@ -654,19 +743,34 @@ function ManualEntryDialog({
   );
 }
 
-interface EditTimeEntrySheetProps {
+/**
+ * EditTimeEntryDrawer - Full-screen drawer for editing time entries
+ * 
+ * SELECTION CASCADE LOGIC:
+ * 1. Client selection → filters available Projects to that client
+ * 2. Project selection → enables Task dropdown with open tasks from project
+ * 3. Task selection → if task has subtasks, shows Subtask dropdown
+ * 4. Clear cascade: changing Client clears Project/Task/Subtask
+ *                   changing Project clears Task/Subtask
+ *                   changing Task clears Subtask
+ * 
+ * Final task assignment: finalTaskId = subtaskId || taskId
+ */
+interface EditTimeEntryDrawerProps {
   entry: TimeEntry | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetProps) {
+function EditTimeEntryDrawer({ entry, open, onOpenChange }: EditTimeEntryDrawerProps) {
   const { toast } = useToast();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
   
   const [clientId, setClientId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [subtaskId, setSubtaskId] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [entryDate, setEntryDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -681,6 +785,7 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
       setClientId(entry.clientId);
       setProjectId(entry.projectId);
       setTaskId(entry.taskId);
+      setSubtaskId(null);
       setDescription(entry.description || "");
       setScope(entry.scope);
       
@@ -700,8 +805,11 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
       const minutes = Math.floor((entry.durationSeconds % 3600) / 60);
       setDurationHours(hours);
       setDurationMinutes(minutes);
+      setHasChanges(false);
     }
   }, [entry, open]);
+
+  const markChanged = () => setHasChanges(true);
 
   const { data: clients = [] } = useQuery<Array<{ id: string; companyName: string; displayName: string | null }>>({
     queryKey: ["/api/clients"],
@@ -710,18 +818,19 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
 
   const { data: clientProjects = [] } = useQuery<Array<{ id: string; name: string }>>({
     queryKey: ["/api/clients", clientId, "projects"],
-    queryFn: () => fetch(`/api/clients/${clientId}/projects`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/clients/${clientId}/projects`, { credentials: "include" }).then((r) => r.json()),
     enabled: !!clientId && open,
   });
 
   const { data: projectTasks = [] } = useQuery<Array<{ id: string; title: string; parentTaskId: string | null; status: string }>>({
     queryKey: ["/api/projects", projectId, "tasks"],
-    queryFn: () => fetch(`/api/projects/${projectId}/tasks`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/projects/${projectId}/tasks`, { credentials: "include" }).then((r) => r.json()),
     enabled: !!projectId && open,
   });
 
   const openTasks = projectTasks.filter((t) => t.status !== "done" && !t.parentTaskId);
-  const selectedTask = projectTasks.find((t) => t.id === taskId);
+  const subtasks = projectTasks.filter((t) => t.parentTaskId === taskId && t.status !== "done");
+  const hasSubtasks = subtasks.length > 0;
 
   const updateMutation = useMutation({
     mutationFn: async (data: {
@@ -739,10 +848,11 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
       toast({ title: "Time entry updated" });
+      setHasChanges(false);
       onOpenChange(false);
     },
-    onError: () => {
-      toast({ title: "Failed to update time entry", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Failed to update time entry", description: error.message, variant: "destructive" });
     },
   });
 
@@ -763,11 +873,26 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
     setClientId(newClientId);
     setProjectId(null);
     setTaskId(null);
+    setSubtaskId(null);
+    markChanged();
   };
 
   const handleProjectChange = (newProjectId: string | null) => {
     setProjectId(newProjectId);
     setTaskId(null);
+    setSubtaskId(null);
+    markChanged();
+  };
+
+  const handleTaskChange = (newTaskId: string | null) => {
+    setTaskId(newTaskId);
+    setSubtaskId(null);
+    markChanged();
+  };
+
+  const handleSubtaskChange = (newSubtaskId: string | null) => {
+    setSubtaskId(newSubtaskId);
+    markChanged();
   };
 
   const handleSave = () => {
@@ -799,10 +924,12 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
       return;
     }
 
+    const finalTaskId = subtaskId || taskId;
+
     updateMutation.mutate({
       clientId,
       projectId,
-      taskId,
+      taskId: finalTaskId,
       description: description || null,
       startTime: calculatedStartTime.toISOString(),
       endTime: calculatedEndTime?.toISOString() || null,
@@ -811,40 +938,58 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
     });
   };
 
+  const handleClose = () => {
+    setHasChanges(false);
+    onOpenChange(false);
+  };
+
   if (!entry) return null;
+
+  const totalMinutes = durationHours * 60 + durationMinutes;
+  const isValid = useTimeRange ? (startTime && endTime) : totalMinutes > 0;
 
   return (
     <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="sm:max-w-md overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Edit Time Entry</SheetTitle>
-            <SheetDescription>
-              Modify the details of this time entry
-            </SheetDescription>
-          </SheetHeader>
+      <FullScreenDrawer
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Edit Time Entry"
+        description="Modify the details of this time entry"
+        hasUnsavedChanges={hasChanges}
+        onConfirmClose={handleClose}
+        width="xl"
+        footer={
+          <FullScreenDrawerFooter
+            onCancel={() => onOpenChange(false)}
+            onSave={handleSave}
+            isLoading={updateMutation.isPending}
+            saveLabel="Save Changes"
+            saveDisabled={!isValid}
+          />
+        }
+      >
+        <div className="space-y-6">
+          <div>
+            <Label>Description</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => { setDescription(e.target.value); markChanged(); }}
+              placeholder="What did you work on?"
+              className="min-h-[100px] resize-none mt-2"
+              data-testid="input-edit-description"
+            />
+          </div>
 
-          <div className="mt-6 space-y-4">
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What did you work on?"
-                className="resize-none"
-                data-testid="input-edit-description"
-              />
-            </div>
+          <Separator />
 
-            <Separator />
-
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
               <Label>Client</Label>
               <Select
                 value={clientId || "none"}
                 onValueChange={(v) => handleClientChange(v === "none" ? null : v)}
               >
-                <SelectTrigger data-testid="select-edit-client">
+                <SelectTrigger className="mt-2" data-testid="select-edit-client">
                   <SelectValue placeholder="Select client (optional)" />
                 </SelectTrigger>
                 <SelectContent>
@@ -858,15 +1003,15 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div>
               <Label>Project</Label>
               <Select
                 value={projectId || "none"}
                 onValueChange={(v) => handleProjectChange(v === "none" ? null : v)}
                 disabled={!clientId}
               >
-                <SelectTrigger data-testid="select-edit-project">
-                  <SelectValue placeholder={clientId ? "Select project (optional)" : "Select client first"} />
+                <SelectTrigger className="mt-2" data-testid="select-edit-project">
+                  <SelectValue placeholder={clientId ? "Select project" : "Select client first"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No project</SelectItem>
@@ -878,16 +1023,18 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
               <Label>Task</Label>
               <Select
                 value={taskId || "none"}
-                onValueChange={(v) => setTaskId(v === "none" ? null : v)}
+                onValueChange={(v) => handleTaskChange(v === "none" ? null : v)}
                 disabled={!projectId}
               >
-                <SelectTrigger data-testid="select-edit-task">
-                  <SelectValue placeholder={projectId ? "Select task (optional)" : "Select project first"} />
+                <SelectTrigger className="mt-2" data-testid="select-edit-task">
+                  <SelectValue placeholder={projectId ? "Select task" : "Select project first"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No task</SelectItem>
@@ -900,26 +1047,51 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
               </Select>
             </div>
 
-            <Separator />
+            {hasSubtasks && (
+              <div>
+                <Label>Subtask</Label>
+                <Select
+                  value={subtaskId || "none"}
+                  onValueChange={(v) => handleSubtaskChange(v === "none" ? null : v)}
+                >
+                  <SelectTrigger className="mt-2" data-testid="select-edit-subtask">
+                    <SelectValue placeholder="Select subtask (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No subtask</SelectItem>
+                    {subtasks.map((st) => (
+                      <SelectItem key={st.id} value={st.id}>
+                        {st.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
 
-            <div className="space-y-2">
+          <Separator />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
               <Label>Date *</Label>
               <Input
                 type="date"
                 value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
+                onChange={(e) => { setEntryDate(e.target.value); markChanged(); }}
+                className="mt-2"
                 data-testid="input-edit-date"
               />
             </div>
 
-            <div className="space-y-2">
+            <div>
               <div className="flex items-center justify-between">
                 <Label>Time</Label>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setUseTimeRange(!useTimeRange)}
+                  onClick={() => { setUseTimeRange(!useTimeRange); markChanged(); }}
                   className="text-xs"
                   data-testid="button-toggle-time-input"
                 >
@@ -928,13 +1100,13 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
               </div>
               
               {useTimeRange ? (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Start</Label>
                     <Input
                       type="time"
                       value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
+                      onChange={(e) => { setStartTime(e.target.value); markChanged(); }}
                       data-testid="input-edit-start-time"
                     />
                   </div>
@@ -943,20 +1115,20 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
                     <Input
                       type="time"
                       value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
+                      onChange={(e) => { setEndTime(e.target.value); markChanged(); }}
                       data-testid="input-edit-end-time"
                     />
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Hours</Label>
                     <Input
                       type="number"
                       min={0}
                       value={durationHours}
-                      onChange={(e) => setDurationHours(parseInt(e.target.value) || 0)}
+                      onChange={(e) => { setDurationHours(parseInt(e.target.value) || 0); markChanged(); }}
                       data-testid="input-edit-duration-hours"
                     />
                   </div>
@@ -967,56 +1139,41 @@ function EditTimeEntrySheet({ entry, open, onOpenChange }: EditTimeEntrySheetPro
                       min={0}
                       max={59}
                       value={durationMinutes}
-                      onChange={(e) => setDurationMinutes(parseInt(e.target.value) || 0)}
+                      onChange={(e) => { setDurationMinutes(parseInt(e.target.value) || 0); markChanged(); }}
                       data-testid="input-edit-duration-minutes"
                     />
                   </div>
                 </div>
               )}
             </div>
-
-            <div className="space-y-2">
-              <Label>Scope</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as "in_scope" | "out_of_scope")}>
-                <SelectTrigger data-testid="select-edit-scope">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="in_scope">In Scope (Billable)</SelectItem>
-                  <SelectItem value="out_of_scope">Out of Scope</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Separator />
-
-            <div className="flex flex-col gap-2">
-              <Button
-                onClick={handleSave}
-                disabled={updateMutation.isPending}
-                data-testid="button-save-edit"
-              >
-                {updateMutation.isPending ? "Saving..." : "Save Changes"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                data-testid="button-cancel-edit"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => setDeleteDialogOpen(true)}
-                data-testid="button-delete-entry"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Entry
-              </Button>
-            </div>
           </div>
-        </SheetContent>
-      </Sheet>
+
+          <div>
+            <Label>Scope</Label>
+            <Select value={scope} onValueChange={(v) => { setScope(v as "in_scope" | "out_of_scope"); markChanged(); }}>
+              <SelectTrigger className="mt-2" data-testid="select-edit-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="in_scope">In Scope (Billable)</SelectItem>
+                <SelectItem value="out_of_scope">Out of Scope</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          <Button
+            variant="destructive"
+            onClick={() => setDeleteDialogOpen(true)}
+            className="w-full"
+            data-testid="button-delete-entry"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Entry
+          </Button>
+        </div>
+      </FullScreenDrawer>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -1221,10 +1378,10 @@ function TimeEntriesList() {
       </Card>
 
       <ManualEntryDialog open={manualEntryOpen} onOpenChange={setManualEntryOpen} />
-      <EditTimeEntrySheet 
+      <EditTimeEntryDrawer 
         entry={editEntry} 
         open={!!editEntry} 
-        onOpenChange={(open) => !open && setEditEntry(null)} 
+        onOpenChange={(open: boolean) => !open && setEditEntry(null)} 
       />
     </>
   );
