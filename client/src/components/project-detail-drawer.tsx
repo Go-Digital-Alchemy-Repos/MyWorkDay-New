@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +31,8 @@ import {
   TrendingUp,
   User,
   CircleOff,
+  Target,
+  DollarSign,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
@@ -53,6 +56,32 @@ interface ProjectAnalytics {
   byAssignee: Array<{ userId: string; name: string; count: number }>;
   overdueTasksList: Array<{ id: string; title: string; dueDate: string | null; priority: string | null; status: string }>;
   dueTodayTasksList: Array<{ id: string; title: string; dueDate: string | null; priority: string | null; status: string }>;
+}
+
+interface ProjectForecast {
+  projectId: string;
+  totals: {
+    taskEstimateMinutes: number;
+    projectBudgetMinutes: number | null;
+    trackedMinutesTotal: number;
+    trackedMinutesThisWeek: number;
+    remainingEstimateMinutes: number | null;
+    budgetRemainingMinutes: number | null;
+    overBudget: boolean | null;
+  };
+  byAssignee: Array<{
+    userId: string;
+    name: string;
+    openTasks: number;
+    overdueTasks: number;
+    estimateMinutesOpen: number;
+    trackedMinutesTotal: number;
+  }>;
+  dueForecast: Array<{
+    bucket: "overdue" | "today" | "next7" | "next30" | "later" | "noDueDate";
+    openTasks: number;
+    estimateMinutesOpen: number;
+  }>;
 }
 
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
@@ -107,6 +136,24 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
     staleTime: 30000,
   });
 
+  const { data: forecast, isLoading: forecastLoading } = useQuery<ProjectForecast>({
+    queryKey: ["/api/v1/projects", project?.id, "forecast"],
+    enabled: !!project?.id && open && activeTab === "forecast",
+    staleTime: 30000,
+  });
+
+  const [budgetInput, setBudgetInput] = useState<string>("");
+
+  const updateProjectMutation = useMutation({
+    mutationFn: async (data: { budgetMinutes: number | null }) => {
+      return apiRequest("PATCH", `/api/projects/${project?.id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", project?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/projects", project?.id, "forecast"] });
+    },
+  });
+
   const currentProject = projectDetails || project;
 
   if (!currentProject) return null;
@@ -154,10 +201,11 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
         <Separator className="my-4" />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${isSuperUser ? "grid-cols-4" : "grid-cols-3"}`}>
+          <TabsList className={`grid w-full ${isSuperUser ? "grid-cols-5" : "grid-cols-4"}`}>
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="tasks" data-testid="tab-tasks">Tasks</TabsTrigger>
             <TabsTrigger value="insights" data-testid="tab-insights">Insights</TabsTrigger>
+            <TabsTrigger value="forecast" data-testid="tab-forecast">Forecast</TabsTrigger>
             {isSuperUser && (
               <TabsTrigger value="admin" data-testid="tab-admin">Admin</TabsTrigger>
             )}
@@ -561,6 +609,163 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
               <div className="text-center py-8 text-muted-foreground">
                 <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>Analytics unavailable</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="forecast" className="mt-4 space-y-4">
+            {forecastLoading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-48 w-full" />
+              </div>
+            ) : forecast ? (
+              <>
+                <Card data-testid="card-budget-settings">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <DollarSign className="h-4 w-4" />
+                      Budget Settings
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <label className="text-sm text-muted-foreground w-32">Budget (minutes)</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={budgetInput || (currentProject.budgetMinutes ? String(currentProject.budgetMinutes) : "")}
+                        onChange={(e) => setBudgetInput(e.target.value)}
+                        onBlur={() => {
+                          const val = budgetInput.trim();
+                          const parsed = val ? parseInt(val, 10) : null;
+                          if (parsed !== currentProject.budgetMinutes) {
+                            updateProjectMutation.mutate({ budgetMinutes: parsed });
+                          }
+                        }}
+                        placeholder="No budget set"
+                        className="w-32 h-8"
+                        data-testid="input-budget-minutes"
+                      />
+                      {currentProject.budgetMinutes && (
+                        <span className="text-xs text-muted-foreground">
+                          ({Math.floor(currentProject.budgetMinutes / 60)}h {currentProject.budgetMinutes % 60}m)
+                        </span>
+                      )}
+                    </div>
+                    {forecast.totals.overBudget && (
+                      <Badge variant="destructive" className="text-xs" data-testid="badge-over-budget">
+                        Over Budget
+                      </Badge>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-2 gap-3" data-testid="forecast-time-metrics">
+                  <Card>
+                    <CardContent className="pt-3 pb-2 text-center">
+                      <div className="text-xl font-bold text-primary" data-testid="text-tracked-total">
+                        {Math.floor(forecast.totals.trackedMinutesTotal / 60)}h {forecast.totals.trackedMinutesTotal % 60}m
+                      </div>
+                      <div className="text-xs text-muted-foreground">Tracked Total</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-3 pb-2 text-center">
+                      <div className="text-xl font-bold" data-testid="text-tracked-week">
+                        {Math.floor(forecast.totals.trackedMinutesThisWeek / 60)}h {forecast.totals.trackedMinutesThisWeek % 60}m
+                      </div>
+                      <div className="text-xs text-muted-foreground">This Week</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-3 pb-2 text-center">
+                      <div className="text-xl font-bold text-orange-500 dark:text-orange-400" data-testid="text-estimate-total">
+                        {Math.floor(forecast.totals.taskEstimateMinutes / 60)}h {forecast.totals.taskEstimateMinutes % 60}m
+                      </div>
+                      <div className="text-xs text-muted-foreground">Task Estimates</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-3 pb-2 text-center">
+                      <div className={`text-xl font-bold ${forecast.totals.overBudget ? "text-destructive" : "text-green-600 dark:text-green-500"}`} data-testid="text-budget-remaining">
+                        {forecast.totals.budgetRemainingMinutes !== null 
+                          ? `${Math.floor(forecast.totals.budgetRemainingMinutes / 60)}h ${forecast.totals.budgetRemainingMinutes % 60}m`
+                          : "N/A"
+                        }
+                      </div>
+                      <div className="text-xs text-muted-foreground">Budget Remaining</div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card data-testid="card-due-forecast">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Target className="h-4 w-4" />
+                      Due Date Forecast
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2" data-testid="list-due-forecast">
+                      {forecast.dueForecast
+                        .filter(d => d.openTasks > 0)
+                        .map((bucket) => (
+                          <div key={bucket.bucket} className="flex items-center justify-between py-1" data-testid={`row-due-${bucket.bucket}`}>
+                            <span className={`text-sm ${bucket.bucket === "overdue" ? "text-destructive" : bucket.bucket === "today" ? "text-orange-500 dark:text-orange-400" : ""}`}>
+                              {bucket.bucket === "overdue" ? "Overdue" 
+                                : bucket.bucket === "today" ? "Due Today"
+                                : bucket.bucket === "next7" ? "Next 7 Days"
+                                : bucket.bucket === "next30" ? "Next 30 Days"
+                                : bucket.bucket === "later" ? "Later"
+                                : "No Due Date"
+                              }
+                            </span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-muted-foreground">{bucket.openTasks} tasks</span>
+                              <span className="text-xs font-medium">
+                                {Math.floor(bucket.estimateMinutesOpen / 60)}h {bucket.estimateMinutesOpen % 60}m
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {forecast.byAssignee.length > 0 && (
+                  <Card data-testid="card-workload-by-assignee">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        Workload by Assignee
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2" data-testid="list-assignee-workload">
+                        {forecast.byAssignee.slice(0, 5).map((assignee) => (
+                          <div key={assignee.userId} className="flex items-center justify-between py-1" data-testid={`row-assignee-${assignee.userId}`}>
+                            <span className="text-sm">{assignee.name}</span>
+                            <div className="flex items-center gap-3 text-xs">
+                              <span className="text-muted-foreground">{assignee.openTasks} open</span>
+                              {assignee.overdueTasks > 0 && (
+                                <span className="text-destructive">{assignee.overdueTasks} overdue</span>
+                              )}
+                              <span className="font-medium">
+                                {Math.floor(assignee.estimateMinutesOpen / 60)}h {assignee.estimateMinutesOpen % 60}m
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Target className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>Forecast unavailable</p>
               </div>
             )}
           </TabsContent>
