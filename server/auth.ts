@@ -21,11 +21,11 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { db } from "./db";
 import { users, UserRole } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 import type { User } from "@shared/schema";
 import type { Express, RequestHandler } from "express";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
-import { sql } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
@@ -303,3 +303,161 @@ export const requireAdmin: RequestHandler = (req, res, next) => {
   }
   next();
 };
+
+/**
+ * Bootstrap endpoints for first-user registration
+ * These are separate from regular registration and only work when no users exist.
+ */
+export function setupBootstrapEndpoints(app: Express): void {
+  /**
+   * GET /api/v1/auth/bootstrap-status
+   * Returns whether bootstrap registration is required (no users exist)
+   */
+  app.get("/api/v1/auth/bootstrap-status", async (_req, res) => {
+    try {
+      const countResult = await db.execute(sql`SELECT COUNT(*)::int as count FROM users`);
+      const userCount = (countResult.rows[0] as { count: number }).count;
+      
+      res.json({
+        bootstrapRequired: userCount === 0,
+      });
+    } catch (error) {
+      console.error("[auth] bootstrap-status error:", error);
+      res.status(500).json({ error: "Failed to check bootstrap status" });
+    }
+  });
+
+  /**
+   * POST /api/v1/auth/bootstrap-register
+   * Creates the first super admin account (only when no users exist)
+   * Logs the user in immediately after creation.
+   */
+  app.post("/api/v1/auth/bootstrap-register", async (req, res) => {
+    try {
+      const { email, password, firstName, lastName } = req.body;
+
+      // Validate required fields
+      if (!email || !password) {
+        return res.status(400).json({ 
+          error: { code: "VALIDATION_ERROR", message: "Email and password are required" },
+          code: "VALIDATION_ERROR",
+          message: "Email and password are required"
+        });
+      }
+
+      if (password.length < 8) {
+        return res.status(400).json({ 
+          error: { code: "VALIDATION_ERROR", message: "Password must be at least 8 characters" },
+          code: "VALIDATION_ERROR",
+          message: "Password must be at least 8 characters"
+        });
+      }
+
+      // Atomic check + create in transaction with SERIALIZABLE isolation for concurrency safety
+      const result = await db.transaction(async (tx) => {
+        // Set transaction isolation to SERIALIZABLE to prevent race conditions
+        await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`);
+        
+        // Lock the users table to prevent concurrent bootstrap attempts
+        await tx.execute(sql`LOCK TABLE users IN EXCLUSIVE MODE`);
+        
+        // Re-check user count inside transaction
+        const countResult = await tx.execute(sql`SELECT COUNT(*)::int as count FROM users`);
+        const userCount = (countResult.rows[0] as { count: number }).count;
+        
+        if (userCount > 0) {
+          return { error: "REGISTRATION_DISABLED" };
+        }
+
+        // Check if email is already in use (shouldn't happen if count is 0, but be safe)
+        const existingUsers = await tx.select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1);
+
+        if (existingUsers.length > 0) {
+          return { error: "EMAIL_EXISTS" };
+        }
+
+        // Hash password and create super user
+        const passwordHash = await hashPassword(password);
+        
+        const [newUser] = await tx.insert(users).values({
+          email,
+          name: `${firstName || ""} ${lastName || ""}`.trim() || email,
+          firstName: firstName || null,
+          lastName: lastName || null,
+          passwordHash,
+          role: UserRole.SUPER_USER,
+          isActive: true,
+          tenantId: null,
+        }).returning();
+
+        return { user: newUser };
+      });
+
+      // Handle transaction results
+      if ("error" in result) {
+        if (result.error === "REGISTRATION_DISABLED") {
+          return res.status(403).json({
+            error: { code: "REGISTRATION_DISABLED", message: "Registration is disabled. Users already exist." },
+            code: "REGISTRATION_DISABLED",
+            message: "Registration is disabled. Users already exist."
+          });
+        }
+        if (result.error === "EMAIL_EXISTS") {
+          return res.status(409).json({
+            error: { code: "CONFLICT", message: "Email already registered" },
+            code: "CONFLICT",
+            message: "Email already registered"
+          });
+        }
+      }
+
+      const { passwordHash: _, ...userWithoutPassword } = result.user!;
+
+      // Log in the user immediately
+      req.logIn(userWithoutPassword as Express.User, (loginErr) => {
+        if (loginErr) {
+          console.error("[auth] bootstrap login error:", loginErr);
+          return res.status(201).json({ 
+            user: userWithoutPassword,
+            message: "Account created but auto-login failed. Please log in manually.",
+            autoLoginFailed: true,
+          });
+        }
+
+        // Save session
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[auth] session save error:", saveErr);
+          }
+
+          // Log bootstrap event
+          console.log(JSON.stringify({
+            level: "info",
+            component: "auth",
+            event: "bootstrap_register_created_super_admin",
+            userId: userWithoutPassword.id,
+            email: userWithoutPassword.email,
+            requestId: (req as any).requestId || "unknown",
+            timestamp: new Date().toISOString(),
+          }));
+
+          res.status(201).json({ 
+            user: userWithoutPassword,
+            message: "Super Admin account created successfully.",
+            autoLoginFailed: false,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("[auth] bootstrap-register error:", error);
+      res.status(500).json({ 
+        error: { code: "INTERNAL_ERROR", message: "Registration failed" },
+        code: "INTERNAL_ERROR",
+        message: "Registration failed"
+      });
+    }
+  });
+}

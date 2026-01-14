@@ -4,7 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeSocketIO } from "./realtime/socket";
-import { setupAuth } from "./auth";
+import { setupAuth, setupBootstrapEndpoints } from "./auth";
 import { bootstrapAdminUser } from "./bootstrap";
 import { tenantContextMiddleware } from "./middleware/tenantContext";
 import { agreementEnforcementGuard } from "./middleware/agreementEnforcement";
@@ -41,6 +41,9 @@ app.use(express.urlencoded({ extended: false }));
 
 // Setup authentication middleware (session + passport)
 setupAuth(app);
+
+// Setup bootstrap endpoints (first-user registration)
+setupBootstrapEndpoints(app);
 
 // Setup tenant context middleware (must be after auth)
 app.use(tenantContextMiddleware);

@@ -3230,6 +3230,55 @@ router.get("/status/health", requireSuperUser, async (req, res) => {
   }
 });
 
+// GET /api/v1/super/status/auth-diagnostics - Auth configuration diagnostics for troubleshooting
+router.get("/status/auth-diagnostics", requireSuperUser, async (_req, res) => {
+  try {
+    // Get cookie configuration info (without exposing secrets)
+    const cookieConfig = {
+      httpOnly: true, // Always true in our setup
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: "30 days",
+    };
+    
+    // Check trust proxy setting
+    const trustProxyEnabled = true; // We set this in server/index.ts
+    
+    // CORS credentials enabled check
+    const corsCredentialsEnabled = true; // Assumed true since we use credentials: "include"
+    
+    // Session store type
+    const sessionStoreType = "PostgreSQL (connect-pg-simple)";
+    
+    // Check environment variables (existence only, not values)
+    const envConfig = {
+      SESSION_SECRET_SET: !!process.env.SESSION_SECRET,
+      NODE_ENV: process.env.NODE_ENV || "development",
+      DATABASE_URL_SET: !!process.env.DATABASE_URL,
+      COOKIE_DOMAIN_SET: !!process.env.COOKIE_DOMAIN,
+      APP_BASE_URL_SET: !!process.env.APP_BASE_URL,
+      API_BASE_URL_SET: !!process.env.API_BASE_URL,
+    };
+    
+    res.json({
+      cookie: cookieConfig,
+      trustProxyEnabled,
+      corsCredentialsEnabled,
+      sessionStoreType,
+      environment: envConfig,
+      recommendations: [
+        !process.env.SESSION_SECRET ? "Set SESSION_SECRET for production security" : null,
+        process.env.NODE_ENV !== "production" ? "Set NODE_ENV=production in production" : null,
+        !process.env.COOKIE_DOMAIN && process.env.NODE_ENV === "production" 
+          ? "Consider setting COOKIE_DOMAIN if using custom domains" : null,
+      ].filter(Boolean),
+    });
+  } catch (error) {
+    console.error("[auth-diagnostics] Failed:", error);
+    res.status(500).json({ error: "Auth diagnostics failed" });
+  }
+});
+
 // Quarantine tenant constants
 const QUARANTINE_TENANT_SLUG = "quarantine";
 
