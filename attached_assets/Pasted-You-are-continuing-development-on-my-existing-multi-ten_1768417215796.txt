@@ -1,0 +1,254 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+Implement a SAFE Super Admin Tenant Onboarding overhaul with FULL-WIDTH drawer UI, auto primary workspace creation, and a comprehensive onboarding workflow.
+DO NOT rewrite the app. Follow the steps exactly and keep changes incremental and non-destructive.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename any existing endpoints.
+- Do NOT change existing endpoint paths or request/response shapes in a breaking way (additive fields ok).
+- Do NOT drop or rename any database tables/columns.
+- Do NOT modify authentication, tenancy enforcement rules, onboarding for non-super users, or Phase 3C agreement logic.
+- No small modals for tenant create/edit/onboarding; use a full-viewport slide-out drawer. Confirm dialogs are OK.
+- All actions must be tenant-safe. Never leak cross-tenant data.
+- Tenant onboarding must NOT depend on a tenant admin accepting an invite to complete setup.
+
+===============================================================================
+OBJECTIVE
+===============================================================================
+Upgrade Super Admin tenant onboarding so Super Admins can:
+1) Create a tenant
+2) Automatically create that tenant’s primary workspace named exactly like the tenant business name
+3) Configure tenant settings (white label + integrations + agreement status visibility)
+4) Create/invite tenant users (admin + team members) without requiring invite acceptance
+5) Manage everything in a scalable full-viewport drawer with tabs and onboarding steps
+
+===============================================================================
+IMPLEMENTATION PLAN (SAFE STEPS — DO IN ORDER)
+===============================================================================
+
+------------------------------------------------------------------------------
+STEP 1 — UI: Replace “New Tenant” modal with Full-Viewport Tenant Drawer
+------------------------------------------------------------------------------
+1. On /super/tenants:
+   - Keep tenant list/table exactly as-is.
+   - Replace any “New Tenant” modal with a full-viewport drawer.
+   - Clicking “New Tenant” opens drawer in Create mode.
+   - Clicking a tenant row opens drawer in Existing mode.
+
+2. Create/reuse a shared full-viewport drawer component:
+   - Preferred path: /client/src/components/common/FullScreenDrawer.tsx
+   Must support:
+   - full viewport height/width (or 90%+ width)
+   - header with title + close
+   - internal scroll region
+   - sticky footer actions (Save/Cancel)
+   - unsaved-changes guard (prompt on close if dirty)
+   - URL state support:
+     - /super/tenants?mode=create
+     - /super/tenants?tenantId=<uuid>
+
+3. Create a Super Admin Tenant Drawer component:
+   - /client/src/components/super/TenantDrawer.tsx (or equivalent)
+   Props:
+   - open, onClose, tenantId?, mode?
+   It hosts tabs and the onboarding step view.
+
+4. Tabs in the drawer (scaffold now; wire functionality in steps below):
+   - Overview
+   - Onboarding
+   - Workspaces
+   - Users & Invites
+   - White Label
+   - Integrations
+   - Agreement (Phase 3C status view + link)
+   - Status & Access (activate/suspend + readiness summary)
+
+IMPORTANT:
+- Do NOT use small modal editors for tenant onboarding.
+- Confirm dialogs for destructive actions (delete/suspend) are allowed.
+
+------------------------------------------------------------------------------
+STEP 2 — Backend: Auto-create Primary Workspace on Tenant Creation (Transactional)
+------------------------------------------------------------------------------
+Requirement:
+When a Super Admin creates a tenant with business name “Digital Alchemy”:
+- Create tenant account
+- Automatically create its FIRST/PRIMARY workspace named “Digital Alchemy”
+This must not depend on invite acceptance.
+
+Implementation:
+1. Identify the existing super tenant create endpoint (example):
+   POST /api/v1/super/tenants
+   DO NOT change the path.
+
+2. Update the tenant creation handler to run in ONE DB transaction:
+   - Validate businessName is provided and trimmed
+   - Create tenant
+   - Create primary workspace:
+     - tenantId = new tenant id
+     - name = businessName EXACTLY (same string)
+     - set isPrimary=true if schema supports it
+       - If schema lacks isPrimary:
+         - add isPrimary boolean column ADD-ONLY OR
+         - implement a safe fallback rule: earliest workspace = primary
+         - Prefer isPrimary if possible, but keep change minimal
+   - Commit transaction only if both succeed
+
+3. Prevent duplicates:
+   - Ensure exactly one primary workspace per tenant:
+     - add unique constraint if supported without risk OR
+     - enforce in code: if a primary exists, do not create another
+   - Handle retries safely (idempotent behavior).
+
+4. Response payload (non-breaking):
+   - Add additive fields only:
+     - primaryWorkspaceId
+     - primaryWorkspace { id, name }
+
+------------------------------------------------------------------------------
+STEP 3 — Onboarding Tab: Comprehensive Super Admin Workflow (No invite acceptance required)
+------------------------------------------------------------------------------
+Build the “Onboarding” tab as a guided (non-blocking) step interface.
+It should allow Super Admins to configure tenant fully before any invite is accepted.
+
+Onboarding steps (UI + wiring):
+Step 1: Tenant Profile
+- business name (editable if already allowed)
+- tenant status (active/inactive if supported)
+- support email/phone (optional if exists)
+
+Step 2: Primary Workspace
+- Show the auto-created workspace
+- Allow rename/edit if your existing permissions allow
+- Show “Primary workspace: <name>”
+
+Step 3: Invite Tenant Admin
+- Provide two methods:
+  A) Send invite email (if mail configured)
+  B) Generate invite link/token URL to copy
+- Must not require email sending to proceed.
+- Must show invite token/url in UI (copy button).
+
+Step 4: Add Tenant Team Members (optional)
+- Super Admin can create user records without emailing immediately:
+  - firstName, lastName, email, role (admin/employee/client)
+- After user exists in list:
+  - show “Invite” button and “Copy invite link” option per row
+- Assign user to tenant + primary workspace if your model supports membership.
+
+Step 5: White Label Setup
+- Use existing S3 upload flow:
+  - logo upload
+  - icon/favicon upload
+  - preview
+- Must persist to tenant settings and remain on refresh.
+- No URL-only requirement; upload must be primary option.
+
+Step 6: Integrations
+- Show Mailgun configured status (never show secrets)
+- Provide “Test Mailgun” button if you already have test-send endpoint
+- Future integrations placeholders ok; do not add new integrations now.
+
+Step 7: Agreement (Phase 3C awareness)
+- Show if tenant has an ACTIVE agreement configured
+- Provide link/button to open “Agreement” tab for editing/previewing
+- Do not change 3C logic; just surface status.
+
+Step 8: Review & Activate
+- Show readiness checklist (client-side computed):
+  - tenant record exists
+  - primary workspace exists
+  - at least one tenant admin exists OR at least one admin invite link created
+  - (optional) agreement active (display warning if missing)
+- “Activate Tenant” toggle/button if you support active/inactive
+- IMPORTANT: Activation must not require invite acceptance.
+
+Implementation notes:
+- Reuse existing endpoints wherever possible:
+  - tenant update
+  - workspace update
+  - user creation
+  - invitation creation
+  - settings update (white label + integrations)
+  - agreement status fetch (Phase 3C endpoints)
+- Only add endpoints if a required action is impossible with existing APIs.
+  - Any new endpoints must be add-only and super_user protected.
+
+------------------------------------------------------------------------------
+STEP 4 — Existing Tenant Tabs: Wire the key ones (minimal, safe)
+------------------------------------------------------------------------------
+Within the Tenant Drawer (Existing mode), wire these tabs to existing APIs:
+1) Workspaces
+- List tenant workspaces
+- Edit workspace (drawer within drawer is ok; prefer inline panel)
+- Confirm dialog for delete if allowed
+
+2) Users & Invites
+- List users in tenant
+- Create user (no email required immediately)
+- Invite user / copy invite link per user row
+- Resend invite where supported
+
+3) White Label
+- Upload logo/icon/favicon using S3 upload
+- Save settings and persist on refresh
+
+4) Integrations
+- Show configured flags (masked)
+- Save settings must persist on Railway
+
+5) Agreement
+- View active/draft agreement status (Phase 3C)
+- If your tenant admin agreement editor exists, Super Admin may view/edit while acting-as-tenant OR via super endpoints if present
+- Do not build a brand-new editor if one already exists; reuse.
+
+------------------------------------------------------------------------------
+STEP 5 — Optional: Super Admin “Act as Tenant” entry point from Tenant Drawer (Safe)
+------------------------------------------------------------------------------
+Add a button in the Tenant Drawer header:
+- “Act as Tenant”
+Behavior:
+- sets effectiveTenantId using your existing mechanism
+- routes to /dashboard or /projects
+- shows a banner “Acting as Tenant: <tenantName>”
+Add “Exit Tenant Mode” button.
+
+This is optional if it risks tenancy changes; implement only if act-as-tenant already exists.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Add tests for the critical workflow:
+1) super_create_tenant_creates_primary_workspace.test.ts
+- creating tenant auto-creates primary workspace with same name
+- transactional: if workspace insert fails, tenant insert rolls back
+
+2) tenant_onboarding_does_not_require_invite_acceptance.test.ts
+- super can create tenant + create admin invite + update white label without invite acceptance
+
+3) tenant_isolation_super_drawer_data.test.ts
+- super can only fetch tenant data for selected tenant; no cross-tenant leakage in responses
+
+4) ui_drawer_renders_create_and_existing_modes.test.ts (lightweight component test if you have infra)
+- drawer opens in create mode
+- drawer opens in existing mode via query param
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) “New Tenant” modal is removed/disabled and replaced by a full-viewport Tenant Drawer.
+2) Creating a tenant auto-creates a primary workspace named exactly like the tenant business name.
+3) Super Admin can complete onboarding steps (invite/copy link, add users, white label uploads, integrations, agreement status) without waiting for invite acceptance.
+4) No breaking endpoint changes, no destructive schema changes.
+5) Tests pass.
+6) Manual onboarding flow works end-to-end.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Files changed (client + server)
+- Endpoints used/added
+- Schema changes (if any) clearly listed (prefer none; if isPrimary added, show migration)
+- Manual test checklist for Super Admin onboarding
+- Any known limitations + TODO list in /docs/TODO.md
