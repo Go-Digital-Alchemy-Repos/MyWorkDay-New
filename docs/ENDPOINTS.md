@@ -61,6 +61,13 @@ This document provides a comprehensive inventory of all API endpoints in the app
 | GET | `/api/v1/super/tenants/:tenantId/notes` | Super | Global | List tenant internal notes |
 | POST | `/api/v1/super/tenants/:tenantId/notes` | Super | Global | Create tenant note |
 | GET | `/api/v1/super/tenants/:tenantId/audit` | Super | Global | Get tenant audit events |
+| GET | `/api/v1/super/tenants/:tenantId/clients` | Super | Global | List tenant clients |
+| POST | `/api/v1/super/tenants/:tenantId/clients/bulk` | Super | Global | Bulk import clients from CSV |
+| GET | `/api/v1/super/tenants/:tenantId/projects` | Super | Global | List tenant projects |
+| POST | `/api/v1/super/tenants/:tenantId/projects/bulk` | Super | Global | Bulk import projects from CSV |
+| POST | `/api/v1/super/tenants/:tenantId/seed/welcome-project` | Super | Global | Create welcome project with starter tasks |
+| POST | `/api/v1/super/tenants/:tenantId/projects/:projectId/seed/task-template` | Super | Global | Apply task template to project |
+| POST | `/api/v1/super/tenants/:tenantId/projects/:projectId/tasks/bulk` | Super | Global | Bulk import tasks from CSV |
 
 **Note:** POST `/api/v1/super/tenants` now transactionally creates tenant + primary workspace + tenant_settings.
 
@@ -96,6 +103,40 @@ Returns health summary including:
 **GET `/api/v1/super/tenants/:tenantId/audit`**
 Query params: `limit` (default 50), `offset` (default 0)
 Returns `events` array with actor enrichment.
+
+**POST `/api/v1/super/tenants/:tenantId/seed/welcome-project`**
+Creates a welcome project with starter sections and sample tasks.
+Idempotent: Skips if project named "Welcome to [tenant]" already exists.
+Response:
+```json
+{ "status": "created|skipped", "projectId": "uuid", "created": { "sections": <n>, "tasks": <n>, "subtasks": <n> } }
+```
+
+**POST `/api/v1/super/tenants/:tenantId/projects/:projectId/seed/task-template`**
+Available templates: `client_onboarding`, `website_build`, `general_setup`
+```json
+{ "templateKey": "client_onboarding" }
+```
+Deduplicates: Reuses existing sections with same name, skips duplicate tasks within section.
+Response:
+```json
+{ "status": "applied|skipped", "created": { "sections": <n>, "tasks": <n> } }
+```
+
+**POST `/api/v1/super/tenants/:tenantId/projects/:projectId/tasks/bulk`**
+Two-pass import: Creates parent tasks first, then subtasks with parent linking via `parentTaskTitle`.
+```json
+{
+  "rows": [
+    { "sectionName": "To Do", "taskTitle": "Task 1", "description": "...", "status": "todo|in_progress|done", "priority": "low|medium|high|urgent", "dueDate": "YYYY-MM-DD", "assigneeEmails": "user@example.com,other@example.com", "parentTaskTitle": "" }
+  ],
+  "options": { "createMissingSections": true, "allowUnknownAssignees": false }
+}
+```
+Response:
+```json
+{ "createdTasks": <n>, "createdSubtasks": <n>, "createdSections": <n>, "skipped": <n>, "errors": <n>, "results": [...] }
+```
 
 ---
 
