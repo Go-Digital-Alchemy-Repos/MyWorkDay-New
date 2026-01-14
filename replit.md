@@ -8,8 +8,9 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - Board view as primary view with list view and calendar view options
 - Calendar view displays tasks with due dates using FullCalendar, with filtering and drag-to-reschedule
 - My Tasks view with two viewing modes: date-based grouping (overdue, today, tomorrow, upcoming) and personal sections organization
-- Projects Dashboard with search, status/client/team filters, and table view showing project details via drawer
+- Projects Dashboard with search, status/client/team filters, table view showing project details via drawer, and budget utilization indicators
 - Workload Reports in Settings showing task distribution by employee with completion metrics
+- Workload Forecast with task time estimates, project budgets, budget tracking, and workload distribution by assignee
 
 ## System Architecture
 
@@ -27,7 +28,8 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Per-Tenant Integrations**: Tenants can configure their own Mailgun (email) and S3 (storage) integrations with AES-256-GCM encrypted secrets. Integration status tracking (not_configured/configured/error) with test endpoints.
 - **Authentication**: Session-based authentication using Passport.js.
 - **Real-time Communication**: Socket.IO is used for live updates, with shared event contracts and client-side hooks for event subscription and cache invalidation.
-- **Database Schema**: Includes entities for users, workspaces, teams, clients, projects, sections, tasks (with subtasks, tags, comments, multi-assignee support via task_assignees), personal_task_sections (for My Tasks organization), activity logs, time tracking, tenant_settings, and tenant_integrations.
+- **Database Schema**: Includes entities for users, workspaces, teams, clients, projects (with budgetMinutes), sections, tasks (with subtasks, tags, comments, multi-assignee support via task_assignees, estimateMinutes), personal_task_sections (for My Tasks organization), activity logs, time tracking, tenant_settings, and tenant_integrations.
+- **Workload Forecast**: Project-level forecast analytics with budget tracking. Time entries use `durationSeconds` field converted to minutes for display. Forecast endpoints provide: tracked time (total and weekly), task estimates, budget remaining, due date forecast (6 buckets: overdue, today, next 7 days, next 30 days, later, no due date), and per-assignee workload with multi-assignee task estimates split evenly.
 - **Production Bootstrap**: A secure one-time process for creating a super admin user in production environments.
 - **Tenant Onboarding Flow**: A structured 4-step wizard for new tenants to configure their organization profile, branding, and email settings, transitioning from an inactive to an active state.
 - **Flexible Tenant Invitations**: Super admins can invite tenant admins via "link" (copyable URL) or "email" (Mailgun-based delivery). Email invitations use the tenant's configured Mailgun integration with graceful fallback to link generation if email fails.
