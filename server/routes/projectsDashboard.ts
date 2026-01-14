@@ -147,7 +147,7 @@ router.get("/projects/analytics/summary", async (req, res) => {
       const completedTasks = tasks.filter(t => t.status === "done");
       const overdueTasks = tasks.filter(isTaskOverdue);
       const dueToday = tasks.filter(isTaskDueToday);
-      const unassignedOpen = openTasks.filter(t => !t.assigneeId && (!t.assignees || t.assignees.length === 0));
+      const unassignedOpen = openTasks.filter(t => !t.assignees || t.assignees.length === 0);
 
       totalOpenTasks += openTasks.length;
       totalOverdueTasks += overdueTasks.length;
@@ -218,7 +218,7 @@ router.get("/projects/:projectId/analytics", async (req, res) => {
     const completedTasks = tasks.filter(t => t.status === "done");
     const overdueTasks = tasks.filter(isTaskOverdue);
     const dueTodayTasks = tasks.filter(isTaskDueToday);
-    const unassignedOpenTasks = openTasks.filter(t => !t.assigneeId && (!t.assignees || t.assignees.length === 0));
+    const unassignedOpenTasks = openTasks.filter(t => !t.assignees || t.assignees.length === 0);
 
     const byStatus: Array<{ status: string; count: number }> = [];
     const statusCounts: Record<string, number> = {};
@@ -263,26 +263,21 @@ router.get("/projects/:projectId/analytics", async (req, res) => {
     
     for (const task of openTasks) {
       const assignees = task.assignees || [];
-      if (task.assigneeId && assignees.length === 0) {
-        const assignee = await storage.getUser(task.assigneeId);
-        if (assignee) {
-          const name = assignee.firstName && assignee.lastName 
-            ? `${assignee.firstName} ${assignee.lastName}` 
-            : assignee.email;
-          if (!assigneeCounts[task.assigneeId]) {
-            assigneeCounts[task.assigneeId] = { name, count: 0 };
+      for (const assignee of assignees) {
+        const user = assignee.user;
+        if (user) {
+          const name = user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user.email || user.name;
+          if (!assigneeCounts[user.id]) {
+            assigneeCounts[user.id] = { name, count: 0 };
           }
-          assigneeCounts[task.assigneeId].count++;
-        }
-      } else {
-        for (const assignee of assignees) {
-          const name = assignee.firstName && assignee.lastName
-            ? `${assignee.firstName} ${assignee.lastName}`
-            : assignee.email;
-          if (!assigneeCounts[assignee.id]) {
-            assigneeCounts[assignee.id] = { name, count: 0 };
+          assigneeCounts[user.id].count++;
+        } else {
+          if (!assigneeCounts[assignee.userId]) {
+            assigneeCounts[assignee.userId] = { name: "Unknown", count: 0 };
           }
-          assigneeCounts[assignee.id].count++;
+          assigneeCounts[assignee.userId].count++;
         }
       }
     }
@@ -330,6 +325,286 @@ router.get("/projects/:projectId/analytics", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching project analytics:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/projects/:projectId/forecast", async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const tenantId = getEffectiveTenantId(req);
+    const workspaceId = getCurrentWorkspaceId(req);
+
+    const project = await storage.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    if (tenantId && project.tenantId !== tenantId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const tasks = await storage.getTasksByProject(projectId);
+    const openTasks = tasks.filter(t => t.status !== "done");
+    const overdueTasks = tasks.filter(isTaskOverdue);
+
+    let timeEntries;
+    if (tenantId) {
+      timeEntries = await storage.getTimeEntriesByTenant(tenantId, workspaceId, { projectId });
+    } else {
+      timeEntries = await storage.getTimeEntriesByWorkspace(workspaceId, { projectId });
+    }
+
+    const taskEstimateMinutes = tasks.reduce((sum, t) => sum + (t.estimateMinutes || 0), 0);
+    const openTaskEstimateMinutes = openTasks.reduce((sum, t) => sum + (t.estimateMinutes || 0), 0);
+    const projectBudgetMinutes = project.budgetMinutes || null;
+
+    const trackedMinutesTotal = timeEntries.reduce((sum, te) => {
+      const durationSecs = te.durationSeconds || 0;
+      return sum + Math.round(durationSecs / 60);
+    }, 0);
+
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const trackedMinutesThisWeek = timeEntries
+      .filter(te => te.startTime && new Date(te.startTime) >= oneWeekAgo)
+      .reduce((sum, te) => {
+        const durationSecs = te.durationSeconds || 0;
+        return sum + Math.round(durationSecs / 60);
+      }, 0);
+
+    const remainingEstimateMinutes = taskEstimateMinutes > 0
+      ? Math.max(openTaskEstimateMinutes - trackedMinutesTotal, 0)
+      : null;
+
+    const budgetRemainingMinutes = projectBudgetMinutes !== null
+      ? Math.max(projectBudgetMinutes - trackedMinutesTotal, 0)
+      : null;
+
+    const overBudget = projectBudgetMinutes !== null
+      ? trackedMinutesTotal > projectBudgetMinutes
+      : null;
+
+    const byAssignee: Array<{
+      userId: string;
+      name: string;
+      openTasks: number;
+      overdueTasks: number;
+      estimateMinutesOpen: number;
+      trackedMinutesTotal: number;
+    }> = [];
+
+    const assigneeData: Record<string, {
+      name: string;
+      openTasks: number;
+      overdueTasks: number;
+      estimateMinutesOpen: number;
+      trackedMinutesTotal: number;
+    }> = {};
+
+    for (const task of openTasks) {
+      const assignees = task.assignees || [];
+      const assigneeCount = assignees.length || 1;
+      const estimatePerAssignee = (task.estimateMinutes || 0) / assigneeCount;
+
+      for (const assignee of assignees) {
+        const userId = assignee.userId;
+        const user = assignee.user;
+        const name = user
+          ? (user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user.email || user.name)
+          : "Unknown";
+
+        if (!assigneeData[userId]) {
+          assigneeData[userId] = {
+            name,
+            openTasks: 0,
+            overdueTasks: 0,
+            estimateMinutesOpen: 0,
+            trackedMinutesTotal: 0,
+          };
+        }
+        assigneeData[userId].openTasks++;
+        assigneeData[userId].estimateMinutesOpen += estimatePerAssignee;
+
+        if (isTaskOverdue(task)) {
+          assigneeData[userId].overdueTasks++;
+        }
+      }
+    }
+
+    for (const te of timeEntries) {
+      if (te.userId && assigneeData[te.userId]) {
+        const durationSecs = te.durationSeconds || 0;
+        assigneeData[te.userId].trackedMinutesTotal += Math.round(durationSecs / 60);
+      } else if (te.userId) {
+        const user = te.user;
+        const name = user
+          ? (user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user.email || user.name)
+          : "Unknown";
+        if (!assigneeData[te.userId]) {
+          assigneeData[te.userId] = {
+            name,
+            openTasks: 0,
+            overdueTasks: 0,
+            estimateMinutesOpen: 0,
+            trackedMinutesTotal: 0,
+          };
+        }
+        const durationSecs = te.durationSeconds || 0;
+        assigneeData[te.userId].trackedMinutesTotal += Math.round(durationSecs / 60);
+      }
+    }
+
+    for (const [userId, data] of Object.entries(assigneeData)) {
+      byAssignee.push({
+        userId,
+        name: data.name,
+        openTasks: data.openTasks,
+        overdueTasks: data.overdueTasks,
+        estimateMinutesOpen: Math.round(data.estimateMinutesOpen),
+        trackedMinutesTotal: data.trackedMinutesTotal,
+      });
+    }
+    byAssignee.sort((a, b) => b.openTasks - a.openTasks);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const next7 = new Date(today);
+    next7.setDate(today.getDate() + 7);
+    const next30 = new Date(today);
+    next30.setDate(today.getDate() + 30);
+
+    const dueForecast: Array<{
+      bucket: "overdue" | "today" | "next7" | "next30" | "later" | "noDueDate";
+      openTasks: number;
+      estimateMinutesOpen: number;
+    }> = [
+      { bucket: "overdue", openTasks: 0, estimateMinutesOpen: 0 },
+      { bucket: "today", openTasks: 0, estimateMinutesOpen: 0 },
+      { bucket: "next7", openTasks: 0, estimateMinutesOpen: 0 },
+      { bucket: "next30", openTasks: 0, estimateMinutesOpen: 0 },
+      { bucket: "later", openTasks: 0, estimateMinutesOpen: 0 },
+      { bucket: "noDueDate", openTasks: 0, estimateMinutesOpen: 0 },
+    ];
+
+    for (const task of openTasks) {
+      const estimate = task.estimateMinutes || 0;
+      if (!task.dueDate) {
+        dueForecast[5].openTasks++;
+        dueForecast[5].estimateMinutesOpen += estimate;
+      } else {
+        const dueDate = new Date(task.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+        if (dueDate < today) {
+          dueForecast[0].openTasks++;
+          dueForecast[0].estimateMinutesOpen += estimate;
+        } else if (dueDate.getTime() === today.getTime()) {
+          dueForecast[1].openTasks++;
+          dueForecast[1].estimateMinutesOpen += estimate;
+        } else if (dueDate < next7) {
+          dueForecast[2].openTasks++;
+          dueForecast[2].estimateMinutesOpen += estimate;
+        } else if (dueDate < next30) {
+          dueForecast[3].openTasks++;
+          dueForecast[3].estimateMinutesOpen += estimate;
+        } else {
+          dueForecast[4].openTasks++;
+          dueForecast[4].estimateMinutesOpen += estimate;
+        }
+      }
+    }
+
+    return res.json({
+      projectId,
+      totals: {
+        taskEstimateMinutes,
+        projectBudgetMinutes,
+        trackedMinutesTotal,
+        trackedMinutesThisWeek,
+        remainingEstimateMinutes,
+        budgetRemainingMinutes,
+        overBudget,
+      },
+      byAssignee,
+      dueForecast,
+    });
+  } catch (error) {
+    console.error("Error fetching project forecast:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/projects/forecast/summary", async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    const workspaceId = getCurrentWorkspaceId(req);
+
+    let projects;
+    if (tenantId) {
+      projects = await storage.getProjectsByTenant(tenantId, workspaceId);
+    } else if (isSuperUser(req)) {
+      projects = await storage.getProjectsByWorkspace(workspaceId);
+    } else {
+      return res.status(500).json({ error: "User tenant not configured" });
+    }
+
+    projects = projects.filter(p => p.status === "active");
+
+    let timeEntries;
+    if (tenantId) {
+      timeEntries = await storage.getTimeEntriesByTenant(tenantId, workspaceId, {});
+    } else {
+      timeEntries = await storage.getTimeEntriesByWorkspace(workspaceId, {});
+    }
+
+    const perProject: Array<{
+      projectId: string;
+      trackedMinutesTotal: number;
+      taskEstimateMinutes: number;
+      budgetMinutes: number | null;
+      overBudget: boolean | null;
+      remainingEstimateMinutes: number | null;
+    }> = [];
+
+    for (const project of projects) {
+      const tasks = await storage.getTasksByProject(project.id);
+      const openTasks = tasks.filter(t => t.status !== "done");
+
+      const taskEstimateMinutes = tasks.reduce((sum, t) => sum + (t.estimateMinutes || 0), 0);
+      const openTaskEstimateMinutes = openTasks.reduce((sum, t) => sum + (t.estimateMinutes || 0), 0);
+      const budgetMinutes = project.budgetMinutes || null;
+
+      const projectTimeEntries = timeEntries.filter(te => te.projectId === project.id);
+      const trackedMinutesTotal = projectTimeEntries.reduce((sum, te) => {
+        const durationSecs = te.durationSeconds || 0;
+        return sum + Math.round(durationSecs / 60);
+      }, 0);
+
+      const remainingEstimateMinutes = taskEstimateMinutes > 0
+        ? Math.max(openTaskEstimateMinutes - trackedMinutesTotal, 0)
+        : null;
+
+      const overBudget = budgetMinutes !== null
+        ? trackedMinutesTotal > budgetMinutes
+        : null;
+
+      perProject.push({
+        projectId: project.id,
+        trackedMinutesTotal,
+        taskEstimateMinutes,
+        budgetMinutes,
+        overBudget,
+        remainingEstimateMinutes,
+      });
+    }
+
+    return res.json({ perProject });
+  } catch (error) {
+    console.error("Error fetching forecast summary:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
