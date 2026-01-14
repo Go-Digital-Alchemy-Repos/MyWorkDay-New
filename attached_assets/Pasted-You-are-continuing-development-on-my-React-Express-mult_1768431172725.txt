@@ -1,0 +1,171 @@
+You are continuing development on my React + Express multi-tenant app deployed on Railway.
+We cannot login in production. We need a SAFE bootstrap path AND we want our auth to be COOKIE-BASED.
+
+IMPORTANT: Start by verifying the current auth mechanism. If it is not cookie-based, migrate it to cookie-based auth
+in the smallest possible way, without breaking endpoints. Then implement bootstrap seeding + first-registrant flow
+consistent with cookie-based auth.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change endpoint paths.
+- Do NOT drop/rename DB tables/columns.
+- Do NOT weaken tenancy enforcement.
+- Never log secrets or plaintext passwords.
+- Registration must NEVER be open once any user exists.
+- All bootstrap actions must be guarded by env flags and one-time semantics.
+
+===============================================================================
+PART 0 — CONFIRM AUTH TYPE + MIGRATE TO COOKIE-BASED IF NEEDED
+===============================================================================
+0A) Audit current auth
+- Determine if auth is currently:
+  (a) JWT stored in localStorage, OR
+  (b) server session / httpOnly cookies, OR
+  (c) hybrid.
+- Identify current endpoints used by frontend:
+  - POST /api/v1/auth/login (or similar)
+  - GET  /api/v1/auth/me (or similar)
+  - logout endpoint
+- Identify how the frontend persists auth state.
+
+0B) Goal state (cookie-based)
+- Use httpOnly cookies for auth (no tokens stored in localStorage).
+- Cookies must be:
+  - httpOnly: true
+  - secure: true in production
+  - sameSite: "lax" by default
+  - domain: configured correctly for Railway (do not hardcode)
+- CORS must allow credentials from the frontend origin.
+- All authenticated fetches must include credentials.
+
+0C) Migration approach (minimal / non-breaking)
+- Keep existing login endpoint path the same.
+- On successful login:
+  - set a session cookie (preferred) OR set a signed auth cookie (if no session store).
+- Add/ensure:
+  - POST /api/v1/auth/logout clears cookie
+  - GET /api/v1/auth/me reads user from cookie and returns user payload
+- Frontend:
+  - update request wrapper to always call fetch(..., { credentials: "include" })
+  - remove localStorage token usage (if present)
+  - after login success, immediately refetch /auth/me and update app state
+
+0D) Production config hardening for Railway
+- Add env vars (document them):
+  - APP_BASE_URL (frontend origin)
+  - API_BASE_URL (backend origin)
+  - COOKIE_SECRET (or SESSION_SECRET)
+  - COOKIE_DOMAIN (optional; only if needed)
+- Ensure:
+  - CORS: origin=APP_BASE_URL, credentials=true
+  - If behind proxy: app.set("trust proxy", 1) so secure cookies work
+
+0E) Fix the “login twice” symptom (cookie-based)
+- On client login:
+  - await login response
+  - immediately call /api/v1/auth/me (credentials included)
+  - set auth state from /me response
+  - invalidate queries (TanStack Query) so UI re-renders as logged in
+- On server:
+  - ensure cookie is set before response ends
+  - ensure /me reads cookie reliably
+  - ensure sameSite/secure flags are correct for production
+
+===============================================================================
+PART A — ONE-TIME SUPER ADMIN SEED (EMERGENCY RECOVERY)
+===============================================================================
+Add script: server/scripts/seed_super_admin.ts
+
+Behavior:
+- Requires: SEED_SUPER_ADMIN_ALLOWED=true
+- Requires env vars:
+  - SEED_SUPER_ADMIN_EMAIL
+  - SEED_SUPER_ADMIN_PASSWORD
+  - SEED_SUPER_ADMIN_FIRSTNAME (optional)
+  - SEED_SUPER_ADMIN_LASTNAME (optional)
+- Checks:
+  - If ANY super_user exists => exit and refuse
+  - If email exists and role != super_user => refuse (do not auto-promote)
+- Creates user role=super_user with secure hashing (match existing hashing)
+- Prints success without printing password
+
+Add npm script:
+- seed:superadmin
+
+Add docs:
+- /docs/BOOTSTRAP_SUPER_ADMIN.md
+Include Railway one-off instructions and env checklist.
+
+===============================================================================
+PART B — FIRST-REGISTRANT BOOTSTRAP (ONLY WHEN ZERO USERS EXIST)
+===============================================================================
+Goal: Provide a safe “Create first admin account” registration ONLY when totalUsers==0.
+First registrant becomes super_user. After that, registration is permanently disabled.
+
+1) Backend endpoints (add-only; keep existing endpoints unchanged)
+- GET  /api/v1/auth/bootstrap-status
+  Returns: { bootstrapRequired: boolean } where true only if totalUsers==0
+
+- POST /api/v1/auth/bootstrap-register
+  Body: { email, password, firstName, lastName }
+  Rules:
+  - If totalUsers > 0 => 403 code "REGISTRATION_DISABLED"
+  - Else create user role=super_user and log them in (set auth cookie)
+  - Must be concurrency-safe:
+    - re-check totalUsers inside a transaction to prevent two super admins
+  - Return same shape as your normal login success response (or minimal { ok:true } plus /me works)
+
+2) Frontend
+- On login screen:
+  - call /auth/bootstrap-status
+  - if bootstrapRequired=true show:
+    “Create first admin account” button
+- Registration page/form:
+  - fields: firstName, lastName, email, password
+  - submit to /auth/bootstrap-register with credentials included
+  - on success: redirect to /super/dashboard
+- If bootstrapRequired=false: hide registration UI completely.
+
+3) Audit events (no secrets)
+Log:
+- bootstrap_register_created_super_admin
+- seed_super_admin_created
+Include requestId.
+
+===============================================================================
+PART C — DIAGNOSTIC ENDPOINTS + SAFETY CHECKS (NON-DESTRUCTIVE)
+===============================================================================
+Add a super-safe “auth diagnostics” endpoint for Super Admin only:
+- GET /api/v1/super/status/auth-diagnostics
+Returns:
+- cookie flags active (yes/no)
+- trust proxy enabled (yes/no)
+- CORS credentials enabled (yes/no)
+- session store type (if sessions used)
+No secrets. This helps troubleshoot Railway.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) cookie_auth_login_sets_cookie.test.ts
+- login sets Set-Cookie
+- /auth/me works after login (with cookie)
+
+2) bootstrap_status_true_when_no_users.test.ts
+3) bootstrap_register_creates_super_user_once.test.ts
+4) bootstrap_register_disabled_when_users_exist.test.ts
+5) seed_script_refuses_if_super_exists.test.ts (unit-like)
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Summary of current auth mechanism and what changed to become cookie-based
+- Exact cookie settings used for dev vs production
+- Railway env var checklist
+- How to run seed:superadmin as a one-off on Railway
+- Manual verification steps:
+  - login works once (no second login)
+  - /auth/me returns correct user
+  - bootstrap register disappears after first user exists
