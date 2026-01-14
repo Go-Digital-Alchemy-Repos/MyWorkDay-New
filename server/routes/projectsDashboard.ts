@@ -6,7 +6,19 @@ import { UserRole, TaskWithRelations } from "@shared/schema";
 const router = Router();
 const storage = new DatabaseStorage();
 
-function isTaskOverdue(task: TaskWithRelations): boolean {
+interface LightweightTask {
+  id: string;
+  projectId: string | null;
+  status: string | null;
+  priority: string | null;
+  dueDate: Date | null;
+  estimateMinutes: number | null;
+  assigneeUserIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function isTaskOverdue(task: TaskWithRelations | LightweightTask): boolean {
   if (!task.dueDate || task.status === "done") return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -15,7 +27,7 @@ function isTaskOverdue(task: TaskWithRelations): boolean {
   return dueDate < today;
 }
 
-function isTaskDueToday(task: TaskWithRelations): boolean {
+function isTaskDueToday(task: TaskWithRelations | LightweightTask): boolean {
   if (!task.dueDate || task.status === "done") return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -80,16 +92,14 @@ router.get("/projects", async (req, res) => {
     }
 
     if (includeCounts) {
-      const projectsWithCounts = await Promise.all(
-        filteredProjects.map(async (project) => {
-          const tasks = await storage.getTasksByProject(project.id);
-          const openTaskCount = tasks.filter(t => t.status !== "done").length;
-          return {
-            ...project,
-            openTaskCount,
-          };
-        })
-      );
+      // Optimized: Single batch query instead of N+1 (N+1 → 2 queries)
+      const projectIds = filteredProjects.map(p => p.id);
+      const taskCounts = await storage.getOpenTaskCountsByProjectIds(projectIds);
+      
+      const projectsWithCounts = filteredProjects.map(project => ({
+        ...project,
+        openTaskCount: taskCounts.get(project.id) || 0,
+      }));
       return res.json(projectsWithCounts);
     }
 
@@ -100,6 +110,7 @@ router.get("/projects", async (req, res) => {
   }
 });
 
+// Optimized: Uses batch fetch instead of N+1 (N+1 → 3 queries)
 router.get("/projects/analytics/summary", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
@@ -124,6 +135,10 @@ router.get("/projects/analytics/summary", async (req, res) => {
       projects = projects.filter(p => p.clientId === clientId);
     }
 
+    // Batch fetch all tasks for all projects at once
+    const projectIds = projects.map(p => p.id);
+    const tasksByProject = await storage.getTasksByProjectIds(projectIds);
+
     let totalOpenTasks = 0;
     let totalOverdueTasks = 0;
     let totalDueToday = 0;
@@ -141,13 +156,13 @@ router.get("/projects/analytics/summary", async (req, res) => {
     }> = [];
 
     for (const project of projects) {
-      const tasks = await storage.getTasksByProject(project.id);
+      const tasks = tasksByProject.get(project.id) || [];
       
       const openTasks = tasks.filter(t => t.status !== "done");
       const completedTasks = tasks.filter(t => t.status === "done");
       const overdueTasks = tasks.filter(isTaskOverdue);
       const dueToday = tasks.filter(isTaskDueToday);
-      const unassignedOpen = openTasks.filter(t => !t.assignees || t.assignees.length === 0);
+      const unassignedOpen = openTasks.filter(t => t.assigneeUserIds.length === 0);
 
       totalOpenTasks += openTasks.length;
       totalOverdueTasks += overdueTasks.length;
@@ -538,6 +553,7 @@ router.get("/projects/:projectId/forecast", async (req, res) => {
   }
 });
 
+// Optimized: Uses batch fetch instead of N+1 (N+1 → 3-4 queries)
 router.get("/projects/forecast/summary", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
@@ -554,12 +570,14 @@ router.get("/projects/forecast/summary", async (req, res) => {
 
     projects = projects.filter(p => p.status === "active");
 
-    let timeEntries;
-    if (tenantId) {
-      timeEntries = await storage.getTimeEntriesByTenant(tenantId, workspaceId, {});
-    } else {
-      timeEntries = await storage.getTimeEntriesByWorkspace(workspaceId, {});
-    }
+    // Batch fetch: time entries and tasks in parallel
+    const projectIds = projects.map(p => p.id);
+    const [timeEntries, tasksByProject] = await Promise.all([
+      tenantId 
+        ? storage.getTimeEntriesByTenant(tenantId, workspaceId, {})
+        : storage.getTimeEntriesByWorkspace(workspaceId, {}),
+      storage.getTasksByProjectIds(projectIds),
+    ]);
 
     const perProject: Array<{
       projectId: string;
@@ -571,7 +589,7 @@ router.get("/projects/forecast/summary", async (req, res) => {
     }> = [];
 
     for (const project of projects) {
-      const tasks = await storage.getTasksByProject(project.id);
+      const tasks = tasksByProject.get(project.id) || [];
       const openTasks = tasks.filter(t => t.status !== "done");
 
       const taskEstimateMinutes = tasks.reduce((sum, t) => sum + (t.estimateMinutes || 0), 0);

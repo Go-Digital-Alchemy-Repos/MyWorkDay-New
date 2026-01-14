@@ -803,26 +803,10 @@ router.get("/tenants/:tenantId/onboarding-status", requireSuperUser, async (req,
 });
 
 // Get tenants with additional info (settings, user counts)
+// Optimized: Uses batch queries instead of N+1 (2N+1 → 3 queries)
 router.get("/tenants-detail", requireSuperUser, async (req, res) => {
   try {
-    const allTenants = await storage.getAllTenants();
-    
-    const tenantsWithDetails = await Promise.all(
-      allTenants.map(async (tenant) => {
-        const settings = await storage.getTenantSettings(tenant.id);
-        const tenantUsers = await db
-          .select({ count: sql<number>`count(*)` })
-          .from(users)
-          .where(eq(users.tenantId, tenant.id));
-        
-        return {
-          ...tenant,
-          settings,
-          userCount: Number(tenantUsers[0]?.count || 0),
-        };
-      })
-    );
-
+    const tenantsWithDetails = await storage.getTenantsWithDetails();
     res.json(tenantsWithDetails);
   } catch (error) {
     console.error("Error fetching tenants with details:", error);

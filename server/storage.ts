@@ -1802,6 +1802,164 @@ export class DatabaseStorage implements IStorage {
       .set({ personalSectionId: null })
       .where(eq(tasks.personalSectionId, sectionId));
   }
+
+  // =============================================================================
+  // N+1 OPTIMIZATION: BATCH FETCH METHODS
+  // =============================================================================
+
+  /**
+   * Get open task counts for multiple projects in a single query.
+   * Used to avoid N+1 when listing projects with includeCounts=true.
+   */
+  async getOpenTaskCountsByProjectIds(projectIds: string[]): Promise<Map<string, number>> {
+    if (projectIds.length === 0) return new Map();
+    
+    const result = await db.select({
+      projectId: tasks.projectId,
+      count: sql<number>`count(*)::int`,
+    })
+      .from(tasks)
+      .where(and(
+        inArray(tasks.projectId, projectIds),
+        sql`${tasks.status} != 'done'`
+      ))
+      .groupBy(tasks.projectId);
+
+    const counts = new Map<string, number>();
+    for (const row of result) {
+      if (row.projectId) {
+        counts.set(row.projectId, row.count);
+      }
+    }
+    return counts;
+  }
+
+  /**
+   * Get all tasks for multiple projects in a single query.
+   * Used to avoid N+1 in analytics/forecast summary endpoints.
+   * Returns a lightweight task structure (not full TaskWithRelations).
+   */
+  async getTasksByProjectIds(projectIds: string[]): Promise<Map<string, Array<{
+    id: string;
+    projectId: string | null;
+    status: string | null;
+    priority: string | null;
+    dueDate: Date | null;
+    estimateMinutes: number | null;
+    assigneeUserIds: string[];
+    createdAt: Date;
+    updatedAt: Date;
+  }>>> {
+    if (projectIds.length === 0) return new Map();
+    
+    const tasksRows = await db.select({
+      id: tasks.id,
+      projectId: tasks.projectId,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      estimateMinutes: tasks.estimateMinutes,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+    })
+      .from(tasks)
+      .where(inArray(tasks.projectId, projectIds));
+
+    const taskIds = tasksRows.map(t => t.id);
+    
+    const assignees = taskIds.length > 0 
+      ? await db.select({
+          taskId: taskAssignees.taskId,
+          userId: taskAssignees.userId,
+        })
+          .from(taskAssignees)
+          .where(inArray(taskAssignees.taskId, taskIds))
+      : [];
+
+    const assigneesByTask = new Map<string, string[]>();
+    for (const a of assignees) {
+      const list = assigneesByTask.get(a.taskId) || [];
+      list.push(a.userId);
+      assigneesByTask.set(a.taskId, list);
+    }
+
+    const tasksByProject = new Map<string, Array<{
+      id: string;
+      projectId: string | null;
+      status: string | null;
+      priority: string | null;
+      dueDate: Date | null;
+      estimateMinutes: number | null;
+      assigneeUserIds: string[];
+      createdAt: Date;
+      updatedAt: Date;
+    }>>();
+
+    for (const t of tasksRows) {
+      const projectId = t.projectId || "";
+      const list = tasksByProject.get(projectId) || [];
+      list.push({
+        ...t,
+        assigneeUserIds: assigneesByTask.get(t.id) || [],
+      });
+      tasksByProject.set(projectId, list);
+    }
+
+    return tasksByProject;
+  }
+
+  /**
+   * Get all tenants with their settings and user counts in optimized queries.
+   * Used to avoid 2N+1 in tenants-detail endpoint.
+   */
+  async getTenantsWithDetails(): Promise<Array<{
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    onboardedAt: Date | null;
+    ownerUserId: string | null;
+    activatedBySuperUserAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+    settings: TenantSettings | null;
+    userCount: number;
+  }>> {
+    const allTenants = await db.select().from(tenants);
+    
+    if (allTenants.length === 0) return [];
+
+    const tenantIds = allTenants.map(t => t.id);
+
+    const [settingsRows, userCounts] = await Promise.all([
+      db.select().from(tenantSettings).where(inArray(tenantSettings.tenantId, tenantIds)),
+      db.select({
+        tenantId: users.tenantId,
+        count: sql<number>`count(*)::int`,
+      })
+        .from(users)
+        .where(inArray(users.tenantId, tenantIds))
+        .groupBy(users.tenantId),
+    ]);
+
+    const settingsMap = new Map<string, TenantSettings>();
+    for (const s of settingsRows) {
+      settingsMap.set(s.tenantId, s);
+    }
+
+    const userCountMap = new Map<string, number>();
+    for (const uc of userCounts) {
+      if (uc.tenantId) {
+        userCountMap.set(uc.tenantId, uc.count);
+      }
+    }
+
+    return allTenants.map(tenant => ({
+      ...tenant,
+      settings: settingsMap.get(tenant.id) || null,
+      userCount: userCountMap.get(tenant.id) || 0,
+    }));
+  }
 }
 
 export const storage = new DatabaseStorage();
