@@ -1,0 +1,175 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+QUALITY PASS PROMPT: Perform a comprehensive audit, documentation, annotation, and regression testing pass.
+This is NOT a feature build. DO NOT rewrite the app. DO NOT do broad refactors.
+Focus on: code organization sanity checks, consistent annotations, updated READMEs/docs, and debugging/testing.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename any endpoints.
+- Do NOT change endpoint paths or response shapes.
+- Do NOT drop/rename DB tables/columns or run destructive migrations.
+- Do NOT change auth strategy or tenancy enforcement behavior.
+- Do NOT change UI layouts or convert modals/drawers in this prompt.
+- Only make “surgical” changes required to fix bugs uncovered by tests/audit.
+
+===============================================================================
+GOALS
+===============================================================================
+1) Audit codebase for correctness, maintainability, and consistency (without large refactors)
+2) Annotate major features/modules throughout the code
+3) Update README and documentation to include all recent additions:
+   - Multi-tenancy
+   - Super Admin suite (Tenants, System Settings, Reports, Status, Search, Debug Tools)
+   - Phase 3C Agreement gating
+   - S3 uploads (branding/logos/attachments)
+   - Mailgun integration
+   - Backfill/quarantine maintenance scripts (if present)
+4) Debug and test core workflows end-to-end before further refinement
+
+===============================================================================
+STEP 1 — INVENTORY FEATURES + ROUTES (NO BEHAVIOR CHANGE)
+===============================================================================
+Create /docs/FEATURE_INVENTORY.md including:
+- Major modules:
+  - Auth (login/register/forgot password)
+  - Tenancy + impersonation (act-as-tenant)
+  - Super Admin (system settings/reports/status/search/debug)
+  - Tenant Admin global settings (teams/workspaces/reports/integrations)
+  - Clients/Projects/Tasks/Subtasks/Comments/Attachments
+  - Time Tracking
+  - Phase 3C Agreements
+- List all API route groups:
+  - /api/v1/auth/*
+  - /api/v1/me/*
+  - /api/v1/tenant/*
+  - /api/v1/super/*
+  - Any others present
+For each group: list endpoints + brief purpose + auth requirements.
+
+Also generate /docs/ARCHITECTURE_OVERVIEW.md with:
+- repo structure
+- frontend stack
+- backend stack
+- DB + ORM
+- realtime sockets overview (if used)
+- tenancy enforcement flow
+- where agreement guard is applied
+- where super-only routes bypass tenant agreement guard
+
+===============================================================================
+STEP 2 — ANNOTATE CODE (TARGETED, CONSISTENT)
+===============================================================================
+Add consistent module-level annotations:
+- At the top of each major file (routes, services, middleware, core UI pages/components):
+  - What the file does
+  - Key invariants (tenant isolation, auth requirements)
+  - Any sharp edges or “do not change” notes
+
+Add inline annotations ONLY where it improves clarity:
+- tenancy/permission checks
+- agreement gating guard
+- impersonation state handling
+- S3 upload signing/handling
+- Mailgun settings persistence and masking
+- backfill/quarantine maintenance scripts (if present)
+
+Do NOT litter code with low-value comments. Keep comments meaningful.
+
+===============================================================================
+STEP 3 — README + DOCS UPDATE (MANDATORY)
+===============================================================================
+Update root README.md to include:
+- Local dev setup
+- Env var checklist (grouped):
+  - Database
+  - Auth/BetterAuth (if used)
+  - Mailgun
+  - S3
+  - Railway deployment notes
+  - Feature flags / maintenance guard flags
+- Scripts:
+  - migrations
+  - test
+  - build
+  - start
+  - maintenance scripts (e.g., backfill_tenant_ids, purge_app_data, etc.)
+- “How multi-tenancy works” section (high level)
+- “Super Admin vs Tenant Admin” section
+- “Phase 3C Agreement gating” section with exempt routes
+
+Add /docs/ENVIRONMENT_VARIABLES.md:
+- List every env var referenced in code
+- Describe purpose + safe defaults
+- Mark secrets vs non-secrets
+- Mark “dangerous ops” flags:
+  - PURGE_APP_DATA_ALLOWED
+  - BACKFILL_TENANT_IDS_ALLOWED
+  - SUPER_DEBUG_DELETE_ALLOWED
+  - etc.
+
+Add /docs/DEPLOYMENT_RAILWAY.md:
+- build/start commands
+- DB migrations strategy
+- where to set env vars
+- troubleshooting common issues (mailgun settings not persisting, login twice, etc.)
+
+===============================================================================
+STEP 4 — TEST PLAN + AUTOMATED TESTS (MANDATORY)
+===============================================================================
+4A) Create /docs/REGRESSION_CHECKLIST.md (manual)
+Include step-by-step checks:
+- Super Admin mode nav shows super-only menu
+- Act as tenant toggles tenant menu + banner + exit works
+- Phase 3C gating blocks tenant routes until acceptance
+- Tenant admin settings work (teams/workspaces/reports/integrations)
+- Create client/project/task/subtask/comment/attachment
+- Time tracking:
+  - create entry
+  - edit entry
+  - stopwatch title field present
+- Mailgun settings save persists on refresh (Railway note)
+- Tenant Health shows no blockers after backfill (if applicable)
+- Search and reports render for super admin
+
+4B) Automated tests (minimum)
+Ensure there is a reliable “smoke” suite:
+- auth_smoke.test.ts
+- tenancy_isolation_smoke.test.ts
+- super_routes_access_smoke.test.ts
+- agreement_guard_smoke.test.ts
+- mailgun_settings_persist_smoke.test.ts (mask secrets)
+- time_tracking_crud_smoke.test.ts
+
+If tests already exist, extend them; do NOT rewrite test framework.
+
+===============================================================================
+STEP 5 — BUG FIXING (SURGICAL ONLY)
+===============================================================================
+Run through the test suite and manual checklist.
+Fix only issues discovered that block core workflows.
+Do NOT refactor for style or preference.
+
+Examples of allowed fixes:
+- missing tenantId injection on creates
+- inconsistent error shape causing UI failure
+- “login twice” persistence bug
+- settings not persisting due to backend patch not writing or frontend not binding correctly
+- agreement guard blocking exempt routes incorrectly
+
+Examples of NOT allowed changes:
+- reorganizing the entire server folder
+- switching auth libraries
+- redesigning UI layouts
+- changing database schemas broadly
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+1) A short “Audit Findings” report in /docs/AUDIT_FINDINGS.md with:
+- Critical issues fixed
+- Remaining warnings/TODOs
+- Recommended next refactor opportunities (separate list, not performed)
+2) Updated README + docs files listed above
+3) Tests added/updated and confirmation they pass
+4) A final checklist result summary
