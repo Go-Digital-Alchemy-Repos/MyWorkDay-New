@@ -1,0 +1,125 @@
+You are continuing development on my existing multi-tenant React + Express app.
+We have Tenant Health blockers: rows missing tenantId across projects/tasks/teams/users.
+Create a SAFE remediation that (1) backfills tenantId when inferable, (2) quarantines ambiguous rows,
+and (3) prevents new rows from being created without tenantId.
+
+ABSOLUTE SAFETY RULES
+- Do NOT drop or rename tables/columns.
+- Do NOT delete any data unless explicitly marked “quarantine/archived”.
+- Do NOT change endpoint paths.
+- All remediation must be auditable and reversible.
+- Do NOT run remediation automatically at startup.
+
+GOALS
+1) Diagnose exactly why rows are missing tenantId.
+2) Implement a one-time remediation script that:
+   - Backfills tenantId using reliable relationships
+   - Quarantines anything ambiguous into a safe tenant bucket
+3) Add guardrails to prevent future missing tenantId.
+
+STEP 1 — ANALYZE RELATIONSHIPS (NO WRITES)
+For each table with missing tenantId (projects, tasks, teams, users), write queries that attempt to infer tenantId:
+
+A) projects
+- If projects has workspaceId -> tenantId = workspaces.tenantId
+- Else if projects has clientId -> tenantId = clients.tenantId
+- Else if projects has createdByUserId -> tenantId = users.tenantId
+- Else mark as ambiguous
+
+B) tasks
+- If tasks has projectId -> tenantId = projects.tenantId (after project backfill)
+- Else if tasks has workspaceId -> tenantId = workspaces.tenantId
+- Else if tasks has createdByUserId -> tenantId = users.tenantId
+- Else ambiguous
+
+C) teams
+- If teams has workspaceId -> tenantId = workspaces.tenantId
+- Else if teams has ownerUserId/createdByUserId -> tenantId = users.tenantId
+- Else ambiguous
+
+D) users
+This is trickiest. Determine which user records are "tenant users" vs "platform admins".
+Rules:
+- role=super_user => tenantId MUST be NULL (platform user)
+- otherwise tenantId should be set.
+Infer tenantId using:
+  - membership tables (user_workspaces, workspace_members, team_memberships, etc.) -> tenantId = that workspace.tenantId
+  - invitations table (if invitation has tenantId) -> tenantId = invitations.tenantId
+  - projects/tasks created by user -> tenantId from those rows (only if consistent)
+If multiple different tenantIds are inferred => ambiguous.
+
+Output a report:
+- counts per table:
+  - inferable
+  - ambiguous
+  - already fixed
+- list IDs for ambiguous rows (limit 50 shown)
+
+STEP 2 — CREATE “QUARANTINE TENANT” (SAFE DEFAULT)
+If the app supports it, create (or ensure exists) a special internal tenant:
+- name: “Quarantine / Legacy Data”
+- slug/code: “quarantine”
+- status: inactive
+This tenant is never visible to normal tenant users and never shown in tenant pickers.
+(If adding a tenant is risky, skip creation and instead set ambiguous rows to NULL and force archive—preferred is quarantine tenant.)
+
+Also create an internal “Quarantine Workspace” under that tenant as needed for foreign keys.
+
+STEP 3 — ONE-TIME REMEDIATION SCRIPT (NO AUTO-RUN)
+Create script:
+- /server/scripts/backfill_tenant_ids.ts
+
+Guards:
+- Requires env var: BACKFILL_TENANT_IDS_ALLOWED=true
+- Supports dry-run:
+  - BACKFILL_DRY_RUN=true (default true)
+- Logs a detailed summary but never logs secrets.
+
+Behavior:
+1) Backfill in correct dependency order:
+   - projects first
+   - tasks second
+   - teams third
+   - users last
+2) Use safe updates:
+   - Only update rows where inferred tenantId is unambiguous
+3) Quarantine ambiguous rows:
+   - Set tenantId = quarantineTenantId
+   - And mark them archived/hidden if your schema has isActive/isArchived flags
+   - If no flags exist, add a minimal add-only boolean column isQuarantined (only if necessary)
+4) For users:
+   - Do NOT assign tenantId to super_user accounts
+   - For non-super users:
+     - If exactly one tenantId can be inferred => set it
+     - If ambiguous or cannot infer => quarantine user (or deactivate) with audit note
+5) Write audit events:
+   - “tenantId backfilled” with table name, row count
+   - “row quarantined” with counts and reasons
+
+STEP 4 — PREVENT FUTURE MISSING tenantId
+Add guardrails (minimal):
+A) Server-side validation:
+- For all tenant-scoped create endpoints (projects/tasks/teams/users):
+  - ensure tenantId is injected from effectiveTenantId/workspace and never optional
+  - reject creation if tenantId cannot be determined
+
+B) DB constraints (optional but recommended if safe):
+- Add NOT NULL constraints on tenantId for:
+  - projects, tasks, teams
+- EXCEPTION:
+  - users: allow tenantId NULL ONLY for role=super_user
+If partial constraints are hard in your DB setup, enforce via server validation + a migration comment.
+
+STEP 5 — TENANT HEALTH VERIFICATION
+After running script in dry-run, then real-run:
+- Tenant Health should show 0 rows missing tenantId
+- If quarantine exists, health should not count quarantine rows as blockers (or list them separately as “quarantined legacy rows”)
+
+TESTS
+- Add a test for each creation endpoint to ensure tenantId is always set
+- Add script unit test for inference logic on small fixtures
+
+OUTPUT REQUIRED
+- The dry-run report output format
+- How to run in Railway safely (env vars + one-off command)
+- Summary of rows backfilled vs quarantined

@@ -1,0 +1,253 @@
+You are continuing development on my existing multi-tenant React + Express app (single codebase).
+Implement Super Admin “System Status → Debug Tools” for system maintenance, focused on:
+1) Quarantined/Legacy rows review & remediation
+2) TenantId backfill tooling (safe wrappers around existing scripts)
+3) Health checks, data integrity checks, and safe maintenance utilities
+DO NOT rewrite the app. Keep changes isolated to Super Admin System Status + super-only endpoints.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change or remove existing endpoints (add-only).
+- Do NOT drop or rename DB tables/columns.
+- Do NOT automatically mutate data on page load.
+- Any destructive operation must require:
+  - super_user role
+  - a typed confirmation phrase
+  - an environment flag enabling it
+- Never expose secrets in UI/log output.
+- Strict tenant isolation must remain intact.
+
+===============================================================================
+GOAL
+===============================================================================
+Add a Super Admin maintenance console under:
+- /super/status → tab: “Debug Tools”
+
+This console provides safe diagnostics and guarded repair actions for:
+- orphan/missing tenantId data
+- quarantined legacy data
+- data integrity checks and quick support actions
+
+===============================================================================
+SECTION A — QUARANTINE MANAGER (VIEW + ASSIGN + ARCHIVE/DELETE)
+===============================================================================
+A1) Assumptions
+A prior remediation created/uses:
+- A “Quarantine / Legacy Data” tenant (inactive, hidden)
+- Quarantined rows have tenantId set to quarantineTenantId and/or isQuarantined=true
+If your system uses a different mechanism, adapt accordingly.
+
+A2) UI: Quarantine Manager
+Add a panel that shows quarantined data by table:
+- projects, tasks, teams, users (and any others you quarantined)
+Features:
+- Table selector dropdown
+- Search by ID/title/email
+- Pagination (server-side)
+- Row preview (key columns + createdAt + inferred hints)
+- Actions per row (guarded):
+  1) “Assign to tenant/workspace” (preferred fix)
+  2) “Deactivate/Archive” (non-destructive)
+  3) “Delete permanently” (dangerous; disabled by default)
+
+A3) Assignment workflow
+- For each row type, show appropriate target selectors:
+  - project: select Tenant + Workspace (+ Client optional)
+  - task: select Tenant + Project (and infer workspace via project) + Section optional
+  - team: select Tenant + Workspace
+  - user (non-super): select Tenant (+ default workspace membership if your model requires)
+Rules:
+- Validate the target belongs to the chosen tenant.
+- On save:
+  - set tenantId to selected tenant
+  - set workspaceId/projectId if required and missing
+  - unset isQuarantined / remove quarantine markers
+  - write an audit event
+
+A4) Backend endpoints (add-only; super_user only)
+- GET  /api/v1/super/debug/quarantine/summary
+  Returns counts by table:
+  { projects: n, tasks: n, teams: n, users: n, ... }
+
+- GET  /api/v1/super/debug/quarantine/list?table=tasks&page=1&limit=50&q=...
+  Returns:
+  { rows: [...], total: number }
+
+- POST /api/v1/super/debug/quarantine/assign
+  Body:
+  {
+    table: "projects"|"tasks"|"teams"|"users",
+    id: "<rowId>",
+    assignTo: {
+      tenantId: "<tenantId>",
+      workspaceId?: "<workspaceId>",
+      projectId?: "<projectId>",
+      clientId?: "<clientId>"
+    }
+  }
+
+- POST /api/v1/super/debug/quarantine/archive
+  Body: { table, id }
+  Behavior:
+  - set isActive=false or isArchived=true if those fields exist
+  - if not available, skip and only log “not supported”
+
+- POST /api/v1/super/debug/quarantine/delete (HIGH RISK)
+  Guarded by:
+  - env var: SUPER_DEBUG_DELETE_ALLOWED=true
+  - header: X-Confirm-Delete: DELETE_QUARANTINED_ROW
+  - confirm phrase typed in UI
+  Behavior:
+  - delete row only if it is currently quarantined
+  - cascade safely only if you already have cascade rules; otherwise block and show dependency list
+
+A5) Audit events
+Write events:
+- quarantine_assigned
+- quarantine_archived
+- quarantine_deleted
+Include metadata: table, rowId, previousTenantId, newTenantId, actorUserId
+
+===============================================================================
+SECTION B — TENANTID BACKFILL TOOLING (SAFE WRAPPERS)
+===============================================================================
+B1) UI: Backfill Tools
+Add a panel with:
+- “Run tenantId missing scan” (read-only)
+- “Dry-run backfill” (read-only simulation)
+- “Apply backfill” (guarded)
+
+B2) Backend endpoints (add-only)
+- GET /api/v1/super/debug/tenantid/scan
+  Returns:
+  {
+    missing: { projects: n, tasks: n, teams: n, users: n },
+    quarantineTenantId?: string,
+    notes: string[]
+  }
+
+- POST /api/v1/super/debug/tenantid/backfill?mode=dry_run|apply
+  Guards for apply:
+  - env var: BACKFILL_TENANT_IDS_ALLOWED=true
+  - header: X-Confirm-Backfill: APPLY_TENANTID_BACKFILL
+  Returns:
+  {
+    mode,
+    updated: { projects: n, tasks: n, teams: n, users: n },
+    quarantined: { ... },
+    ambiguousSamples: { table: [ids...] }
+  }
+
+Implementation:
+- Reuse the same inference logic from /server/scripts/backfill_tenant_ids.ts
+- The endpoint should call the same service functions so there is one source of truth.
+
+===============================================================================
+SECTION C — DATA INTEGRITY CHECKS (READ-ONLY)
+===============================================================================
+Add a “Integrity Checks” panel with safe scans that return issues without modifying data:
+
+C1) Checks to include
+1) Cross-tenant foreign key mismatches:
+- tasks.projectId refers to project with different tenantId
+- projects.clientId refers to client with different tenantId
+- team memberships linking across tenant boundaries (if applicable)
+
+2) Missing required relationships:
+- tasks missing projectId (if project tasks should always have one)
+- projects missing workspaceId (if required)
+- users missing tenantId when role != super_user
+
+3) Duplicate primaries:
+- more than one primary workspace per tenant (if isPrimary exists)
+
+4) Orphan invites:
+- invitations for tenant/users that no longer exist
+
+C2) Endpoint (add-only)
+- GET /api/v1/super/debug/integrity/checks
+Returns stable shape:
+{
+  issues: [
+    { code, severity: "info"|"warn"|"blocker", count, sampleIds: [] }
+  ]
+}
+
+C3) Optional guided fixes (separate, guarded)
+Do NOT auto-fix by default. If you add “Fix” buttons, they must be:
+- per-issue
+- confirm phrase + env flag
+- write audit events
+
+===============================================================================
+SECTION D — SYSTEM STATUS UTILITIES (SAFE MAINTENANCE)
+===============================================================================
+D1) Cache/Realtime checks (read-only)
+- websocket status (connected users count if available)
+- job/queue status (if any)
+- build/version info
+- db connection latency (simple SELECT 1 timing)
+
+Endpoint:
+- GET /api/v1/super/status/health (reuse if already exists)
+Expand shape additively.
+
+D2) “Recompute tenant health”
+If you have a computed health function:
+- POST /api/v1/super/debug/tenant-health/recompute?tenantId=...
+Guarded by:
+- env var: SUPER_DEBUG_ACTIONS_ALLOWED=true
+- confirm phrase header: X-Confirm-Action: RECOMPUTE_TENANT_HEALTH
+
+D3) “Invalidate caches”
+Only if you have caching:
+- POST /api/v1/super/debug/cache/invalidate
+Guarded similarly.
+
+===============================================================================
+UI/UX REQUIREMENTS
+===============================================================================
+- Put all tools under /super/status → “Debug Tools” tab
+- Each action shows:
+  - what it does
+  - whether it is enabled (env flag on/off)
+  - required confirm phrase (typed)
+- Display results in a scrollable output panel with copy button
+- Never show secrets (mask API keys; show configured flags only)
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) debug_tools_super_only.test.ts
+- non-super cannot access any /api/v1/super/debug/* endpoints
+
+2) quarantine_list_pagination.test.ts
+- list endpoint returns stable shape and paginates
+
+3) quarantine_assign_updates_tenantid.test.ts
+- assigns row to tenant correctly and writes audit event
+
+4) backfill_apply_guarded.test.ts
+- apply requires env flag + confirm header; dry-run does not mutate
+
+5) integrity_checks_shape.test.ts
+- returns stable issues array even with zero issues
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Super Admin can view quarantine summary and browse quarantined rows.
+2) Super Admin can safely assign quarantined rows to a tenant/workspace/project where appropriate.
+3) Backfill scan/dry-run/apply is available and heavily guarded.
+4) Integrity checks identify cross-tenant mismatches and missing tenantIds.
+5) All debug tools are super-only, auditable, and do not run automatically.
+6) No breaking changes; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- UI component paths added/updated
+- Endpoints added
+- Any schema changes (only if needed for audit/quarantine markers)
+- Manual maintenance checklist (recommended weekly/monthly)

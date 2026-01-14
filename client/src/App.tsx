@@ -21,6 +21,9 @@ import TimeTrackingPage from "@/pages/time-tracking";
 import LoginPage from "@/pages/login";
 import SettingsPage from "@/pages/settings";
 import SuperAdminPage from "@/pages/super-admin";
+import SuperAdminReportsPage from "@/pages/super-admin-reports";
+import SuperAdminSettingsPage from "@/pages/super-admin-settings";
+import SuperAdminStatusPage from "@/pages/super-admin-status";
 import TenantOnboardingPage from "@/pages/tenant-onboarding";
 import AccountPage from "@/pages/account";
 import UserProfilePage from "@/pages/user-profile";
@@ -85,6 +88,15 @@ function Router() {
       </Route>
       <Route path="/super-admin">
         {() => <ProtectedRoute component={SuperAdminPage} />}
+      </Route>
+      <Route path="/super-admin/reports">
+        {() => <ProtectedRoute component={SuperAdminReportsPage} />}
+      </Route>
+      <Route path="/super-admin/settings">
+        {() => <ProtectedRoute component={SuperAdminSettingsPage} />}
+      </Route>
+      <Route path="/super-admin/status">
+        {() => <ProtectedRoute component={SuperAdminStatusPage} />}
       </Route>
       <Route path="/tenant-onboarding">
         {() => <ProtectedRoute component={TenantOnboardingPage} />}

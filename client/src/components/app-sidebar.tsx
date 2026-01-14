@@ -17,6 +17,9 @@ import {
   Cog,
   Shield,
   UserCog,
+  BarChart3,
+  Activity,
+  Wrench,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -296,8 +299,41 @@ export function AppSidebar() {
                     isActive={location === "/super-admin"}
                   >
                     <Link href="/super-admin" data-testid="link-super-admin">
-                      <Shield className="h-4 w-4" />
-                      <span>Manage Tenants</span>
+                      <Building2 className="h-4 w-4" />
+                      <span>Tenants</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.startsWith("/super-admin/reports")}
+                  >
+                    <Link href="/super-admin/reports" data-testid="link-super-admin-reports">
+                      <BarChart3 className="h-4 w-4" />
+                      <span>Global Reports</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.startsWith("/super-admin/settings")}
+                  >
+                    <Link href="/super-admin/settings" data-testid="link-super-admin-settings">
+                      <Wrench className="h-4 w-4" />
+                      <span>System Settings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.startsWith("/super-admin/status")}
+                  >
+                    <Link href="/super-admin/status" data-testid="link-super-admin-status">
+                      <Activity className="h-4 w-4" />
+                      <span>System Status</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

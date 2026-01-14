@@ -768,6 +768,25 @@ export const appSettings = pgTable("app_settings", {
 ]);
 
 /**
+ * System Settings table - platform-wide configuration (single-row)
+ * Stores global defaults used when tenants haven't configured their own settings
+ */
+export const systemSettings = pgTable("system_settings", {
+  id: integer("id").primaryKey().default(1), // Single-row table, id always 1
+  defaultAppName: text("default_app_name"),
+  defaultLogoUrl: text("default_logo_url"),
+  defaultFaviconUrl: text("default_favicon_url"),
+  defaultPrimaryColor: text("default_primary_color"),
+  defaultSecondaryColor: text("default_secondary_color"),
+  supportEmail: text("support_email"),
+  platformVersion: text("platform_version"),
+  maintenanceMode: boolean("maintenance_mode").default(false),
+  maintenanceMessage: text("maintenance_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/**
  * Comment Mentions table - tracks @mentions in task comments
  * Links mentioned users to comments for notifications
  */
@@ -1351,6 +1370,24 @@ export const insertAppSettingSchema = createInsertSchema(appSettings).omit({
   updatedAt: true,
 });
 
+export const insertSystemSettingsSchema = createInsertSchema(systemSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateSystemSettingsSchema = z.object({
+  defaultAppName: z.string().optional(),
+  defaultLogoUrl: z.string().nullable().optional(),
+  defaultFaviconUrl: z.string().nullable().optional(),
+  defaultPrimaryColor: z.string().optional(),
+  defaultSecondaryColor: z.string().nullable().optional(),
+  supportEmail: z.string().email().nullable().optional(),
+  platformVersion: z.string().optional(),
+  maintenanceMode: z.boolean().optional(),
+  maintenanceMessage: z.string().nullable().optional(),
+});
+
 export const insertCommentMentionSchema = createInsertSchema(commentMentions).omit({
   id: true,
   createdAt: true,
@@ -1519,6 +1556,9 @@ export type InsertClientUserAccess = z.infer<typeof insertClientUserAccessSchema
 
 export type AppSetting = typeof appSettings.$inferSelect;
 export type InsertAppSetting = z.infer<typeof insertAppSettingSchema>;
+
+export type SystemSettings = typeof systemSettings.$inferSelect;
+export type InsertSystemSettings = z.infer<typeof insertSystemSettingsSchema>;
 
 export type CommentMention = typeof commentMentions.$inferSelect;
 export type InsertCommentMention = z.infer<typeof insertCommentMentionSchema>;

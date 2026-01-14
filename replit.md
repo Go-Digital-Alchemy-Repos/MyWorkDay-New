@@ -23,7 +23,13 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Real-time**: Socket.IO for live updates across connected clients
 
 ### Core Features and Design Patterns
-- **Multi-Tenancy**: The application supports multi-tenancy with a `tenants` table and tenant-scoped data access. A `TENANCY_ENFORCEMENT` environment variable (`off|soft|strict`) controls tenant isolation behavior, with `soft` mode logging warnings and `strict` mode blocking cross-tenant access. A Super Admin dashboard provides tools for tenant management, health monitoring, and data backfilling.
+- **Multi-Tenancy**: The application supports multi-tenancy with a `tenants` table and tenant-scoped data access. A `TENANCY_ENFORCEMENT` environment variable (`off|soft|strict`) controls tenant isolation behavior, with `soft` mode logging warnings and `strict` mode blocking cross-tenant access.
+- **Expanded Super Admin Dashboard**: The Super Admin area features 4 major sections accessible from the sidebar:
+  - **Tenants** (`/super-admin`): Tenant management with drawer-based editing, onboarding status, user invitations, branding configuration
+  - **Global Reports** (`/super-admin/reports`): Cross-tenant analytics with 5 tabs: Tenants (status/config gaps), Projects (by tenant, overdue), Users (by role, active/pending), Tasks (by status, overdue/unassigned), Time Tracking (weekly/monthly totals, top performers)
+  - **System Settings** (`/super-admin/settings`): Platform administration with 4 tabs: Platform Admins (super_user listing), Agreements (tenant compliance overview), Global Branding (default app name, colors, support email), Integrations (Mailgun/S3 status)
+  - **System Status** (`/super-admin/status`): Health monitoring with 4 tabs: System Health (database latency, S3, Mailgun, WebSocket), Tenant Health (tenancy mode, missing IDs, warning stats), Logs (external logging reference), Debug Tools (recompute health, validate isolation with confirmation dialogs)
+- **System Settings Table**: A single-row `system_settings` table (id=1) stores platform-wide defaults: defaultAppName, defaultLogoUrl, defaultFaviconUrl, defaultPrimaryColor, defaultSecondaryColor, supportEmail, platformVersion, maintenanceMode, maintenanceMessage
 - **White Label Branding**: Tenants can customize their app appearance with custom app names, logos, favicons, colors (primary/secondary/accent), and login messages. White-labeling is controlled via `whiteLabelEnabled` flag, with optional `hideVendorBranding` to remove platform branding.
 - **Per-Tenant Integrations**: Tenants can configure their own Mailgun (email) and S3 (storage) integrations with AES-256-GCM encrypted secrets. Integration status tracking (not_configured/configured/error) with test endpoints.
 - **Authentication**: Session-based authentication using Passport.js.
