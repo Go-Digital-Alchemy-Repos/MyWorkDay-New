@@ -10,6 +10,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
@@ -221,9 +232,37 @@ function getStatusBadge(status: string) {
   }
 }
 
+/**
+ * TenantDrawer - Full-screen drawer for managing tenant details
+ * 
+ * STATE FLOW:
+ * - activeTab: Controls which tab is visible, persisted to localStorage for tab retention
+ * - confirmDialog: Manages confirmation dialogs for destructive actions (suspend/deactivate/reactivate)
+ * - hasUnsavedChanges: Tracks if tenant name has been modified (triggers save prompt on close)
+ * 
+ * DATA LOADING:
+ * - Each tab has its own useQuery hook with `enabled` condition based on activeTab
+ * - This lazy-loads data only when the user switches to that tab
+ * - All queries include credentials: "include" for session auth
+ * 
+ * CONFIRMATION FLOW:
+ * - Destructive actions (suspend/deactivate/reactivate) require user confirmation
+ * - ConfirmDialog shows tenant name to prevent accidental actions on wrong tenant
+ */
 export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: TenantDrawerProps) {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("overview");
+  
+  // Tab state with localStorage persistence scoped by tenant ID
+  // This allows users to return to the same tab when reopening the drawer for the same tenant
+  const getStorageKey = (tenantId: string) => `tenantDrawerTab_${tenantId}`;
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== "undefined" && tenant?.id) {
+      return localStorage.getItem(getStorageKey(tenant.id)) || "overview";
+    }
+    return "overview";
+  });
+  
+  // Form state
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -242,12 +281,43 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   const [showTaskImportPanel, setShowTaskImportPanel] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
 
+  // Confirmation dialog state for destructive actions
+  // action: null = closed, "suspend" | "activate" | "reactivate" = which action to confirm
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    action: "suspend" | "activate" | "reactivate" | null;
+    title: string;
+    description: string;
+  }>({ open: false, action: null, title: "", description: "" });
+
+  // Reset form state when tenant changes, restore persisted tab for this tenant
   useEffect(() => {
     if (tenant) {
       setEditedName(tenant.name);
       setHasUnsavedChanges(false);
+      // Load persisted tab for this specific tenant, or default to overview
+      const storedTab = localStorage.getItem(getStorageKey(tenant.id));
+      setActiveTab(storedTab || "overview");
     }
-  }, [tenant]);
+  }, [tenant?.id]);
+
+  // Persist active tab to localStorage when it changes
+  useEffect(() => {
+    if (tenant?.id && activeTab) {
+      localStorage.setItem(getStorageKey(tenant.id), activeTab);
+    }
+  }, [activeTab, tenant?.id]);
+
+  // Scroll to top when switching tabs
+  // The drawer's scrollable container is the parent with overflow-y-auto
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    // Find the drawer's scrollable body container and scroll to top
+    const drawerContent = document.querySelector('[data-testid="full-screen-drawer"] > div.overflow-y-auto');
+    if (drawerContent) {
+      drawerContent.scrollTop = 0;
+    }
+  };
 
   const { data: workspaces = [], isLoading: workspacesLoading } = useQuery<Workspace[]>({
     queryKey: ["/api/v1/super/tenants", tenant?.id, "workspaces"],
@@ -459,11 +529,22 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      toast({ title: "Tenant activated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "health"] });
+      toast({ 
+        title: "Tenant activated", 
+        description: `"${tenant?.name}" is now active and accessible to users.` 
+      });
+      setConfirmDialog({ open: false, action: null, title: "", description: "" });
       onTenantUpdated?.();
     },
     onError: (error: any) => {
-      toast({ title: "Failed to activate tenant", description: error.message, variant: "destructive" });
+      const message = error?.message || "An unexpected error occurred. Please try again.";
+      toast({ 
+        title: "Failed to activate tenant", 
+        description: message, 
+        variant: "destructive" 
+      });
+      setConfirmDialog({ open: false, action: null, title: "", description: "" });
     },
   });
 
@@ -473,29 +554,76 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      toast({ title: "Tenant suspended" });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "health"] });
+      toast({ 
+        title: "Tenant suspended", 
+        description: `"${tenant?.name}" has been suspended. Users cannot access the platform.` 
+      });
+      setConfirmDialog({ open: false, action: null, title: "", description: "" });
       onTenantUpdated?.();
     },
     onError: (error: any) => {
-      toast({ title: "Failed to suspend tenant", description: error.message, variant: "destructive" });
+      const message = error?.message || "An unexpected error occurred. Please try again.";
+      toast({ 
+        title: "Failed to suspend tenant", 
+        description: message, 
+        variant: "destructive" 
+      });
+      setConfirmDialog({ open: false, action: null, title: "", description: "" });
     },
   });
+
+  // Helper to open confirmation dialog for status changes
+  const openConfirmDialog = (action: "suspend" | "activate" | "reactivate") => {
+    const configs = {
+      suspend: {
+        title: "Suspend Tenant",
+        description: `Are you sure you want to suspend "${tenant?.name}"? Users will lose access to the platform until the tenant is reactivated.`,
+      },
+      activate: {
+        title: "Activate Tenant",
+        description: `Are you sure you want to activate "${tenant?.name}"? This will make the tenant live and allow users to access the platform.`,
+      },
+      reactivate: {
+        title: "Reactivate Tenant",
+        description: `Are you sure you want to reactivate "${tenant?.name}"? Users will regain access to the platform.`,
+      },
+    };
+    setConfirmDialog({ open: true, action, ...configs[action] });
+  };
+
+  // Execute the confirmed action
+  const handleConfirmAction = () => {
+    if (confirmDialog.action === "suspend") {
+      suspendMutation.mutate();
+    } else if (confirmDialog.action === "activate" || confirmDialog.action === "reactivate") {
+      activateMutation.mutate();
+    }
+  };
 
   const inviteAdminMutation = useMutation({
     mutationFn: async (data: { email: string; firstName?: string; lastName?: string; inviteType: "link" | "email" }) => {
       const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/invite-admin`, data);
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       setLastInviteUrl(data.inviteUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      toast({ title: "Invitation created", description: "Admin invitation created successfully" });
+      toast({ 
+        title: "Invitation created", 
+        description: `Invite link generated for ${variables.email}. Copy and share with the administrator.` 
+      });
       setInviteEmail("");
       setInviteFirstName("");
       setInviteLastName("");
     },
     onError: (error: any) => {
-      toast({ title: "Failed to invite admin", description: error.message, variant: "destructive" });
+      const message = error?.message || "An unexpected error occurred. Please try again.";
+      toast({ 
+        title: "Failed to invite admin", 
+        description: message, 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -615,19 +743,19 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
             {tenant.status === "inactive" && (
               <Button 
                 size="sm" 
-                onClick={() => activateMutation.mutate()}
+                onClick={() => openConfirmDialog("activate")}
                 disabled={activateMutation.isPending}
                 data-testid="button-activate-tenant"
               >
                 <PlayCircle className="h-4 w-4 mr-2" />
-                {activateMutation.isPending ? "Activating..." : "Activate"}
+                Activate
               </Button>
             )}
             {tenant.status === "active" && (
               <Button 
                 size="sm" 
                 variant="outline"
-                onClick={() => suspendMutation.mutate()}
+                onClick={() => openConfirmDialog("suspend")}
                 disabled={suspendMutation.isPending}
                 data-testid="button-suspend-tenant"
               >
@@ -638,7 +766,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
             {tenant.status === "suspended" && (
               <Button 
                 size="sm" 
-                onClick={() => activateMutation.mutate()}
+                onClick={() => openConfirmDialog("reactivate")}
                 disabled={activateMutation.isPending}
                 data-testid="button-reactivate-tenant"
               >
@@ -649,7 +777,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="overview" data-testid="tab-overview">
               <Building2 className="h-4 w-4 mr-2" />
@@ -1745,6 +1873,52 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Confirmation Dialog for destructive actions (suspend/activate/reactivate) */}
+      <AlertDialog 
+        open={confirmDialog.open} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmDialog({ open: false, action: null, title: "", description: "" });
+          }
+        }}
+      >
+        <AlertDialogContent data-testid="confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle data-testid="confirm-dialog-title">
+              {confirmDialog.title}
+            </AlertDialogTitle>
+            <AlertDialogDescription data-testid="confirm-dialog-description">
+              {confirmDialog.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              disabled={activateMutation.isPending || suspendMutation.isPending}
+              data-testid="confirm-dialog-cancel"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmAction}
+              disabled={activateMutation.isPending || suspendMutation.isPending}
+              className={confirmDialog.action === "suspend" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+              data-testid="confirm-dialog-confirm"
+            >
+              {(activateMutation.isPending || suspendMutation.isPending) ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                confirmDialog.action === "suspend" ? "Suspend Tenant" :
+                confirmDialog.action === "activate" ? "Activate Tenant" :
+                "Reactivate Tenant"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </FullScreenDrawer>
   );
 }
@@ -1785,5 +1959,34 @@ function OnboardingStepItem({ step, title, description, completed, active, actio
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * TabLoadingSkeleton - Consistent loading skeleton for tab content
+ * Used to show a placeholder while tab data is being fetched
+ */
+function TabLoadingSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-4 w-48 mt-1" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <div className="space-y-1">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+            <Skeleton className="h-6 w-16" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

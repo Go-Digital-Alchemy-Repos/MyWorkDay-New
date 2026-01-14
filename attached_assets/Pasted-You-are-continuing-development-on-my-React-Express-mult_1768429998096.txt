@@ -1,0 +1,181 @@
+You are continuing development on my React + Express multi-tenant app.
+MINI PROMPT D: Standardize API error responses across the backend (non-breaking) and improve client error handling.
+This must be SAFE: do not break existing clients and do not change endpoint contracts in a breaking way.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename any endpoints.
+- Do NOT change endpoint paths.
+- Do NOT change success response shapes.
+- Do NOT change DB schema.
+- Error standardization must be additive/compatible:
+  - endpoints that already return specific shapes must continue to work
+- Do NOT leak secrets in error messages.
+- Keep changes focused: middleware, error utilities, and minimal per-route edits only where required.
+
+===============================================================================
+GOAL
+===============================================================================
+1) Establish a consistent backend error format for all API routes:
+   - predictable JSON keys
+   - stable error codes
+   - consistent HTTP status usage
+2) Preserve backward compatibility:
+   - existing error shapes still returned where explicitly relied upon
+   - new standardized fields added without removing old fields
+3) Improve frontend error handling to:
+   - display meaningful messages
+   - handle auth/tenancy/agreement errors consistently
+   - support toasts/inline errors from a single utility
+
+===============================================================================
+STANDARD ERROR ENVELOPE (NEW)
+===============================================================================
+Adopt a standard envelope for ALL API errors, whenever possible:
+{
+  error: {
+    code: "STRING_CODE",
+    message: "Human readable message",
+    status: 400,
+    requestId: "uuid-or-trace-id",
+    details?: any
+  }
+}
+
+Rules:
+- code is stable and machine-readable (e.g., "VALIDATION_ERROR", "UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "TENANT_REQUIRED", "AGREEMENT_REQUIRED", "RATE_LIMITED", "INTERNAL_ERROR")
+- message is safe to show to users (no stack traces)
+- requestId present to correlate logs (create if missing)
+- details optional; never include secrets
+
+Backward compatibility:
+- If an endpoint currently returns { message: "..."} or { error: "..." } keep it,
+  but ADD the standard envelope alongside it.
+
+===============================================================================
+STEP 1 — REQUEST ID + ERROR UTILS
+===============================================================================
+1) Add requestId middleware early in the Express stack:
+- attaches req.requestId
+- sets response header X-Request-Id
+- if inbound request already has X-Request-Id, reuse it
+
+2) Create error utility helpers:
+- server/utils/apiError.ts
+Include:
+- class ApiError extends Error { code, status, details? }
+- function toErrorResponse(err, req) => standardized envelope
+- helper constructors:
+  - badRequest(code, message, details?)
+  - unauthorized(...)
+  - forbidden(...)
+  - notFound(...)
+  - conflict(...)
+  - validationError(...)
+  - internalError(...)
+
+===============================================================================
+STEP 2 — CENTRAL ERROR HANDLER (NON-BREAKING)
+===============================================================================
+Update the global Express error handler to:
+- convert thrown ApiError and known errors into the standard envelope
+- for unknown errors:
+  - return status 500
+  - code "INTERNAL_ERROR"
+  - log server-side with requestId
+- NEVER throw from error handler
+- ALWAYS include requestId
+
+Compatibility:
+- If a route already sends a specific error shape, do not remove it.
+- Prefer routes to throw ApiError rather than res.status().json(...) over time (gradual migration).
+
+===============================================================================
+STEP 3 — INPUT VALIDATION ERRORS (CONSISTENT)
+===============================================================================
+Where validation exists (zod/validator/manual checks):
+- convert validation failures to:
+  status 400
+  code "VALIDATION_ERROR"
+  include safe field errors in error.details (e.g., { fieldErrors: { email: "invalid" } })
+
+Do NOT add validation broadly in this prompt; only standardize where it already exists or is clearly missing and low-risk.
+
+===============================================================================
+STEP 4 — AGREEMENT / TENANCY / AUTH ERROR CONSISTENCY
+===============================================================================
+Standardize key system errors:
+- Auth missing/invalid => 401 code "UNAUTHORIZED"
+- Forbidden role => 403 code "FORBIDDEN"
+- Tenant context missing => 400 or 403 (match current strategy) code "TENANT_REQUIRED"
+- Agreement gating => keep current HTTP status (403 or 451), but ensure code is "AGREEMENT_REQUIRED"
+- Not found => 404 code "NOT_FOUND"
+
+IMPORTANT:
+- Do not change the existing HTTP statuses if the frontend relies on them.
+- Only add the error envelope + stable code.
+
+===============================================================================
+STEP 5 — FRONTEND ERROR HANDLING (LIGHTWEIGHT)
+===============================================================================
+1) Create a single error parsing utility:
+- client/src/utils/parseApiError.ts
+It should accept unknown errors (fetch/axios/query) and return:
+{ code, message, status, requestId?, details? }
+
+2) Update fetch/query wrappers (TanStack Query error handlers, etc.) to use parseApiError:
+- show toasts with message
+- if code="UNAUTHORIZED": redirect to login if appropriate
+- if code="AGREEMENT_REQUIRED": show a consistent CTA (View Agreement)
+- if code="TENANT_REQUIRED": show CTA to select tenant (for super mode)
+
+Do NOT refactor entire UI; only update the central request wrapper / query error boundary so errors become consistent.
+
+===============================================================================
+STEP 6 — TESTS (MANDATORY MINIMUM)
+===============================================================================
+Add/update backend tests:
+1) error_envelope_includes_request_id.test.ts
+- every error response includes error.requestId and X-Request-Id header
+
+2) validation_error_shape.test.ts
+- returns code VALIDATION_ERROR with details
+
+3) agreement_error_code_stable.test.ts
+- agreement gating includes code AGREEMENT_REQUIRED (status unchanged)
+
+4) unauthorized_error_code_stable.test.ts
+- includes code UNAUTHORIZED
+
+Frontend (if you have testing infra):
+- parseApiError handles:
+  - old shapes (message/error string)
+  - new envelope
+  - network errors
+
+===============================================================================
+DOCUMENTATION STANDARD (REQUIRED)
+===============================================================================
+- Add /docs/ERROR_HANDLING.md describing:
+  - standard envelope
+  - stable error codes
+  - requestId usage
+  - compatibility policy (“add, don’t break”)
+- Add header comments in apiError.ts and error middleware explaining invariants.
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Every backend error response includes the new standard envelope (or is compatible with it) and a requestId.
+2) No existing clients break; success payloads unchanged.
+3) Agreement/auth/tenant errors have stable error codes.
+4) Frontend displays errors consistently via a single utility.
+5) Tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Files changed (server + client)
+- List of stable error codes
+- Manual test checklist (login error, forbidden, agreement required, validation error)
