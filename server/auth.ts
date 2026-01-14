@@ -4,10 +4,13 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
+import { db } from "./db";
+import { users, UserRole } from "@shared/schema";
 import type { User } from "@shared/schema";
 import type { Express, RequestHandler } from "express";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
+import { sql } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
@@ -185,6 +188,77 @@ export function setupAuth(app: Express): void {
       workspaceId: req.session.workspaceId,
       tenantId: user?.tenantId || null,
     });
+  });
+
+  /**
+   * Registration endpoint with first-user bootstrap
+   * The first user to register becomes a Super Admin automatically
+   * Subsequent users get the default role (employee)
+   * 
+   * SECURITY: The role field is NEVER accepted from the client.
+   * The role is determined automatically based on whether users exist.
+   */
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const { email, password, firstName, lastName } = req.body;
+
+      // Validate required fields
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+
+      if (password.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+
+      // Check if email is already in use
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+
+      // Atomic check: is this the first user? (with transaction for concurrency safety)
+      const result = await db.transaction(async (tx) => {
+        // Count existing users within transaction
+        const countResult = await tx.execute(sql`SELECT COUNT(*)::int as count FROM users`);
+        const userCount = (countResult.rows[0] as { count: number }).count;
+        
+        // Determine role: first user becomes super_user, others get employee
+        const role = userCount === 0 ? UserRole.SUPER_USER : UserRole.EMPLOYEE;
+        
+        // Hash password
+        const passwordHash = await hashPassword(password);
+        
+        // Create user
+        const [newUser] = await tx.insert(users).values({
+          email,
+          name: `${firstName || ""} ${lastName || ""}`.trim() || email,
+          firstName: firstName || null,
+          lastName: lastName || null,
+          passwordHash,
+          role,
+          isActive: true,
+          tenantId: null,
+        }).returning();
+
+        return { user: newUser, isFirstUser: userCount === 0 };
+      });
+
+      // Don't expose password hash in response
+      const { passwordHash: _, ...userWithoutPassword } = result.user;
+
+      console.log(`[auth] User registered: ${email}, role: ${result.user.role}${result.isFirstUser ? " (first user - auto super admin)" : ""}`);
+
+      res.status(201).json({ 
+        user: userWithoutPassword,
+        message: result.isFirstUser 
+          ? "Account created. You are the first user and have been granted Super Admin access."
+          : "Account created successfully."
+      });
+    } catch (error) {
+      console.error("[auth] Registration error:", error);
+      res.status(500).json({ error: "Registration failed" });
+    }
   });
 }
 

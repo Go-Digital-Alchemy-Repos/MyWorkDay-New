@@ -1,0 +1,99 @@
+You are continuing development on my existing multi-tenant React + Express app.
+Implement authentication bootstrap + a CONTROLLED “purge app data” operation.
+DO NOT rewrite the app. Do this safely with explicit guards to avoid accidental production data loss.
+
+===============================================================================
+ABSOLUTE SAFETY RULES
+===============================================================================
+- Do NOT remove or rename existing endpoints.
+- Do NOT change database schema.
+- The purge must NOT run automatically on startup.
+- The purge must be gated behind explicit environment flags + confirmation.
+- Never log passwords, tokens, secrets, or reset codes.
+
+===============================================================================
+GOALS
+===============================================================================
+A) Bootstrap rule: FIRST user to register becomes Super Admin automatically (only if no users exist)
+B) After first Super Admin exists:
+   - No other user can become Super Admin automatically
+   - Only a Super Admin can promote another user to Super Admin
+C) Add a controlled “PURGE APP DATA” tool that deletes ALL application records:
+   - users, tenants, invitations, teams, workspaces, clients, contacts, projects, tasks, subtasks, comments, attachments, time entries, settings, etc.
+   - This is a DATA PURGE only (tables remain). After purge, the app behaves like a fresh install.
+
+===============================================================================
+PART 1 — FIRST USER BOOTSTRAP: AUTO SUPER ADMIN
+===============================================================================
+Behavior:
+- If users table is empty at registration time:
+  - create the user with role="super_user"
+- Otherwise:
+  - create user with a normal role (admin/employee/client according to your system defaults)
+- The /register endpoint must NEVER accept role="super_user" from the client.
+
+Concurrency safety:
+- Implement with a transaction and an atomic “is first user” check to avoid race conditions.
+
+===============================================================================
+PART 2 — CONTROLLED PURGE (DATA ONLY, TABLES REMAIN)
+===============================================================================
+Add a server-side script (preferred):
+/server/scripts/purge_app_data.ts
+
+It must:
+- Require env var: PURGE_APP_DATA_ALLOWED=true
+- Require env var: PURGE_APP_DATA_CONFIRM="YES_PURGE_APP_DATA"
+- Refuse to run if NODE_ENV="production" unless PURGE_PROD_ALLOWED=true (default false)
+- Truncate or delete all application tables in a FK-safe order.
+- Reset sequences/identities where applicable.
+- Output a summary of tables purged.
+
+Optionally also add a protected endpoint (only if you want):
+POST /api/v1/super/system/purge-app-data
+- super_user only
+- requires header: X-Confirm-Purge: YES_PURGE_APP_DATA
+- requires PURGE_APP_DATA_ALLOWED=true
+- disabled in production unless PURGE_PROD_ALLOWED=true
+
+IMPORTANT:
+- This purge is intended to remove: users/tenants/clients/projects/tasks/time entries/etc.
+- It should NOT remove migrations tables or internal DB metadata tables.
+- It must not delete audit/system tables if you rely on them for diagnostics; if those are app-level too, purge them as well.
+
+===============================================================================
+PART 3 — FRONTEND / UX
+===============================================================================
+- No UI button for purge in normal tenant/admin UI.
+- (Optional) If you already have a super admin “System” area, you may add a purge button ONLY if it requires re-typing the confirm phrase.
+- Otherwise, keep purge script-only.
+
+===============================================================================
+PART 4 — TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) bootstrap_first_user_super_admin.test.ts
+- empty DB: first register => role=super_user
+2) bootstrap_second_user_not_super_admin.test.ts
+- after first exists: second register => not super_user
+3) cannot_register_as_super_admin.test.ts
+- role=super_user in payload is ignored/rejected
+4) purge_guard.test.ts
+- purge script refuses without env flags/confirm
+5) purge_effect.test.ts
+- after purge, users table empty and bootstrap works again
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) First user becomes Super Admin only when users table is empty.
+2) No later user becomes Super Admin automatically.
+3) Purge removes all app records (users/tenants/clients/projects/tasks/etc.) but keeps schema intact.
+4) Purge never runs automatically and is heavily guarded.
+5) Tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- purge script location and exact env vars required
+- list of tables purged
+- manual steps to run purge locally and on Railway safely
