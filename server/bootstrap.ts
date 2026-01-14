@@ -1,10 +1,18 @@
-import { db } from "./db";
-import { users, workspaces, workspaceMembers, teams } from "@shared/schema";
-import { hashPassword } from "./auth";
-import { eq, and } from "drizzle-orm";
+/**
+ * Bootstrap Script
+ * 
+ * This script ensures basic infrastructure exists for the app to function.
+ * It does NOT create any users - the first user to register becomes Super Admin.
+ * 
+ * Creates:
+ * - Default workspace (for demo/legacy compatibility)
+ * - Default teams
+ */
 
-const ADMIN_EMAIL = "admin@dasana.com";
-const ADMIN_PASSWORD = "admin123";
+import { db } from "./db";
+import { workspaces, teams } from "@shared/schema";
+import { eq } from "drizzle-orm";
+
 const DEFAULT_WORKSPACE_ID = "demo-workspace-id";
 
 const DEFAULT_TEAMS = [
@@ -15,67 +23,21 @@ const DEFAULT_TEAMS = [
 
 export async function bootstrapAdminUser(): Promise<void> {
   try {
-    let adminId = "admin-user-id";
-    
-    const existingAdmin = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL)).limit(1);
-    
-    if (existingAdmin.length === 0) {
-      console.log("[bootstrap] Creating admin user...");
-      
-      const passwordHash = await hashPassword(ADMIN_PASSWORD);
-      
-      const [admin] = await db.insert(users).values({
-        id: adminId,
-        email: ADMIN_EMAIL,
-        name: "Admin User",
-        firstName: "Admin",
-        lastName: "User",
-        passwordHash,
-        role: "super_user",
-        isActive: true,
-      }).returning();
-      
-      adminId = admin.id;
-      console.log("[bootstrap] Admin user created with super_user role");
-    } else {
-      adminId = existingAdmin[0].id;
-      
-      if (existingAdmin[0].role !== "super_user") {
-        await db.update(users).set({ role: "super_user" }).where(eq(users.id, adminId));
-        console.log("[bootstrap] Admin user upgraded to super_user role");
-      } else {
-        console.log("[bootstrap] Admin user already exists with super_user role");
-      }
-    }
+    console.log("[bootstrap] Checking infrastructure...");
 
+    // Ensure default workspace exists (for demo/legacy compatibility)
     const existingWorkspace = await db.select().from(workspaces).where(eq(workspaces.id, DEFAULT_WORKSPACE_ID)).limit(1);
     
     if (existingWorkspace.length === 0) {
       console.log("[bootstrap] Creating default workspace...");
       await db.insert(workspaces).values({
         id: DEFAULT_WORKSPACE_ID,
-        name: "DASANA Workspace",
-        createdBy: adminId,
+        name: "Default Workspace",
+        createdBy: null,
       });
     }
 
-    const existingMembership = await db.select().from(workspaceMembers)
-      .where(and(
-        eq(workspaceMembers.userId, adminId),
-        eq(workspaceMembers.workspaceId, DEFAULT_WORKSPACE_ID)
-      ))
-      .limit(1);
-    
-    if (existingMembership.length === 0) {
-      console.log("[bootstrap] Adding admin to workspace...");
-      await db.insert(workspaceMembers).values({
-        workspaceId: DEFAULT_WORKSPACE_ID,
-        userId: adminId,
-        role: "owner",
-        status: "active",
-      });
-    }
-
+    // Ensure default teams exist
     for (const team of DEFAULT_TEAMS) {
       const existingTeam = await db.select().from(teams).where(eq(teams.id, team.id)).limit(1);
       
@@ -90,7 +52,7 @@ export async function bootstrapAdminUser(): Promise<void> {
     }
 
     console.log("[bootstrap] Bootstrap complete");
-    console.log("[bootstrap] Login: admin@dasana.com / admin123");
+    console.log("[bootstrap] First user to register becomes Super Admin");
   } catch (error) {
     console.error("[bootstrap] Error during bootstrap:", error);
   }

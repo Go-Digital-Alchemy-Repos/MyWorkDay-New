@@ -28,30 +28,34 @@ const CONFIRM_PHRASE = "YES_PURGE_APP_DATA";
 // This order respects foreign key constraints
 const TABLES_TO_PURGE = [
   // Child tables (most dependent first)
-  "user_sessions",           // Session data
-  "task_comments",           // Task comments
-  "task_attachments",        // Task attachments  
-  "subtasks",                // Subtasks
-  "task_assignees",          // Task assignees (many-to-many)
-  "task_tags",               // Task tags (many-to-many)
-  "time_entries",            // Time tracking entries
-  "activity_logs",           // Activity logs
-  "personal_task_sections",  // Personal task sections
-  "tasks",                   // Tasks
-  "tags",                    // Tags
-  "sections",                // Project sections
-  "projects",                // Projects
-  "client_contacts",         // Client contacts
-  "clients",                 // Clients (CRM)
-  "team_members",            // Team members
-  "teams",                   // Teams
-  "workspace_members",       // Workspace members
-  "workspaces",              // Workspaces
-  "invitations",             // Tenant invitations
-  "tenant_integrations",     // Tenant integrations
-  "tenant_settings",         // Tenant settings
-  "users",                   // Users (before tenants due to owner reference)
-  "tenants",                 // Tenants (top-level)
+  "user_sessions",              // Session data
+  "tenant_agreement_acceptances", // Agreement acceptances
+  "tenant_agreements",          // Tenant agreements
+  "task_comments",              // Task comments
+  "task_attachments",           // Task attachments  
+  "subtasks",                   // Subtasks
+  "task_assignees",             // Task assignees (many-to-many)
+  "task_tags",                  // Task tags (many-to-many)
+  "time_entries",               // Time tracking entries
+  "active_timers",              // Active timers
+  "activity_logs",              // Activity logs
+  "personal_task_sections",     // Personal task sections
+  "tasks",                      // Tasks
+  "tags",                       // Tags
+  "sections",                   // Project sections
+  "projects",                   // Projects
+  "client_invites",             // Client portal invites
+  "client_contacts",            // Client contacts
+  "clients",                    // Clients (CRM)
+  "team_members",               // Team members
+  "teams",                      // Teams
+  "workspace_members",          // Workspace members
+  "workspaces",                 // Workspaces
+  "invitations",                // Tenant invitations
+  "tenant_integrations",        // Tenant integrations
+  "tenant_settings",            // Tenant settings
+  "users",                      // Users (before tenants due to owner reference)
+  "tenants",                    // Tenants (top-level)
 ] as const;
 
 // Tables to NEVER purge (internal/system tables)

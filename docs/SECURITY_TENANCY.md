@@ -195,6 +195,71 @@ POST /api/super/tenancy-health/backfill
 2. Check for data corruption (wrong tenant assignment)
 3. Super users: ensure correct `X-Tenant-Id` header
 
+## SaaS Agreement Enforcement
+
+### Overview
+
+Tenants can require users to accept a Terms of Service / SaaS Agreement before accessing the application. This is enforced at the middleware level.
+
+### How It Works
+
+1. Tenant admin creates and publishes an agreement via `/api/v1/tenant/agreement`
+2. Agreement has status: `draft` → `active` → `archived`
+3. Only ONE active agreement per tenant at a time
+4. Publishing a new version archives the previous active agreement
+
+### Agreement Gating
+
+When an active agreement exists:
+- Authenticated users must accept before accessing protected routes
+- Gated users receive HTTP 451 with `code: AGREEMENT_REQUIRED`
+- Frontend redirects to `/accept-terms` page
+
+### Exempt Routes (Always Allowed)
+
+These routes bypass agreement enforcement:
+
+| Route Pattern | Purpose |
+|---------------|---------|
+| `/api/auth/*` | Authentication |
+| `/api/v1/me/agreement/*` | Check/accept agreement |
+| `/api/v1/tenant/onboarding/*` | Tenant setup |
+| `/api/v1/invitations/*` | User invitations |
+| `/api/v1/super/*` | Super admin operations |
+| `/api/user` | Current user info |
+| Static assets (`.js`, `.css`, etc.) | Frontend resources |
+
+### Super Admin Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| Super user direct access | ✅ Bypasses agreement check |
+| Super user "acting as tenant" via X-Tenant-Id | ✅ Still bypasses (role-based) |
+
+**Rationale**: Super admins need unrestricted access for support/debugging. Agreement enforcement is role-based, not tenant-based.
+
+### Version Bump Re-gating
+
+When a new agreement version is published:
+1. Previous active agreement is archived
+2. All existing acceptances remain (for audit trail)
+3. Users must accept the NEW version
+4. Check is: `agreementId + version` match required
+
+### Tenant Isolation
+
+- `/api/v1/me/agreement/status` only returns current user's tenant agreement
+- `/api/v1/me/agreement/accept` validates agreement belongs to user's tenant
+- Cross-tenant access returns 404 (agreement not found)
+
+### Acceptance Tracking
+
+Each acceptance records:
+- `userId`, `agreementId`, `version`
+- `ipAddress`, `userAgent` (for audit)
+- `acceptedAt` timestamp
+- Unique constraint: one acceptance per (tenant, user, agreement, version)
+
 ## Security Best Practices
 
 1. **Always use strict mode in production**

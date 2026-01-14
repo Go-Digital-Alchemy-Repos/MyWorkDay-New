@@ -33,11 +33,15 @@ const EXEMPT_ROUTE_PATTERNS = [
   /\.svg$/,
   /\.woff/,
   /\.ttf$/,
+  /\.html$/,
+  /\.map$/,
 ];
 
 const EXEMPT_EXACT_ROUTES = [
   "/api/user",
   "/api/v1/me/avatar",
+  "/api/auth/me",
+  "/api/auth/logout",
 ];
 
 function isExemptRoute(path: string): boolean {
