@@ -75,4 +75,33 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **FullCalendar**: Calendar view for tasks.
 - **Passport.js**: Session-based authentication.
 - **Railway**: Deployment platform.
-- **openssl**: Used for generating encryption keys.
+
+## Security Configuration
+
+### Encryption for Secrets Storage
+The application uses AES-256-GCM encryption for storing sensitive integration secrets (API keys, credentials) in the database.
+
+**Required Environment Variable:**
+- `APP_ENCRYPTION_KEY`: A 32-byte base64-encoded key used for encrypting/decrypting secrets
+
+**Generate Key:**
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+**Features:**
+- Secrets are encrypted before database storage
+- API responses mask secrets (show last 4 chars: `••••XXXX`)
+- Encryption status visible in Super Admin System Health
+- Warning banner shown in Integrations UI when key not configured
+
+### Required Environment Variables for Production
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `SESSION_SECRET` | Yes | Session signing secret |
+| `APP_ENCRYPTION_KEY` | Yes | 32-byte base64 key for secrets encryption |
+| `NODE_ENV` | Recommended | Set to `production` for secure cookies |
+| `TRUST_PROXY` | Recommended | Set to `true` for Railway/reverse proxy setups |
+| `GOOGLE_CLIENT_ID` | Optional | For Google OAuth login |
+| `GOOGLE_CLIENT_SECRET` | Optional | For Google OAuth login |
