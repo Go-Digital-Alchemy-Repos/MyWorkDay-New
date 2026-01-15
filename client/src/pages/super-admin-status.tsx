@@ -170,6 +170,45 @@ interface AuthDiagnosticsData {
   lastAuthCheck: string;
 }
 
+interface StatusSummary {
+  ok: boolean;
+  requestId: string;
+  timestamp: string;
+  checks: {
+    db: {
+      status: "ok" | "failed";
+      latencyMs: number;
+      error?: string;
+    };
+    migrations: {
+      version: string | null;
+      available: boolean;
+    };
+    s3: {
+      configured: boolean;
+      presign: "ok" | "failed" | "not_tested";
+      error?: string;
+    };
+    mailgun: {
+      configured: boolean;
+    };
+    auth: {
+      cookieSecure: boolean;
+      cookieHttpOnly: boolean;
+      cookieSameSite: string;
+      trustProxy: boolean;
+      sessionSecretSet: boolean;
+      environment: string;
+    };
+    orphanCounts: {
+      totalMissing: number;
+      totalQuarantined: number;
+      byTable: Record<string, number>;
+      error?: string;
+    };
+  };
+}
+
 function StatusIcon({ status }: { status: "healthy" | "unhealthy" | "unknown" | "not_configured" }) {
   switch (status) {
     case "healthy":
@@ -1642,6 +1681,11 @@ export default function SuperAdminStatusPage() {
     refetchInterval: 30000,
   });
 
+  const { data: statusSummary, isLoading: statusLoading, refetch: refetchStatus } = useQuery<StatusSummary>({
+    queryKey: ["/api/v1/super/status/summary"],
+    enabled: activeTab === "health",
+  });
+
   const { data: tenancyHealth, isLoading: tenancyLoading, refetch: refetchTenancy } = useQuery<TenancyHealth>({
     queryKey: ["/api/v1/super/tenancy/health"],
     enabled: activeTab === "tenant-health",
@@ -1826,6 +1870,170 @@ export default function SuperAdminStatusPage() {
                   </CardContent>
                 </Card>
               )}
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                  <div>
+                    <CardTitle>Detailed Status Summary</CardTitle>
+                    <CardDescription>
+                      Comprehensive system diagnostics including migrations, presign tests, and orphan counts
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => refetchStatus()}
+                    disabled={statusLoading}
+                    data-testid="button-refresh-status-summary"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${statusLoading ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {statusLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : statusSummary ? (
+                    <div className="space-y-6">
+                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        <div className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Database className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Database</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <Badge variant={statusSummary.checks.db.status === "ok" ? "default" : "destructive"}>
+                              {statusSummary.checks.db.status}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              {statusSummary.checks.db.latencyMs}ms
+                            </span>
+                          </div>
+                          {statusSummary.checks.db.error && (
+                            <p className="text-xs text-destructive mt-2">{statusSummary.checks.db.error}</p>
+                          )}
+                        </div>
+
+                        <div className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Server className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Migrations</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <Badge variant={statusSummary.checks.migrations.available ? "default" : "secondary"}>
+                              {statusSummary.checks.migrations.available ? "Available" : "Unknown"}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {statusSummary.checks.migrations.version || "N/A"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <HardDrive className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">S3 Storage</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={statusSummary.checks.s3.configured ? "default" : "secondary"}>
+                              {statusSummary.checks.s3.configured ? "Configured" : "Not Configured"}
+                            </Badge>
+                            {statusSummary.checks.s3.configured && (
+                              <Badge variant={statusSummary.checks.s3.presign === "ok" ? "default" : "destructive"}>
+                                Presign: {statusSummary.checks.s3.presign}
+                              </Badge>
+                            )}
+                          </div>
+                          {statusSummary.checks.s3.error && (
+                            <p className="text-xs text-destructive mt-2">{statusSummary.checks.s3.error}</p>
+                          )}
+                        </div>
+
+                        <div className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Mail className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Mailgun</span>
+                          </div>
+                          <Badge variant={statusSummary.checks.mailgun.configured ? "default" : "secondary"}>
+                            {statusSummary.checks.mailgun.configured ? "Configured" : "Not Configured"}
+                          </Badge>
+                        </div>
+
+                        <div className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Lock className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Auth Config</span>
+                          </div>
+                          <div className="space-y-1 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">Environment</span>
+                              <span className="font-medium">{statusSummary.checks.auth.environment}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">Cookie Secure</span>
+                              <Badge variant={statusSummary.checks.auth.cookieSecure ? "default" : "secondary"} className="text-xs">
+                                {statusSummary.checks.auth.cookieSecure ? "Yes" : "No"}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">Session Secret</span>
+                              <Badge variant={statusSummary.checks.auth.sessionSecretSet ? "default" : "destructive"} className="text-xs">
+                                {statusSummary.checks.auth.sessionSecretSet ? "Set" : "Not Set"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Orphan Records</span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Missing TenantID</span>
+                              <Badge variant={statusSummary.checks.orphanCounts.totalMissing > 0 ? "destructive" : "default"}>
+                                {statusSummary.checks.orphanCounts.totalMissing}
+                              </Badge>
+                            </div>
+                            {statusSummary.checks.orphanCounts.totalMissing > 0 && (
+                              <details className="text-xs">
+                                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                                  View by table
+                                </summary>
+                                <div className="mt-2 space-y-1 pl-2 border-l">
+                                  {Object.entries(statusSummary.checks.orphanCounts.byTable)
+                                    .filter(([, count]) => count > 0)
+                                    .map(([table, count]) => (
+                                      <div key={table} className="flex justify-between">
+                                        <span>{table}</span>
+                                        <span className="font-medium">{count}</span>
+                                      </div>
+                                    ))
+                                  }
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                          {statusSummary.checks.orphanCounts.error && (
+                            <p className="text-xs text-destructive mt-2">{statusSummary.checks.orphanCounts.error}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-4">
+                        <span>Last checked: {new Date(statusSummary.timestamp).toLocaleString()}</span>
+                        <span>Request ID: {statusSummary.requestId}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      Unable to fetch status summary
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
