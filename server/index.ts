@@ -4,7 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeSocketIO } from "./realtime/socket";
-import { setupAuth, setupBootstrapEndpoints, setupPlatformInviteEndpoints } from "./auth";
+import { setupAuth, setupBootstrapEndpoints, setupPlatformInviteEndpoints, setupGoogleAuth } from "./auth";
 import { bootstrapAdminUser } from "./bootstrap";
 import { tenantContextMiddleware } from "./middleware/tenantContext";
 import { agreementEnforcementGuard } from "./middleware/agreementEnforcement";
@@ -47,6 +47,9 @@ setupBootstrapEndpoints(app);
 
 // Setup platform invite endpoints (for platform admin onboarding)
 setupPlatformInviteEndpoints(app);
+
+// Setup Google OAuth endpoints (must be after session middleware)
+setupGoogleAuth(app);
 
 // Setup tenant context middleware (must be after auth)
 app.use(tenantContextMiddleware);

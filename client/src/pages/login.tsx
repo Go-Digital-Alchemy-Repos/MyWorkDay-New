@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, LogIn, UserPlus, Shield } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
+import { Separator } from "@/components/ui/separator";
 
 interface BootstrapStatus {
   bootstrapRequired: boolean;
+}
+
+interface GoogleAuthStatus {
+  enabled: boolean;
 }
 
 export default function LoginPage() {
@@ -21,9 +27,26 @@ export default function LoginPage() {
   const [showBootstrap, setShowBootstrap] = useState(false);
   const [bootstrapRequired, setBootstrapRequired] = useState(false);
   const [isCheckingBootstrap, setIsCheckingBootstrap] = useState(true);
+  const [googleAuthEnabled, setGoogleAuthEnabled] = useState(false);
   const { login } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
+
+  // Handle error messages from OAuth callback redirects
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const errorMessage = params.get("error");
+    if (errorMessage) {
+      toast({
+        title: "Authentication failed",
+        description: decodeURIComponent(errorMessage),
+        variant: "destructive",
+      });
+      // Clear the error from URL without page reload
+      window.history.replaceState({}, "", "/login");
+    }
+  }, [searchString, toast]);
 
   useEffect(() => {
     async function checkBootstrapStatus() {
@@ -42,6 +65,23 @@ export default function LoginPage() {
       }
     }
     checkBootstrapStatus();
+  }, []);
+
+  useEffect(() => {
+    async function checkGoogleAuthStatus() {
+      try {
+        const response = await fetch("/api/v1/auth/google/status", {
+          credentials: "include",
+        });
+        if (response.ok) {
+          const data: GoogleAuthStatus = await response.json();
+          setGoogleAuthEnabled(data.enabled);
+        }
+      } catch (error) {
+        console.error("Failed to check Google auth status:", error);
+      }
+    }
+    checkGoogleAuthStatus();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -249,44 +289,75 @@ export default function LoginPage() {
               </Button>
             </form>
           ) : (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+            <div className="space-y-4">
+              {googleAuthEnabled && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      window.location.href = "/api/v1/auth/google";
+                    }}
+                    disabled={isSubmitting}
+                    data-testid="button-google-login"
+                  >
+                    <SiGoogle className="mr-2 h-4 w-4" />
+                    Continue with Google
+                  </Button>
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <Separator className="w-full" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">
+                        Or continue with email
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isSubmitting}
+                    data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isSubmitting}
+                    data-testid="input-password"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full"
                   disabled={isSubmitting}
-                  data-testid="input-email"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isSubmitting}
-                  data-testid="input-password"
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isSubmitting}
-                data-testid="button-login"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <LogIn className="mr-2 h-4 w-4" />
-                )}
-                {isSubmitting ? "Signing in..." : "Sign in"}
-              </Button>
+                  data-testid="button-login"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <LogIn className="mr-2 h-4 w-4" />
+                  )}
+                  {isSubmitting ? "Signing in..." : "Sign in"}
+                </Button>
+              </form>
               
               {bootstrapRequired && (
                 <div className="pt-4 border-t">
@@ -303,7 +374,7 @@ export default function LoginPage() {
                   </Button>
                 </div>
               )}
-            </form>
+            </div>
           )}
         </CardContent>
       </Card>

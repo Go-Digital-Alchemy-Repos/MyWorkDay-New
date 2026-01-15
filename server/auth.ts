@@ -15,6 +15,7 @@
  */
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
+import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
 import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
@@ -699,6 +700,266 @@ export function setupPlatformInviteEndpoints(app: Express): void {
         code: "INTERNAL_ERROR",
         message: "Failed to accept invite"
       });
+    }
+  });
+}
+
+/**
+ * Google OAuth Authentication Setup
+ * 
+ * Adds Google as an additional authentication provider.
+ * Integrates with existing session/cookie-based auth.
+ * 
+ * Account Linking Rules:
+ * - If user exists with same email AND email is verified by Google → auto-link and login
+ * - If user exists but already linked to different Google ID → block with error
+ * - If no user exists → check if bootstrap required or invite exists
+ * 
+ * Environment Variables Required:
+ * - GOOGLE_CLIENT_ID: OAuth client ID from Google Cloud Console
+ * - GOOGLE_CLIENT_SECRET: OAuth client secret
+ * - GOOGLE_OAUTH_REDIRECT_URL: Full callback URL (e.g., https://yourdomain.com/api/v1/auth/google/callback)
+ */
+export function setupGoogleAuth(app: Express): void {
+  const clientID = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const callbackURL = process.env.GOOGLE_OAUTH_REDIRECT_URL || 
+    `${process.env.APP_PUBLIC_URL || "http://localhost:5000"}/api/v1/auth/google/callback`;
+
+  if (!clientID || !clientSecret) {
+    console.log("[auth] Google OAuth disabled: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set");
+    
+    app.get("/api/v1/auth/google", (_req, res) => {
+      res.status(503).json({ error: "Google authentication is not configured" });
+    });
+    
+    app.get("/api/v1/auth/google/callback", (_req, res) => {
+      res.status(503).json({ error: "Google authentication is not configured" });
+    });
+    
+    app.get("/api/v1/auth/google/status", (_req, res) => {
+      res.json({ enabled: false });
+    });
+    
+    return;
+  }
+
+  console.log("[auth] Google OAuth enabled with callback URL:", callbackURL);
+
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID,
+        clientSecret,
+        callbackURL,
+        scope: ["email", "profile"],
+      },
+      async (_accessToken, _refreshToken, profile: GoogleProfile, done) => {
+        try {
+          const googleId = profile.id;
+          const email = profile.emails?.[0]?.value;
+          const emailVerified = profile.emails?.[0]?.verified ?? (profile._json as any)?.email_verified;
+          const displayName = profile.displayName || "";
+          const firstName = profile.name?.givenName || displayName.split(" ")[0] || "";
+          const lastName = profile.name?.familyName || displayName.split(" ").slice(1).join(" ") || "";
+          const avatarUrl = profile.photos?.[0]?.value || null;
+
+          if (!email) {
+            return done(null, false, { message: "No email provided by Google" });
+          }
+
+          // Check if user exists by googleId
+          const [existingByGoogleId] = await db.select()
+            .from(users)
+            .where(eq(users.googleId, googleId))
+            .limit(1);
+
+          if (existingByGoogleId) {
+            if (!existingByGoogleId.isActive) {
+              return done(null, false, { message: "Account is deactivated" });
+            }
+            const { passwordHash, ...userWithoutPassword } = existingByGoogleId;
+            return done(null, userWithoutPassword);
+          }
+
+          // Check if user exists by email
+          const existingByEmail = await storage.getUserByEmail(email);
+
+          if (existingByEmail) {
+            if (existingByEmail.googleId && existingByEmail.googleId !== googleId) {
+              return done(null, false, { 
+                message: "This email is already linked to a different Google account. Please contact support." 
+              });
+            }
+
+            if (!existingByEmail.isActive) {
+              return done(null, false, { message: "Account is deactivated" });
+            }
+
+            if (!emailVerified) {
+              return done(null, false, { 
+                message: "Cannot link Google account - email not verified by Google" 
+              });
+            }
+
+            // Link Google ID to existing user
+            const [updatedUser] = await db.update(users)
+              .set({ 
+                googleId, 
+                avatarUrl: existingByEmail.avatarUrl || avatarUrl,
+                updatedAt: new Date(),
+              })
+              .where(eq(users.id, existingByEmail.id))
+              .returning();
+
+            console.log(`[auth] Linked Google account to existing user: ${email}`);
+            
+            const { passwordHash, ...userWithoutPassword } = updatedUser;
+            return done(null, userWithoutPassword);
+          }
+
+          // No existing user - check if we can create one
+          // Check if bootstrap is required (first user)
+          const countResult = await db.execute(sql`SELECT COUNT(*)::int as count FROM users`);
+          const userCount = (countResult.rows[0] as { count: number }).count;
+
+          if (userCount === 0) {
+            // First user - create as super admin
+            const [newUser] = await db.insert(users).values({
+              email,
+              name: displayName || email,
+              firstName: firstName || null,
+              lastName: lastName || null,
+              googleId,
+              avatarUrl,
+              role: UserRole.SUPER_USER,
+              isActive: true,
+              tenantId: null,
+            }).returning();
+
+            console.log(`[auth] Created first user (Super Admin) via Google: ${email}`);
+            
+            const { passwordHash, ...userWithoutPassword } = newUser;
+            return done(null, userWithoutPassword);
+          }
+
+          // Not the first user - check for pending invite
+          // For now, block new user creation without invite
+          return done(null, false, { 
+            message: "No account found. Please contact your administrator to request access." 
+          });
+
+        } catch (error) {
+          console.error("[auth] Google OAuth error:", error);
+          return done(error as Error);
+        }
+      }
+    )
+  );
+
+  // GET /api/v1/auth/google - Redirect to Google OAuth consent screen
+  app.get("/api/v1/auth/google", passport.authenticate("google", {
+    scope: ["email", "profile"],
+  }));
+
+  // GET /api/v1/auth/google/callback - Handle OAuth callback
+  app.get("/api/v1/auth/google/callback", (req, res, next) => {
+    passport.authenticate("google", async (err: Error | null, user: Express.User | false, info: { message: string }) => {
+      if (err) {
+        console.error("[auth] Google callback error:", err);
+        return res.redirect(`/login?error=${encodeURIComponent("Authentication failed")}`);
+      }
+
+      if (!user) {
+        const errorMessage = info?.message || "Google authentication failed";
+        console.log("[auth] Google auth rejected:", errorMessage);
+        return res.redirect(`/login?error=${encodeURIComponent(errorMessage)}`);
+      }
+
+      req.logIn(user, async (loginErr) => {
+        if (loginErr) {
+          console.error("[auth] Google login error:", loginErr);
+          return res.redirect(`/login?error=${encodeURIComponent("Login failed")}`);
+        }
+
+        try {
+          const isSuperUser = user.role === UserRole.SUPER_USER;
+          
+          let workspaceId: string | undefined = undefined;
+          if (!isSuperUser) {
+            const workspaces = await storage.getWorkspacesByUser(user.id);
+            workspaceId = workspaces.length > 0 ? workspaces[0].id : undefined;
+            
+            if (!workspaceId) {
+              req.logout(() => {});
+              return res.redirect(`/login?error=${encodeURIComponent("No workspace access. Please contact your administrator.")}`);
+            }
+          } else {
+            const workspaces = await storage.getWorkspacesByUser(user.id);
+            workspaceId = workspaces.length > 0 ? workspaces[0].id : undefined;
+          }
+          
+          req.session.workspaceId = workspaceId;
+
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error("[auth] Session save error:", saveErr);
+            }
+
+            console.log(`[auth] Google login successful: ${user.email}, role: ${user.role}`);
+            
+            // Redirect based on role
+            if (isSuperUser) {
+              res.redirect("/super-admin/dashboard");
+            } else {
+              res.redirect("/");
+            }
+          });
+        } catch (workspaceErr) {
+          console.error("[auth] Workspace lookup error:", workspaceErr);
+          req.logout(() => {});
+          res.redirect(`/login?error=${encodeURIComponent("Failed to resolve workspace")}`);
+        }
+      });
+    })(req, res, next);
+  });
+
+  // GET /api/v1/auth/google/status - Check if Google auth is enabled
+  app.get("/api/v1/auth/google/status", (_req, res) => {
+    res.json({ enabled: true });
+  });
+
+  // POST /api/v1/auth/google/unlink - Unlink Google from account
+  app.post("/api/v1/auth/google/unlink", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      
+      // Check if user has another login method (password)
+      const fullUser = await storage.getUser(user.id);
+      if (!fullUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!fullUser.passwordHash) {
+        return res.status(400).json({ 
+          error: "Cannot unlink Google - no password set. Please set a password first." 
+        });
+      }
+
+      if (!fullUser.googleId) {
+        return res.status(400).json({ error: "No Google account linked" });
+      }
+
+      await db.update(users)
+        .set({ googleId: null, updatedAt: new Date() })
+        .where(eq(users.id, user.id));
+
+      console.log(`[auth] Unlinked Google account from user: ${user.email}`);
+      
+      res.json({ success: true, message: "Google account unlinked" });
+    } catch (error) {
+      console.error("[auth] Google unlink error:", error);
+      res.status(500).json({ error: "Failed to unlink Google account" });
     }
   });
 }
