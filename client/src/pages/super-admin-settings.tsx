@@ -217,6 +217,15 @@ export default function SuperAdminSettingsPage() {
     webhookSecret: "",
     defaultCurrency: "usd",
   });
+  const [invoiceSettingsForm, setInvoiceSettingsForm] = useState({
+    businessDisplayName: "",
+    invoiceSupportEmail: "",
+    invoiceFooterText: "",
+    invoiceDefaultCurrency: "usd",
+    taxIdLabel: "",
+    taxIdValue: "",
+    invoicePrefix: "",
+  });
 
   const [showMailgunApiKey, setShowMailgunApiKey] = useState(false);
   const [showMailgunSigningKey, setShowMailgunSigningKey] = useState(false);
@@ -574,6 +583,10 @@ export default function SuperAdminSettingsPage() {
             <TabsTrigger value="integrations" data-testid="tab-integrations">
               <Settings className="h-4 w-4 mr-2" />
               Integrations
+            </TabsTrigger>
+            <TabsTrigger value="invoice-settings" data-testid="tab-invoice-settings">
+              <CreditCard className="h-4 w-4 mr-2" />
+              Invoice Settings
             </TabsTrigger>
           </TabsList>
 
@@ -1470,6 +1483,130 @@ export default function SuperAdminSettingsPage() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          <TabsContent value="invoice-settings">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Invoice Settings
+                </CardTitle>
+                <CardDescription>
+                  Configure business information for invoices and billing. These settings will be used for future subscription and invoice customization.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="bg-muted/50 border rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">
+                    These settings are placeholders for future subscription and invoice features. Configure your business details now for when billing is fully implemented.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="business-display-name">Business Display Name</Label>
+                    <Input
+                      id="business-display-name"
+                      value={invoiceSettingsForm.businessDisplayName}
+                      onChange={(e) => setInvoiceSettingsForm({ ...invoiceSettingsForm, businessDisplayName: e.target.value })}
+                      placeholder="Your Company Name"
+                      data-testid="input-invoice-business-name"
+                    />
+                    <p className="text-xs text-muted-foreground">Name displayed on invoices and billing documents</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invoice-support-email">Support Email</Label>
+                    <Input
+                      id="invoice-support-email"
+                      type="email"
+                      value={invoiceSettingsForm.invoiceSupportEmail}
+                      onChange={(e) => setInvoiceSettingsForm({ ...invoiceSettingsForm, invoiceSupportEmail: e.target.value })}
+                      placeholder="billing@yourcompany.com"
+                      data-testid="input-invoice-support-email"
+                    />
+                    <p className="text-xs text-muted-foreground">Email for billing inquiries</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="invoice-footer-text">Invoice Footer Text</Label>
+                  <Input
+                    id="invoice-footer-text"
+                    value={invoiceSettingsForm.invoiceFooterText}
+                    onChange={(e) => setInvoiceSettingsForm({ ...invoiceSettingsForm, invoiceFooterText: e.target.value })}
+                    placeholder="Thank you for your business!"
+                    data-testid="input-invoice-footer"
+                  />
+                  <p className="text-xs text-muted-foreground">Custom message displayed at the bottom of invoices</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="invoice-default-currency">Default Currency</Label>
+                    <Select
+                      value={invoiceSettingsForm.invoiceDefaultCurrency}
+                      onValueChange={(value) => setInvoiceSettingsForm({ ...invoiceSettingsForm, invoiceDefaultCurrency: value })}
+                    >
+                      <SelectTrigger id="invoice-default-currency" data-testid="select-invoice-currency">
+                        <SelectValue placeholder="Select currency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="usd">USD - US Dollar</SelectItem>
+                        <SelectItem value="eur">EUR - Euro</SelectItem>
+                        <SelectItem value="gbp">GBP - British Pound</SelectItem>
+                        <SelectItem value="cad">CAD - Canadian Dollar</SelectItem>
+                        <SelectItem value="aud">AUD - Australian Dollar</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invoice-prefix">Invoice Prefix (Optional)</Label>
+                    <Input
+                      id="invoice-prefix"
+                      value={invoiceSettingsForm.invoicePrefix}
+                      onChange={(e) => setInvoiceSettingsForm({ ...invoiceSettingsForm, invoicePrefix: e.target.value })}
+                      placeholder="INV-"
+                      data-testid="input-invoice-prefix"
+                    />
+                    <p className="text-xs text-muted-foreground">Prefix for invoice numbers (e.g., INV-001)</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tax-id-label">Tax ID Label (Optional)</Label>
+                    <Input
+                      id="tax-id-label"
+                      value={invoiceSettingsForm.taxIdLabel}
+                      onChange={(e) => setInvoiceSettingsForm({ ...invoiceSettingsForm, taxIdLabel: e.target.value })}
+                      placeholder="VAT Number, EIN, GST, etc."
+                      data-testid="input-tax-id-label"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tax-id-value">Tax ID Value (Optional)</Label>
+                    <Input
+                      id="tax-id-value"
+                      value={invoiceSettingsForm.taxIdValue}
+                      onChange={(e) => setInvoiceSettingsForm({ ...invoiceSettingsForm, taxIdValue: e.target.value })}
+                      placeholder="Your tax identification number"
+                      data-testid="input-tax-id-value"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4">
+                  <Button
+                    disabled
+                    data-testid="button-save-invoice-settings"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Invoice Settings (Coming Soon)
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Test Email Dialog */}
