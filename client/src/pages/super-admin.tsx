@@ -91,7 +91,7 @@ interface ImportResponse {
 
 export default function SuperAdminPage() {
   const { toast } = useToast();
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [invitingTenant, setInvitingTenant] = useState<Tenant | null>(null);
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
@@ -113,19 +113,13 @@ export default function SuperAdminPage() {
     enabled: activeTab === "health",
   });
 
-  const createTenantMutation = useMutation({
-    mutationFn: async (data: { name: string; slug: string }) => {
-      return apiRequest("POST", "/api/v1/super/tenants", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      setIsCreateDialogOpen(false);
-      toast({ title: "Tenant created successfully" });
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to create tenant", description: error.message, variant: "destructive" });
-    },
-  });
+  // Handler for when a tenant is created via the wizard
+  const handleTenantCreated = (newTenant: TenantWithDetails) => {
+    // Set the newly created tenant as selected to continue in edit mode
+    setSelectedTenant(newTenant);
+    // Invalidate to refresh the list
+    queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
+  };
 
   const updateTenantMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: { name?: string; status?: string } }) => {
@@ -342,14 +336,6 @@ export default function SuperAdminPage() {
     },
   });
 
-  const handleCreateTenant = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const name = formData.get("name") as string;
-    const slug = formData.get("slug") as string;
-    createTenantMutation.mutate({ name, slug });
-  };
-
   const handleUpdateTenant = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingTenant) return;
@@ -443,58 +429,10 @@ export default function SuperAdminPage() {
 
         <TabsContent value="tenants" className="space-y-6 mt-6">
           <div className="flex justify-end">
-            <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="button-create-tenant">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Tenant
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create New Tenant</DialogTitle>
-                  <DialogDescription>Add a new organization to the system</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleCreateTenant} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Organization Name</Label>
-                    <Input
-                      id="name"
-                      name="name"
-                      placeholder="Acme Corporation"
-                      data-testid="input-tenant-name"
-                      required
-                      onChange={(e) => {
-                        const slugInput = document.getElementById("slug") as HTMLInputElement;
-                        if (slugInput) {
-                          slugInput.value = generateSlug(e.target.value);
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="slug">URL Slug</Label>
-                    <Input
-                      id="slug"
-                      name="slug"
-                      placeholder="acme-corp"
-                      data-testid="input-tenant-slug"
-                      required
-                      pattern="[a-z0-9-]+"
-                    />
-                    <p className="text-xs text-muted-foreground">Lowercase letters, numbers, and hyphens only</p>
-                  </div>
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={createTenantMutation.isPending} data-testid="button-submit-tenant">
-                      {createTenantMutation.isPending ? "Creating..." : "Create Tenant"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button onClick={() => setIsCreateDrawerOpen(true)} data-testid="button-create-tenant">
+              <Plus className="h-4 w-4 mr-2" />
+              New Tenant
+            </Button>
           </div>
 
           <Card>
@@ -1325,7 +1263,7 @@ export default function SuperAdminPage() {
         </div>
       )}
 
-      {/* Tenant Detail Drawer */}
+      {/* Tenant Detail Drawer (Edit Mode) */}
       <TenantDrawer
         tenant={selectedTenant}
         open={!!selectedTenant}
@@ -1333,6 +1271,21 @@ export default function SuperAdminPage() {
         onTenantUpdated={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
         }}
+        mode="edit"
+      />
+
+      {/* Create Tenant Drawer (Create Mode with Wizard) */}
+      <TenantDrawer
+        tenant={null}
+        open={isCreateDrawerOpen}
+        onOpenChange={(open) => {
+          setIsCreateDrawerOpen(open);
+        }}
+        onTenantUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
+        }}
+        onTenantCreated={handleTenantCreated}
+        mode="create"
       />
     </div>
   );

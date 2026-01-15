@@ -108,24 +108,6 @@ interface TenantNote {
   };
 }
 
-interface TenantClient {
-  id: string;
-  companyName: string;
-  industry: string | null;
-  status: string;
-  createdAt: string;
-}
-
-interface TenantProject {
-  id: string;
-  name: string;
-  clientId: string | null;
-  clientName: string | null;
-  status: string;
-  color: string | null;
-  createdAt: string;
-}
-
 interface TenantAuditEvent {
   id: string;
   tenantId: string;
@@ -194,12 +176,41 @@ interface TenantProject {
   clientName?: string;
 }
 
+/**
+ * TenantDrawerProps - Props for the TenantDrawer component
+ * 
+ * MODE SWITCHING:
+ * - mode="edit" (default): Tenant exists, show all tabs for managing tenant
+ * - mode="create": No tenant yet, show wizard for creating new tenant
+ * 
+ * After creation in "create" mode:
+ * - Drawer transitions to "edit" mode for the newly created tenant
+ * - All tabs become available for further configuration
+ * 
+ * IDEMPOTENCY:
+ * - Backend creates tenant + primary workspace + settings in a single transaction
+ * - Retrying creation with same data will fail with 409 (slug conflict)
+ * - Frontend handles transition to edit mode seamlessly
+ */
 interface TenantDrawerProps {
   tenant: TenantWithDetails | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTenantUpdated?: () => void;
+  mode?: "create" | "edit";
+  onTenantCreated?: (tenant: TenantWithDetails) => void;
 }
+
+type WizardStep = "basics" | "workspace" | "branding" | "integrations" | "invite" | "review";
+
+const WIZARD_STEPS: { id: WizardStep; title: string; description: string }[] = [
+  { id: "basics", title: "Tenant Basics", description: "Organization name and URL" },
+  { id: "workspace", title: "Primary Workspace", description: "Auto-created workspace" },
+  { id: "branding", title: "Branding", description: "Logo and colors (optional)" },
+  { id: "integrations", title: "Integrations", description: "Email and storage (optional)" },
+  { id: "invite", title: "Invite Admin", description: "Invite tenant administrator" },
+  { id: "review", title: "Review & Finish", description: "Summary and completion" },
+];
 
 type OnboardingStep = "workspace" | "branding" | "email" | "users" | "activate";
 
@@ -296,16 +307,141 @@ function getStatusBadge(status: string) {
  * CONFIRMATION FLOW:
  * - Destructive actions (suspend/deactivate/reactivate) require user confirmation
  * - ConfirmDialog shows tenant name to prevent accidental actions on wrong tenant
+ * 
+ * MODE SWITCHING (create -> edit):
+ * - In create mode, wizard guides through tenant creation steps
+ * - After Step 1 (Basics), tenant is created with primary workspace auto-generated
+ * - Drawer seamlessly transitions to edit mode with tenantId available
+ * - Wizard continues with optional steps (branding, integrations, invite)
  */
-export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: TenantDrawerProps) {
+export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode = "edit", onTenantCreated }: TenantDrawerProps) {
   const { toast } = useToast();
+  
+  // Create mode state - tracks whether we're in wizard flow
+  const [drawerMode, setDrawerMode] = useState<"create" | "edit">(mode);
+  const [wizardStep, setWizardStep] = useState<WizardStep>("basics");
+  const [createdTenant, setCreatedTenant] = useState<TenantWithDetails | null>(null);
+  
+  // Create form state
+  const [createName, setCreateName] = useState("");
+  const [createSlug, setCreateSlug] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  
+  // Determine active tenant - either passed prop or newly created
+  const activeTenant = tenant || createdTenant;
+  
+  // Reset create mode state when mode prop changes or drawer opens
+  useEffect(() => {
+    if (open) {
+      setDrawerMode(mode);
+      if (mode === "create") {
+        setWizardStep("basics");
+        setCreatedTenant(null);
+        setCreateName("");
+        setCreateSlug("");
+        setCreateError(null);
+      }
+    }
+  }, [open, mode]);
+  
+  // Helper to generate slug from name
+  const generateSlug = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim();
+  };
+  
+  // Create tenant mutation
+  const createTenantMutation = useMutation({
+    mutationFn: async (data: { name: string; slug: string }) => {
+      const response = await apiRequest("POST", "/api/v1/super/tenants", data);
+      return (await response.json()) as TenantWithDetails;
+    },
+    onSuccess: (newTenant) => {
+      // Cache invalidation
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants"] });
+      
+      // Store created tenant and transition to workspace step
+      // Note: We don't call onTenantCreated here - that happens when wizard finishes
+      setCreatedTenant(newTenant);
+      setWizardStep("workspace");
+      setCreateError(null);
+      
+      toast({ 
+        title: "Tenant created", 
+        description: `${newTenant.name} has been created with primary workspace` 
+      });
+    },
+    onError: (error: Error) => {
+      setCreateError(error.message || "Failed to create tenant");
+      toast({ 
+        title: "Failed to create tenant", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    },
+  });
+  
+  // Handle create tenant form submission
+  const handleCreateTenant = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createName.trim() || !createSlug.trim()) {
+      setCreateError("Name and slug are required");
+      return;
+    }
+    createTenantMutation.mutate({ name: createName.trim(), slug: createSlug.trim() });
+  };
+  
+  // Navigate wizard
+  const goToStep = (step: WizardStep) => {
+    setWizardStep(step);
+  };
+  
+  const getStepIndex = (step: WizardStep) => WIZARD_STEPS.findIndex(s => s.id === step);
+  const currentStepIndex = getStepIndex(wizardStep);
+  
+  const canGoNext = () => {
+    if (wizardStep === "basics" && !createdTenant) return false;
+    return currentStepIndex < WIZARD_STEPS.length - 1;
+  };
+  
+  const canGoBack = () => currentStepIndex > 0 && wizardStep !== "basics";
+  
+  const goNext = () => {
+    if (canGoNext()) {
+      setWizardStep(WIZARD_STEPS[currentStepIndex + 1].id);
+    }
+  };
+  
+  const goBack = () => {
+    if (canGoBack()) {
+      setWizardStep(WIZARD_STEPS[currentStepIndex - 1].id);
+    }
+  };
+  
+  // Finish wizard - close create drawer and notify parent to open edit mode
+  const finishWizard = () => {
+    if (createdTenant) {
+      toast({ title: "Setup complete", description: `${createdTenant.name} is ready to use` });
+      // Close create drawer first
+      onOpenChange(false);
+      // Then notify parent with the created tenant so it can open edit mode
+      onTenantCreated?.(createdTenant);
+    } else {
+      onOpenChange(false);
+    }
+  };
   
   // Tab state with localStorage persistence scoped by tenant ID
   // This allows users to return to the same tab when reopening the drawer for the same tenant
   const getStorageKey = (tenantId: string) => `tenantDrawerTab_${tenantId}`;
   const [activeTab, setActiveTab] = useState(() => {
-    if (typeof window !== "undefined" && tenant?.id) {
-      return localStorage.getItem(getStorageKey(tenant.id)) || "onboarding";
+    if (typeof window !== "undefined" && activeTenant?.id) {
+      return localStorage.getItem(getStorageKey(activeTenant.id)) || "onboarding";
     }
     return "onboarding";
   });
@@ -349,21 +485,21 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   // Reset form state when tenant changes, restore persisted tab for this tenant
   useEffect(() => {
-    if (tenant) {
-      setEditedName(tenant.name);
+    if (activeTenant) {
+      setEditedName(activeTenant.name);
       setHasUnsavedChanges(false);
       // Load persisted tab for this specific tenant, or default to onboarding
-      const storedTab = localStorage.getItem(getStorageKey(tenant.id));
+      const storedTab = localStorage.getItem(getStorageKey(activeTenant.id));
       setActiveTab(storedTab || "onboarding");
     }
-  }, [tenant?.id]);
+  }, [activeTenant?.id]);
 
   // Persist active tab to localStorage when it changes
   useEffect(() => {
-    if (tenant?.id && activeTab) {
-      localStorage.setItem(getStorageKey(tenant.id), activeTab);
+    if (activeTenant?.id && activeTab) {
+      localStorage.setItem(getStorageKey(activeTenant.id), activeTab);
     }
-  }, [activeTab, tenant?.id]);
+  }, [activeTab, activeTenant?.id]);
 
   // Scroll to top when switching tabs
   // The drawer's scrollable container is the parent with overflow-y-auto
@@ -377,64 +513,64 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   };
 
   const { data: workspaces = [], isLoading: workspacesLoading } = useQuery<Workspace[]>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "workspaces"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/workspaces`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "workspaces",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "workspaces"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/workspaces`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "workspaces",
   });
 
   const { data: settingsResponse } = useQuery<{ tenantSettings: TenantSettings | null }>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "settings"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/settings`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open,
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "settings"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/settings`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open,
   });
 
   const { data: healthData, isLoading: healthLoading } = useQuery<TenantHealth>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "health"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/health`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && (activeTab === "overview" || activeTab === "notes"),
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "health"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/health`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && (activeTab === "overview" || activeTab === "notes"),
   });
 
   const { data: notesResponse, isLoading: notesLoading } = useQuery<{ notes: TenantNote[] }>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "notes"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/notes`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "notes",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "notes"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/notes`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "notes",
   });
 
   const { data: auditResponse, isLoading: auditLoading } = useQuery<{ events: TenantAuditEvent[] }>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/audit?limit=50`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "notes",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/audit?limit=50`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "notes",
   });
 
   const { data: clientsResponse, isLoading: clientsLoading } = useQuery<{ clients: TenantClient[] }>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "clients", clientSearch],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/clients?search=${encodeURIComponent(clientSearch)}`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "clients",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "clients", clientSearch],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/clients?search=${encodeURIComponent(clientSearch)}`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "clients",
   });
 
   const { data: projectsResponse, isLoading: projectsLoading } = useQuery<{ projects: TenantProject[] }>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "projects", projectSearch],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/projects?search=${encodeURIComponent(projectSearch)}`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "projects",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "projects", projectSearch],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/projects?search=${encodeURIComponent(projectSearch)}`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "projects",
   });
 
   // Integrations queries (lazy-loaded when integrations tab is active)
   const { data: integrationsResponse } = useQuery<{ integrations: IntegrationSummary[] }>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "integrations"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/integrations`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "integrations",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "integrations"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/integrations`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "integrations",
   });
 
   const { data: mailgunIntegration } = useQuery<any>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "integrations", "mailgun"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/integrations/mailgun`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "integrations",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "integrations", "mailgun"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/integrations/mailgun`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "integrations",
   });
 
   const { data: s3Integration } = useQuery<any>({
-    queryKey: ["/api/v1/super/tenants", tenant?.id, "integrations", "s3"],
-    queryFn: () => fetch(`/api/v1/super/tenants/${tenant?.id}/integrations/s3`, { credentials: "include" }).then(r => r.json()),
-    enabled: !!tenant && open && activeTab === "integrations",
+    queryKey: ["/api/v1/super/tenants", activeTenant?.id, "integrations", "s3"],
+    queryFn: () => fetch(`/api/v1/super/tenants/${activeTenant?.id}/integrations/s3`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!activeTenant && open && activeTab === "integrations",
   });
 
   // Sync branding form data with fetched settings
@@ -475,10 +611,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   // Branding mutation
   const saveBrandingMutation = useMutation({
     mutationFn: async (settings: Partial<TenantSettings>) => {
-      return apiRequest("PATCH", `/api/v1/super/tenants/${tenant?.id}/settings`, settings);
+      return apiRequest("PATCH", `/api/v1/super/tenants/${activeTenant?.id}/settings`, settings);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
       toast({ title: "Branding settings saved" });
     },
@@ -490,10 +626,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   // Mailgun mutation
   const saveMailgunMutation = useMutation({
     mutationFn: async (data: MailgunConfig) => {
-      return apiRequest("PUT", `/api/v1/super/tenants/${tenant?.id}/integrations/mailgun`, data);
+      return apiRequest("PUT", `/api/v1/super/tenants/${activeTenant?.id}/integrations/mailgun`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "integrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "integrations"] });
       toast({ title: "Mailgun configuration saved" });
       setMailgunData(prev => ({ ...prev, apiKey: "" }));
     },
@@ -505,7 +641,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   // Test Mailgun mutation
   const testMailgunMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/integrations/mailgun/test`);
+      return apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/integrations/mailgun/test`);
     },
     onSuccess: (response: any) => {
       if (response.success) {
@@ -522,10 +658,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   // S3 mutation
   const saveS3Mutation = useMutation({
     mutationFn: async (data: S3Config) => {
-      return apiRequest("PUT", `/api/v1/super/tenants/${tenant?.id}/integrations/s3`, data);
+      return apiRequest("PUT", `/api/v1/super/tenants/${activeTenant?.id}/integrations/s3`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "integrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "integrations"] });
       toast({ title: "S3 configuration saved" });
       setS3Data(prev => ({ ...prev, accessKeyId: "", secretAccessKey: "" }));
     },
@@ -537,7 +673,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
   // Test S3 mutation
   const testS3Mutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/integrations/s3/test`);
+      return apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/integrations/s3/test`);
     },
     onSuccess: (response: any) => {
       if (response.success) {
@@ -590,12 +726,12 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
         primaryContactFirstName: row.primaryContactFirstName,
         primaryContactLastName: row.primaryContactLastName,
       }));
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/clients/bulk`, { clients });
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/clients/bulk`, { clients });
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "clients"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"] });
     },
     onError: (error: any) => {
       toast({ title: "Import failed", description: error.message, variant: "destructive" });
@@ -615,16 +751,16 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
         dueDate: row.dueDate,
         color: row.color,
       }));
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/projects/bulk`, { 
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/projects/bulk`, { 
         projects, 
         options: data.options 
       });
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "projects"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "clients"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"] });
     },
     onError: (error: any) => {
       toast({ title: "Import failed", description: error.message, variant: "destructive" });
@@ -633,7 +769,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const seedWelcomeProjectMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/seed/welcome-project`, {});
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/seed/welcome-project`, {});
       return res.json();
     },
     onSuccess: (data) => {
@@ -642,8 +778,8 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
       } else if (data.status === "skipped") {
         toast({ title: "Already exists", description: data.reason, variant: "default" });
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "projects"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"] });
     },
     onError: (error: any) => {
       toast({ title: "Failed to create welcome project", description: error.message, variant: "destructive" });
@@ -652,7 +788,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const applyTaskTemplateMutation = useMutation({
     mutationFn: async ({ projectId, templateKey }: { projectId: string; templateKey: string }) => {
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/projects/${projectId}/seed/task-template`, { templateKey });
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/projects/${projectId}/seed/task-template`, { templateKey });
       return res.json();
     },
     onSuccess: (data) => {
@@ -663,7 +799,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
       }
       setSelectedProjectForTasks(null);
       setSelectedTemplate("");
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"] });
     },
     onError: (error: any) => {
       toast({ title: "Failed to apply template", description: error.message, variant: "destructive" });
@@ -672,14 +808,14 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const bulkTasksImportMutation = useMutation({
     mutationFn: async ({ projectId, rows, options }: { projectId: string; rows: ParsedRow[]; options: { createMissingSections: boolean; allowUnknownAssignees: boolean } }) => {
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/projects/${projectId}/tasks/bulk`, { rows, options });
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/projects/${projectId}/tasks/bulk`, { rows, options });
       return res.json();
     },
     onSuccess: (data) => {
       toast({ title: "Tasks imported", description: `Created ${data.createdTasks} tasks, ${data.createdSubtasks} subtasks, ${data.errors} errors` });
       setShowTaskImportPanel(false);
       setSelectedProjectForTasks(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"] });
     },
     onError: (error: any) => {
       toast({ title: "Failed to import tasks", description: error.message, variant: "destructive" });
@@ -688,10 +824,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const createNoteMutation = useMutation({
     mutationFn: async (data: { body: string; category: string }) => {
-      return apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/notes`, data);
+      return apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/notes`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "notes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "notes"] });
       setNewNoteBody("");
       toast({ title: "Note added successfully" });
     },
@@ -702,13 +838,13 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const bulkImportMutation = useMutation({
     mutationFn: async (data: { users: typeof csvData; sendInvite: boolean }) => {
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/import-users`, data);
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/import-users`, data);
       return res.json();
     },
     onSuccess: (data) => {
       setBulkImportResults(data.results || []);
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "audit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "audit"] });
       toast({ 
         title: "Bulk import complete", 
         description: `${data.successCount} imported, ${data.failCount} failed` 
@@ -721,7 +857,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const updateTenantMutation = useMutation({
     mutationFn: async (data: { name?: string; status?: string }) => {
-      return apiRequest("PATCH", `/api/v1/super/tenants/${tenant?.id}`, data);
+      return apiRequest("PATCH", `/api/v1/super/tenants/${activeTenant?.id}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
@@ -736,14 +872,14 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const activateMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/activate`);
+      return apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/activate`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "health"] });
       toast({ 
         title: "Tenant activated", 
-        description: `"${tenant?.name}" is now active and accessible to users.` 
+        description: `"${activeTenant?.name}" is now active and accessible to users.` 
       });
       setConfirmDialog({ open: false, action: null, title: "", description: "" });
       onTenantUpdated?.();
@@ -761,14 +897,14 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const suspendMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/suspend`);
+      return apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/suspend`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenant?.id, "health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "health"] });
       toast({ 
         title: "Tenant suspended", 
-        description: `"${tenant?.name}" has been suspended. Users cannot access the platform.` 
+        description: `"${activeTenant?.name}" has been suspended. Users cannot access the platform.` 
       });
       setConfirmDialog({ open: false, action: null, title: "", description: "" });
       onTenantUpdated?.();
@@ -789,15 +925,15 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
     const configs = {
       suspend: {
         title: "Suspend Tenant",
-        description: `Are you sure you want to suspend "${tenant?.name}"? Users will lose access to the platform until the tenant is reactivated.`,
+        description: `Are you sure you want to suspend "${activeTenant?.name}"? Users will lose access to the platform until the tenant is reactivated.`,
       },
       activate: {
         title: "Activate Tenant",
-        description: `Are you sure you want to activate "${tenant?.name}"? This will make the tenant live and allow users to access the platform.`,
+        description: `Are you sure you want to activate "${activeTenant?.name}"? This will make the tenant live and allow users to access the platform.`,
       },
       reactivate: {
         title: "Reactivate Tenant",
-        description: `Are you sure you want to reactivate "${tenant?.name}"? Users will regain access to the platform.`,
+        description: `Are you sure you want to reactivate "${activeTenant?.name}"? Users will regain access to the platform.`,
       },
     };
     setConfirmDialog({ open: true, action, ...configs[action] });
@@ -814,7 +950,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const inviteAdminMutation = useMutation({
     mutationFn: async (data: { email: string; firstName?: string; lastName?: string; inviteType: "link" | "email" }) => {
-      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenant?.id}/invite-admin`, data);
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/invite-admin`, data);
       return res.json();
     },
     onSuccess: (data, variables) => {
@@ -840,11 +976,11 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
 
   const handleNameChange = (value: string) => {
     setEditedName(value);
-    setHasUnsavedChanges(value !== tenant?.name);
+    setHasUnsavedChanges(value !== activeTenant?.name);
   };
 
   const handleSaveName = () => {
-    if (editedName !== tenant?.name) {
+    if (editedName !== activeTenant?.name) {
       updateTenantMutation.mutate({ name: editedName });
     }
   };
@@ -924,34 +1060,451 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
     toast({ title: "Copied", description: "All invite URLs copied to clipboard" });
   };
 
-  if (!tenant) return null;
+  // In create mode with wizard, show wizard UI
+  // In edit mode, require a tenant to be present
+  if (drawerMode === "edit" && !activeTenant) return null;
 
-  const onboardingProgress: OnboardingProgress = {
+  const onboardingProgress: OnboardingProgress = activeTenant ? {
     workspace: true,
     branding: !!settingsResponse?.tenantSettings?.logoUrl,
     email: false,
-    users: (tenant.userCount || 0) > 0,
-    activated: tenant.status === "active",
-  };
+    users: (activeTenant.userCount || 0) > 0,
+    activated: activeTenant.status === "active",
+  } : { workspace: false, branding: false, email: false, users: false, activated: false };
 
   const completedSteps = Object.values(onboardingProgress).filter(Boolean).length;
   const totalSteps = Object.keys(onboardingProgress).length;
   const progressPercent = Math.round((completedSteps / totalSteps) * 100);
 
+  // Render wizard for create mode
+  if (drawerMode === "create" || (mode === "create" && !activeTenant)) {
+    return (
+      <FullScreenDrawer
+        open={open}
+        onOpenChange={onOpenChange}
+        title={createdTenant ? createdTenant.name : "Create New Tenant"}
+        description={createdTenant ? `/${createdTenant.slug}` : "Set up a new organization"}
+        hasUnsavedChanges={false}
+        width="3xl"
+      >
+        <div className="space-y-6">
+          {/* Wizard Progress Stepper */}
+          <div className="flex items-center justify-between px-2 py-4 bg-muted/30 rounded-lg">
+            {WIZARD_STEPS.map((step, index) => {
+              const isCompleted = index < currentStepIndex || (createdTenant && index === 0);
+              const isCurrent = step.id === wizardStep;
+              const isDisabled = index > 0 && !createdTenant;
+              
+              return (
+                <div key={step.id} className="flex items-center flex-1">
+                  <div 
+                    className={`flex flex-col items-center flex-1 ${isDisabled ? 'opacity-40' : ''}`}
+                    onClick={() => !isDisabled && index <= currentStepIndex && goToStep(step.id)}
+                    role={!isDisabled ? "button" : undefined}
+                    data-testid={`wizard-step-${step.id}`}
+                  >
+                    <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                      isCompleted ? 'bg-green-500 text-white' :
+                      isCurrent ? 'bg-primary text-primary-foreground' :
+                      'bg-muted text-muted-foreground'
+                    }`}>
+                      {isCompleted ? <Check className="h-4 w-4" /> : index + 1}
+                    </div>
+                    <div className={`text-xs mt-1 text-center ${isCurrent ? 'font-medium' : 'text-muted-foreground'}`}>
+                      {step.title}
+                    </div>
+                  </div>
+                  {index < WIZARD_STEPS.length - 1 && (
+                    <div className={`h-0.5 flex-1 mx-2 ${index < currentStepIndex ? 'bg-green-500' : 'bg-muted'}`} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step 1: Tenant Basics */}
+          {wizardStep === "basics" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tenant Basics</CardTitle>
+                <CardDescription>Enter the organization name and URL slug</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleCreateTenant} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="create-name">Business Name *</Label>
+                    <Input
+                      id="create-name"
+                      value={createName}
+                      onChange={(e) => {
+                        setCreateName(e.target.value);
+                        setCreateSlug(generateSlug(e.target.value));
+                      }}
+                      placeholder="Acme Corporation"
+                      data-testid="input-create-name"
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This will also be used as the primary workspace name
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="create-slug">URL Slug *</Label>
+                    <Input
+                      id="create-slug"
+                      value={createSlug}
+                      onChange={(e) => setCreateSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                      placeholder="acme-corp"
+                      data-testid="input-create-slug"
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Lowercase letters, numbers, and hyphens only
+                    </p>
+                  </div>
+                  {createError && (
+                    <div className="text-sm text-destructive flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      {createError}
+                    </div>
+                  )}
+                  <div className="flex justify-end pt-4">
+                    <Button 
+                      type="submit" 
+                      disabled={createTenantMutation.isPending || !createName.trim() || !createSlug.trim()}
+                      data-testid="button-create-tenant-wizard"
+                    >
+                      {createTenantMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          Create Tenant
+                          <Check className="h-4 w-4 ml-2" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 2: Primary Workspace (auto-created) */}
+          {wizardStep === "workspace" && createdTenant && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                  Primary Workspace Created
+                </CardTitle>
+                <CardDescription>Your primary workspace has been automatically created</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                      <HardDrive className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <div className="font-medium">{createdTenant.primaryWorkspace?.name || createdTenant.name}</div>
+                      <div className="text-sm text-muted-foreground">Primary Workspace</div>
+                    </div>
+                    <Badge className="ml-auto bg-green-600">Primary</Badge>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  The workspace name matches the tenant business name exactly. You can create additional workspaces later.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 3: Branding (optional) */}
+          {wizardStep === "branding" && createdTenant && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Branding (Optional)</CardTitle>
+                <CardDescription>Configure display name and colors. You can skip this and configure later.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="wizard-display-name">Display Name</Label>
+                  <Input
+                    id="wizard-display-name"
+                    value={brandingData.displayName || createdTenant.name}
+                    onChange={(e) => setBrandingData(prev => ({ ...prev, displayName: e.target.value }))}
+                    placeholder="Display name for the tenant"
+                    data-testid="input-wizard-display-name"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="wizard-primary-color">Primary Color</Label>
+                    <Input
+                      id="wizard-primary-color"
+                      type="color"
+                      value={brandingData.primaryColor || "#3b82f6"}
+                      onChange={(e) => setBrandingData(prev => ({ ...prev, primaryColor: e.target.value }))}
+                      data-testid="input-wizard-primary-color"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="wizard-accent-color">Accent Color</Label>
+                    <Input
+                      id="wizard-accent-color"
+                      type="color"
+                      value={brandingData.accentColor || "#8b5cf6"}
+                      onChange={(e) => setBrandingData(prev => ({ ...prev, accentColor: e.target.value }))}
+                      data-testid="input-wizard-accent-color"
+                    />
+                  </div>
+                </div>
+                <Button 
+                  onClick={() => saveBrandingMutation.mutate(brandingData)}
+                  disabled={saveBrandingMutation.isPending}
+                  variant="outline"
+                  className="w-full"
+                  data-testid="button-save-wizard-branding"
+                >
+                  {saveBrandingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Save Branding
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 4: Integrations (optional) */}
+          {wizardStep === "integrations" && createdTenant && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Integrations (Optional)</CardTitle>
+                <CardDescription>Configure email and storage. You can skip and configure later.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Mail className="h-5 w-5" />
+                    <div className="font-medium">Mailgun Email</div>
+                    <IntegrationStatusBadge status={getIntegrationStatus("mailgun")} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Email configuration can be done from the Integrations tab after setup.
+                  </p>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-3 mb-3">
+                    <HardDrive className="h-5 w-5" />
+                    <div className="font-medium">S3 Storage</div>
+                    <IntegrationStatusBadge status={getIntegrationStatus("s3")} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Storage configuration can be done from the Integrations tab after setup.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 5: Invite Admin (recommended) */}
+          {wizardStep === "invite" && createdTenant && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Invite Tenant Admin (Recommended)</CardTitle>
+                <CardDescription>
+                  Invite an administrator for this tenant. Invite acceptance is not required to finish setup.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="wizard-invite-email">Email Address</Label>
+                    <Input
+                      id="wizard-invite-email"
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="admin@example.com"
+                      data-testid="input-wizard-invite-email"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="wizard-invite-first-name">First Name</Label>
+                      <Input
+                        id="wizard-invite-first-name"
+                        value={inviteFirstName}
+                        onChange={(e) => setInviteFirstName(e.target.value)}
+                        placeholder="John"
+                        data-testid="input-wizard-invite-first-name"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="wizard-invite-last-name">Last Name</Label>
+                      <Input
+                        id="wizard-invite-last-name"
+                        value={inviteLastName}
+                        onChange={(e) => setInviteLastName(e.target.value)}
+                        placeholder="Doe"
+                        data-testid="input-wizard-invite-last-name"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => inviteAdminMutation.mutate({ email: inviteEmail, firstName: inviteFirstName, lastName: inviteLastName })}
+                    disabled={inviteAdminMutation.isPending || !inviteEmail}
+                    data-testid="button-wizard-send-invite"
+                  >
+                    {inviteAdminMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <UserPlus className="h-4 w-4 mr-2" />}
+                    Generate Invite Link
+                  </Button>
+                </div>
+                {lastInviteUrl && (
+                  <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-green-700 dark:text-green-400">Invite link generated</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          navigator.clipboard.writeText(lastInviteUrl);
+                          toast({ title: "Copied", description: "Invite URL copied to clipboard" });
+                        }}
+                        data-testid="button-copy-wizard-invite"
+                      >
+                        <Copy className="h-3 w-3 mr-1" />
+                        Copy
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 break-all">{lastInviteUrl}</p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Invite acceptance is not required to complete setup. Tenant can be used immediately.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 6: Review & Finish */}
+          {wizardStep === "review" && createdTenant && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Setup Complete</CardTitle>
+                <CardDescription>Review your new tenant configuration</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <div>
+                        <div className="font-medium">Tenant Created</div>
+                        <div className="text-sm text-muted-foreground">{createdTenant.name}</div>
+                      </div>
+                    </div>
+                    <Badge variant="secondary">/{createdTenant.slug}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <div>
+                        <div className="font-medium">Primary Workspace</div>
+                        <div className="text-sm text-muted-foreground">{createdTenant.primaryWorkspace?.name || createdTenant.name}</div>
+                      </div>
+                    </div>
+                    <Badge className="bg-green-600">Created</Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      {lastInviteUrl ? <CheckCircle className="h-5 w-5 text-green-500" /> : <Clock className="h-5 w-5 text-muted-foreground" />}
+                      <div>
+                        <div className="font-medium">Admin Invitation</div>
+                        <div className="text-sm text-muted-foreground">{lastInviteUrl ? "Invite link generated" : "No invites sent"}</div>
+                      </div>
+                    </div>
+                    <Badge variant={lastInviteUrl ? "default" : "secondary"}>
+                      {lastInviteUrl ? "Pending" : "Skipped"}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Clock className="h-5 w-5 text-amber-500" />
+                      <div>
+                        <div className="font-medium">Tenant Status</div>
+                        <div className="text-sm text-muted-foreground">Ready to activate</div>
+                      </div>
+                    </div>
+                    {getStatusBadge(createdTenant.status)}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Wizard Navigation */}
+          <div className="flex items-center justify-between pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={goBack}
+              disabled={!canGoBack()}
+              data-testid="button-wizard-back"
+            >
+              Back
+            </Button>
+            <div className="flex gap-2">
+              {wizardStep !== "review" && createdTenant && (
+                <Button
+                  variant="ghost"
+                  onClick={() => goToStep("review")}
+                  data-testid="button-wizard-skip"
+                >
+                  Skip to Finish
+                </Button>
+              )}
+              {wizardStep === "review" ? (
+                <Button onClick={finishWizard} data-testid="button-wizard-finish">
+                  <Check className="h-4 w-4 mr-2" />
+                  Finish Setup
+                </Button>
+              ) : (
+                <Button
+                  onClick={goNext}
+                  disabled={!canGoNext()}
+                  data-testid="button-wizard-next"
+                >
+                  Next
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </FullScreenDrawer>
+    );
+  }
+
+  // Edit mode - activeTenant should exist at this point
+  if (!activeTenant) {
+    return null;
+  }
+
   return (
     <FullScreenDrawer
       open={open}
       onOpenChange={onOpenChange}
-      title={tenant.settings?.displayName || tenant.name}
-      description={`/${tenant.slug}`}
+      title={activeTenant.settings?.displayName || activeTenant.name}
+      description={`/${activeTenant.slug}`}
       hasUnsavedChanges={hasUnsavedChanges}
       width="3xl"
     >
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          {getStatusBadge(tenant.status)}
+          {getStatusBadge(activeTenant.status)}
           <div className="flex items-center gap-2">
-            {tenant.status === "inactive" && (
+            {activeTenant.status === "inactive" && (
               <Button 
                 size="sm" 
                 onClick={() => openConfirmDialog("activate")}
@@ -962,7 +1515,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
                 Activate
               </Button>
             )}
-            {tenant.status === "active" && (
+            {activeTenant.status === "active" && (
               <Button 
                 size="sm" 
                 variant="outline"
@@ -974,7 +1527,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
                 Suspend
               </Button>
             )}
-            {tenant.status === "suspended" && (
+            {activeTenant.status === "suspended" && (
               <Button 
                 size="sm" 
                 onClick={() => openConfirmDialog("reactivate")}
@@ -1057,22 +1610,22 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
                 </div>
                 <div className="space-y-2">
                   <Label>URL Slug</Label>
-                  <div className="text-sm text-muted-foreground">/{tenant.slug}</div>
+                  <div className="text-sm text-muted-foreground">/{activeTenant.slug}</div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-4">
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Users</div>
-                    <div className="text-2xl font-semibold">{tenant.userCount || 0}</div>
+                    <div className="text-2xl font-semibold">{activeTenant.userCount || 0}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Created</div>
-                    <div className="text-sm">{new Date(tenant.createdAt!).toLocaleDateString()}</div>
+                    <div className="text-sm">{new Date(activeTenant.createdAt!).toLocaleDateString()}</div>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {tenant.status === "inactive" && (
+            {activeTenant.status === "inactive" && (
               <Card className="border-amber-500/20 bg-amber-500/5">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
@@ -1888,7 +2441,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated }: Te
               <CardHeader>
                 <CardTitle className="text-base">Current Users</CardTitle>
                 <CardDescription>
-                  {tenant.userCount || 0} user{(tenant.userCount || 0) === 1 ? '' : 's'} in this tenant
+                  {activeTenant.userCount || 0} user{(activeTenant.userCount || 0) === 1 ? '' : 's'} in this tenant
                 </CardDescription>
               </CardHeader>
               <CardContent>
