@@ -1,0 +1,151 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+PROMPT: Documentation + Code Annotation + Test/Debug Pass + Safe Refactoring for Maintainability
+
+Goal: Perform a careful engineering “maintenance pass” focused on:
+1) Code annotation / inline comments for major features
+2) Updating and expanding README + App Docs area
+3) Running the full test suite and fixing bugs found
+4) Non-destructive organization improvements (splitting overly long files, especially large route/script files)
+5) Efficiency improvements where clearly safe (remove duplication, improve structure), without changing behavior
+
+This is NOT a feature prompt. Do not add new product features beyond documentation/testing/refactor.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change database schema.
+- Do NOT change API response shapes or endpoint paths.
+- Do NOT change auth/tenancy/agreement rules or behavior.
+- Do NOT remove existing functionality.
+- Refactors must be behavior-preserving. If behavior changes are required to fix a bug, scope it narrowly and explain it.
+- Avoid large sweeping changes; prefer incremental, test-backed changes.
+- Every refactor must be backed by tests or by adding tests around the refactored area.
+
+===============================================================================
+STEP 1 — INVENTORY & PRIORITIZE
+===============================================================================
+1) Scan the codebase and identify:
+- Overly large files (e.g., routes.ts ~2000+ lines, mega-components, giant service files)
+- Repeated logic (auth checks, tenant scoping, error handling)
+- Missing/weak documentation areas
+- Broken or flaky tests
+
+2) Produce a short plan in the PR summary / output describing:
+- which files will be split
+- how modules will be organized
+- what will be documented
+
+===============================================================================
+STEP 2 — FILE ORGANIZATION REFINEMENTS (SAFE, INCREMENTAL)
+===============================================================================
+A) Split giant route files into logical modules without changing routes:
+- server/routes/index.ts loads sub-routers
+- server/routes/auth.ts
+- server/routes/super.ts
+- server/routes/tenants.ts
+- server/routes/projects.ts
+- server/routes/tasks.ts
+- server/routes/timeTracking.ts
+- server/routes/uploads.ts
+Keep the EXACT route prefixes and behavior; only move code.
+
+B) Split long scripts and utilities:
+- Move reusable logic into server/services/* or server/utils/*
+- Keep scripts thin: parse args/env => call service functions
+
+C) Frontend structure cleanup:
+- Group by feature:
+  client/src/features/super/*
+  client/src/features/tenant/*
+  client/src/features/tasks/*
+  client/src/features/timeTracking/*
+- Extract shared components to:
+  client/src/components/common/*
+- Extract API clients/hooks to:
+  client/src/api/*
+  client/src/hooks/*
+
+IMPORTANT:
+- Use a single consistent pattern for imports and exports.
+- Avoid circular dependencies.
+- After each split, run tests.
+
+===============================================================================
+STEP 3 — CODE ANNOTATION & INLINE DOCUMENTATION
+===============================================================================
+Add helpful comments and docstrings in these areas:
+- Auth flow (cookie-based), session/cookie invariants
+- Tenancy enforcement (effectiveTenantId, scoping rules)
+- Super Admin impersonation rules
+- Agreement enforcement logic (if present)
+- S3 presign upload flow (key derivation and security rules)
+- Mailgun integration (write-only secret handling)
+- Route guard patterns and error handling conventions
+
+Rules:
+- Comments should explain WHY and invariants, not restate the code.
+- Add module-level header comments to major files explaining purpose and boundaries.
+
+===============================================================================
+STEP 4 — APP DOCS AREA UPDATES (REQUIRED)
+===============================================================================
+Update or create documentation in /docs (or the project’s App Docs area):
+Minimum docs to ensure exist and are current:
+- docs/README.md (top-level overview)
+- docs/ARCHITECTURE_OVERVIEW.md (client/server structure, multi-tenancy)
+- docs/AUTHENTICATION.md (cookie auth, login/logout/me, forgot password)
+- docs/TENANCY_MODEL.md (tenants/workspaces, effective tenant, impersonation)
+- docs/SUPER_ADMIN_GUIDE.md (tenant management, system settings, health tools)
+- docs/INTEGRATIONS.md (Mailgun, S3; Stripe placeholder as “planned”)
+- docs/UPLOADS_S3.md (categories, limits, security model)
+- docs/ERROR_HANDLING.md (error envelope + requestId)
+- docs/TESTING.md (how to run tests locally/CI)
+- docs/DEPLOYMENT_RAILWAY.md (env vars, common pitfalls)
+
+Also:
+- Ensure the in-app “App Docs” area links to these docs (if that UI exists).
+
+===============================================================================
+STEP 5 — TEST RUN + BUG FIX PASS
+===============================================================================
+1) Run:
+- backend tests
+- frontend tests (if any)
+- typecheck and lint
+2) Fix all failing tests and any obvious runtime errors discovered.
+3) For each bug fixed:
+- explain root cause
+- confirm no contract changes
+- add/adjust a test to prevent regression
+
+===============================================================================
+STEP 6 — EFFICIENCY IMPROVEMENTS (SAFE ONLY)
+===============================================================================
+Do small safe improvements:
+- Remove duplicated utilities by creating shared helpers
+- Standardize requestId logging
+- Normalize error responses via shared helper (without breaking)
+- Replace ad-hoc tenant scoping with a single helper where already repeated
+- Minor performance wins (e.g., avoid N+1 in obvious hot paths) ONLY if test coverage exists or can be added easily
+
+Do NOT do major perf refactors or add pagination; keep this maintenance-focused.
+
+===============================================================================
+STEP 7 — OUTPUT REQUIRED
+===============================================================================
+Provide a clear summary:
+1) Files split and new folder structure (before/after)
+2) Docs created/updated (list)
+3) Tests executed + results
+4) Bugs fixed (list + short root cause)
+5) Any follow-up recommendations (optional, but keep separate)
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- App behavior unchanged except bug fixes
+- All tests pass
+- Docs are updated and discoverable
+- Large files are split into manageable modules
+- Code is easier to navigate and maintain
+- No schema changes, no endpoint path changes, no response shape changes

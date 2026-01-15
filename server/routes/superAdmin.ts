@@ -3186,10 +3186,15 @@ router.get("/integrations/status", requireSuperUser, async (req, res) => {
       settings?.s3AccessKeyIdEncrypted && 
       settings?.s3SecretAccessKeyEncrypted
     );
+    const stripeConfigured = !!(
+      settings?.stripePublishableKey && 
+      settings?.stripeSecretKeyEncrypted
+    );
     
     res.json({
       mailgun: mailgunConfigured,
       s3: s3Configured,
+      stripe: stripeConfigured,
     });
   } catch (error) {
     console.error("[integrations] Failed to check integration status:", error);
@@ -3610,6 +3615,187 @@ router.delete("/integrations/s3/secret/:secretName", requireSuperUser, async (re
     res.json({ success: true, message: `${secretName} cleared successfully` });
   } catch (error) {
     console.error("[integrations] Failed to clear S3 secret:", error);
+    res.status(500).json({ error: "Failed to clear secret" });
+  }
+});
+
+// =============================================================================
+// GLOBAL STRIPE INTEGRATION ENDPOINTS
+// =============================================================================
+
+const globalStripeUpdateSchema = z.object({
+  publishableKey: z.string().optional(),
+  secretKey: z.string().optional(),
+  webhookSecret: z.string().optional(),
+  defaultCurrency: z.string().optional(),
+});
+
+// GET /api/v1/super/integrations/stripe - Get global Stripe settings
+router.get("/integrations/stripe", requireSuperUser, async (req, res) => {
+  try {
+    const [settings] = await db.select().from(systemSettings).limit(1);
+    
+    if (!settings) {
+      return res.json({
+        status: "not_configured",
+        config: null,
+        secretMasked: null,
+        lastTestedAt: null,
+      });
+    }
+
+    let secretKeyMasked: string | null = null;
+    let webhookSecretMasked: string | null = null;
+    
+    if (settings.stripeSecretKeyEncrypted && isEncryptionAvailable()) {
+      try {
+        const decrypted = decryptValue(settings.stripeSecretKeyEncrypted);
+        secretKeyMasked = maskSecret(decrypted);
+      } catch (e) {
+        console.error("[integrations] Failed to decrypt Stripe secret key for masking");
+      }
+    }
+    
+    if (settings.stripeWebhookSecretEncrypted && isEncryptionAvailable()) {
+      try {
+        const decrypted = decryptValue(settings.stripeWebhookSecretEncrypted);
+        webhookSecretMasked = maskSecret(decrypted);
+      } catch (e) {
+        console.error("[integrations] Failed to decrypt Stripe webhook secret for masking");
+      }
+    }
+
+    const isConfigured = !!(
+      settings.stripePublishableKey && 
+      settings.stripeSecretKeyEncrypted
+    );
+
+    res.json({
+      status: isConfigured ? "configured" : "not_configured",
+      config: {
+        publishableKey: settings.stripePublishableKey,
+        defaultCurrency: settings.stripeDefaultCurrency || "usd",
+      },
+      secretMasked: {
+        secretKeyMasked,
+        webhookSecretMasked,
+      },
+      lastTestedAt: settings.stripeLastTestedAt?.toISOString() || null,
+    });
+  } catch (error) {
+    console.error("[integrations] Failed to get Stripe settings:", error);
+    res.status(500).json({ error: "Failed to get Stripe settings" });
+  }
+});
+
+// PUT /api/v1/super/integrations/stripe - Update global Stripe settings
+router.put("/integrations/stripe", requireSuperUser, async (req, res) => {
+  try {
+    const body = globalStripeUpdateSchema.parse(req.body);
+    
+    const updateData: Record<string, any> = {
+      updatedAt: new Date(),
+    };
+    
+    if (body.publishableKey !== undefined) {
+      updateData.stripePublishableKey = body.publishableKey || null;
+    }
+    if (body.defaultCurrency !== undefined) {
+      updateData.stripeDefaultCurrency = body.defaultCurrency || "usd";
+    }
+    if (body.secretKey && body.secretKey.trim()) {
+      if (!isEncryptionAvailable()) {
+        return res.status(400).json({ error: "Encryption not configured. Cannot store secrets." });
+      }
+      updateData.stripeSecretKeyEncrypted = encryptValue(body.secretKey.trim());
+    }
+    if (body.webhookSecret && body.webhookSecret.trim()) {
+      if (!isEncryptionAvailable()) {
+        return res.status(400).json({ error: "Encryption not configured. Cannot store secrets." });
+      }
+      updateData.stripeWebhookSecretEncrypted = encryptValue(body.webhookSecret.trim());
+    }
+
+    // Upsert system settings
+    const [existing] = await db.select().from(systemSettings).limit(1);
+    if (existing) {
+      await db.update(systemSettings).set(updateData).where(eq(systemSettings.id, 1));
+    } else {
+      await db.insert(systemSettings).values({ id: 1, ...updateData });
+    }
+
+    res.json({ success: true, message: "Stripe settings saved successfully" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("[integrations] Failed to save Stripe settings:", error);
+    res.status(500).json({ error: "Failed to save Stripe settings" });
+  }
+});
+
+// POST /api/v1/super/integrations/stripe/test - Test global Stripe connection
+router.post("/integrations/stripe/test", requireSuperUser, async (req, res) => {
+  try {
+    const [settings] = await db.select().from(systemSettings).limit(1);
+    
+    if (!settings?.stripeSecretKeyEncrypted) {
+      return res.json({ ok: false, error: { code: "not_configured", message: "Stripe secret key is not configured" } });
+    }
+
+    if (!isEncryptionAvailable()) {
+      return res.json({ ok: false, error: { code: "encryption_unavailable", message: "Encryption not available" } });
+    }
+
+    const secretKey = decryptValue(settings.stripeSecretKeyEncrypted);
+    
+    // Import Stripe dynamically for testing
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(secretKey, {
+      apiVersion: "2025-12-15.clover",
+    });
+
+    // Test the connection by fetching balance (lightweight check)
+    await stripe.balance.retrieve();
+    
+    // Update last tested timestamp
+    await db.update(systemSettings)
+      .set({ stripeLastTestedAt: new Date(), updatedAt: new Date() })
+      .where(eq(systemSettings.id, 1));
+
+    res.json({ ok: true });
+  } catch (error: any) {
+    const requestId = (req as any).requestId || "unknown";
+    console.error("[integrations] Stripe test failed:", error.message);
+    res.json({ 
+      ok: false, 
+      error: { 
+        code: error.code || "stripe_error", 
+        message: error.message || "Failed to connect to Stripe",
+        requestId,
+      } 
+    });
+  }
+});
+
+// DELETE /api/v1/super/integrations/stripe/secret/:secretName - Clear a Stripe secret
+router.delete("/integrations/stripe/secret/:secretName", requireSuperUser, async (req, res) => {
+  try {
+    const { secretName } = req.params;
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    
+    if (secretName === "secretKey") {
+      updateData.stripeSecretKeyEncrypted = null;
+    } else if (secretName === "webhookSecret") {
+      updateData.stripeWebhookSecretEncrypted = null;
+    } else {
+      return res.status(400).json({ error: "Invalid secret name" });
+    }
+
+    await db.update(systemSettings).set(updateData).where(eq(systemSettings.id, 1));
+    res.json({ success: true, message: `${secretName} cleared successfully` });
+  } catch (error) {
+    console.error("[integrations] Failed to clear Stripe secret:", error);
     res.status(500).json({ error: "Failed to clear secret" });
   }
 });

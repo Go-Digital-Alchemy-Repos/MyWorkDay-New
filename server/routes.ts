@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { storage } from "./storage";
 import { z } from "zod";
 import subRoutes from "./routes/index";
+import webhookRoutes from "./routes/webhooks";
 import {
   insertTaskSchema,
   insertSectionSchema,
@@ -116,15 +117,15 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express,
 ): Promise<Server> {
-  // Protect all /api routes except /api/auth/*, /api/v1/auth/* and /api/v1/super/bootstrap
+  // Protect all /api routes except /api/auth/*, /api/v1/auth/*, /api/v1/super/bootstrap, and /api/v1/webhooks/*
   app.use("/api", (req, res, next) => {
-    if (req.path.startsWith("/auth") || req.path.startsWith("/v1/auth/") || req.path === "/v1/super/bootstrap") {
+    if (req.path.startsWith("/auth") || req.path.startsWith("/v1/auth/") || req.path === "/v1/super/bootstrap" || req.path.startsWith("/v1/webhooks/")) {
       return next();
     }
     return requireAuth(req, res, next);
   });
   
-  // Enforce tenant context for all API routes except /api/auth/*, /api/health, /api/v1/super/bootstrap, and /api/v1/tenant/*
+  // Enforce tenant context for all API routes except /api/auth/*, /api/health, /api/v1/super/*, /api/v1/tenant/*, and /api/v1/webhooks/*
   // SuperUsers can access without tenant context; regular users must have tenantId
   // Tenant onboarding routes (/api/v1/tenant/*) are exempt from strict tenant context enforcement
   // as they need to work during onboarding when tenant context is being set up
@@ -132,7 +133,8 @@ export async function registerRoutes(
     if (req.path.startsWith("/auth") || 
         req.path === "/health" || 
         req.path.startsWith("/v1/super/") ||
-        req.path.startsWith("/v1/tenant/")) {
+        req.path.startsWith("/v1/tenant/") ||
+        req.path.startsWith("/v1/webhooks/")) {
       return next();
     }
     return requireTenantContext(req, res, next);
@@ -143,6 +145,9 @@ export async function registerRoutes(
 
   // Mount sub-routes (timer, super admin, etc.)
   app.use("/api", subRoutes);
+  
+  // Mount webhook routes (bypasses auth, uses signature verification)
+  app.use("/api/v1/webhooks", webhookRoutes);
 
   // Health check endpoint for Docker/Railway
   app.get("/api/health", (req, res) => {
