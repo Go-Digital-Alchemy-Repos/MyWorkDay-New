@@ -34,7 +34,7 @@ export function ImpersonationBanner() {
       clearLastAttemptedTenantUrl();
       clearTenantScopedCaches();
       stopImpersonation();
-      setLocation("/super/tenants");
+      setLocation("/super-admin/tenants");
       toast({
         title: "Exited tenant mode",
         description: "You are back in Super Admin mode",

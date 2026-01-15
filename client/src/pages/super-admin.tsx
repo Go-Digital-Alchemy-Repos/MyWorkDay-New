@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, setActingTenantId, getActingTenantId } from "@/lib/queryClient";
+import { queryClient, apiRequest, clearTenantScopedCaches } from "@/lib/queryClient";
+import { useAppMode } from "@/hooks/useAppMode";
 import { useLocation } from "wouter";
-import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Upload, Users, Download, PlayCircle, PauseCircle, Power, ExternalLink, Mail, FileText, Check } from "lucide-react";
+import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Upload, Users, Download, PlayCircle, PauseCircle, Power, ExternalLink, Mail, FileText, Check, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { TenantDrawer } from "@/components/super-admin/tenant-drawer";
@@ -91,6 +92,7 @@ interface ImportResponse {
 
 export default function SuperAdminPage() {
   const { toast } = useToast();
+  const { startImpersonation } = useAppMode();
   const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [invitingTenant, setInvitingTenant] = useState<Tenant | null>(null);
@@ -102,6 +104,7 @@ export default function SuperAdminPage() {
   const [importResults, setImportResults] = useState<ImportResponse | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ type: "activate" | "suspend" | "deactivate"; tenant: Tenant } | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<TenantWithDetails | null>(null);
+  const [isActingAsTenant, setIsActingAsTenant] = useState(false);
   const [, setLocation] = useLocation();
 
   const { data: tenants = [], isLoading } = useQuery<TenantWithDetails[]>({
@@ -222,19 +225,40 @@ export default function SuperAdminPage() {
     },
   });
 
-  const handleActAsTenant = (tenant: Tenant) => {
-    setActingTenantId(tenant.id);
-    toast({ 
-      title: "Acting as tenant", 
-      description: `You are now acting as "${tenant.name}". All actions will be scoped to this tenant.` 
-    });
-    setLocation("/dashboard");
-  };
-
-  const handleStopActingAsTenant = () => {
-    setActingTenantId(null);
-    toast({ title: "Stopped acting as tenant", description: "You are no longer acting as a specific tenant" });
-    queryClient.invalidateQueries();
+  const handleActAsTenant = async (tenant: Tenant) => {
+    if (tenant.status === "suspended") {
+      toast({ 
+        title: "Cannot act as suspended tenant", 
+        description: "This tenant is currently suspended.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setIsActingAsTenant(true);
+    try {
+      await apiRequest("POST", "/api/v1/super/impersonate/start", {
+        tenantId: tenant.id,
+      });
+      
+      clearTenantScopedCaches();
+      startImpersonation(tenant.id, tenant.name);
+      
+      toast({ 
+        title: "Acting as tenant", 
+        description: `You are now acting as "${tenant.name}". All actions will be scoped to this tenant.` 
+      });
+      
+      setLocation("/");
+    } catch (error) {
+      toast({ 
+        title: "Failed to act as tenant", 
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive"
+      });
+    } finally {
+      setIsActingAsTenant(false);
+    }
   };
 
   const parseCSV = (csvText: string): CSVUser[] => {
@@ -482,9 +506,14 @@ export default function SuperAdminPage() {
                       size="sm"
                       variant="outline"
                       onClick={() => handleActAsTenant(tenant)}
+                      disabled={isActingAsTenant || tenant.status === "suspended"}
                       data-testid={`button-act-as-tenant-${tenant.id}`}
                     >
-                      <ExternalLink className="h-4 w-4 mr-2" />
+                      {isActingAsTenant ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                      )}
                       Act as Tenant
                     </Button>
                     
@@ -1247,21 +1276,6 @@ export default function SuperAdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Banner when acting as a tenant */}
-      {getActingTenantId() && (
-        <div className="fixed bottom-4 right-4 bg-primary text-primary-foreground px-4 py-2 rounded-lg shadow-lg flex items-center gap-3 z-50">
-          <span className="text-sm">Acting as tenant</span>
-          <Button 
-            size="sm" 
-            variant="secondary"
-            onClick={handleStopActingAsTenant}
-            data-testid="button-stop-acting-as-tenant"
-          >
-            <XCircle className="h-4 w-4 mr-2" />
-            Stop
-          </Button>
-        </div>
-      )}
 
       {/* Tenant Detail Drawer (Edit Mode) */}
       <TenantDrawer
