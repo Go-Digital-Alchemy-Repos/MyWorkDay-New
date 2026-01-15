@@ -364,12 +364,14 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   role: text("role").notNull().default("employee"),
   isActive: boolean("is_active").notNull().default(true),
+  googleId: text("google_id").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("users_role_idx").on(table.role),
   index("users_active_idx").on(table.isActive),
   index("users_tenant_idx").on(table.tenantId),
+  index("users_google_id_idx").on(table.googleId),
 ]);
 
 // Workspaces table
