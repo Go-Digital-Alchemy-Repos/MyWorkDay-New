@@ -28,7 +28,7 @@ import TimeTrackingPage from "@/pages/time-tracking";
 import LoginPage from "@/pages/login";
 import SettingsPage from "@/pages/settings";
 import SuperAdminPage from "@/pages/super-admin";
-import SuperAdminReportsPage from "@/pages/super-admin-reports";
+import SuperAdminDashboardPage from "@/pages/super-admin-dashboard";
 import SuperAdminSettingsPage from "@/pages/super-admin-settings";
 import SuperAdminStatusPage from "@/pages/super-admin-status";
 import SuperAdminDocsPage from "@/pages/super-admin-docs";
@@ -107,7 +107,7 @@ function TenantRouteGuard({ component: Component }: { component: React.Component
         title: "Tenant access required",
         description: "Switch to a tenant to access this page.",
       });
-      setLocation("/super-admin");
+      setLocation("/super-admin/dashboard");
     }
   }, [isLoading, isAuthenticated, user?.role, appMode, toast, setLocation, location]);
 
@@ -128,7 +128,7 @@ function TenantRouteGuard({ component: Component }: { component: React.Component
     if (isTenantRoute(location)) {
       setLastAttemptedTenantUrl(location);
     }
-    return <Redirect to="/super-admin" />;
+    return <Redirect to="/super-admin/dashboard" />;
   }
 
   return <Component />;
@@ -137,11 +137,17 @@ function TenantRouteGuard({ component: Component }: { component: React.Component
 function SuperAdminRouter() {
   return (
     <Switch>
-      <Route path="/super-admin">
+      {/* Dashboard is the default landing page for super admins */}
+      <Route path="/super-admin/dashboard">
+        {() => <SuperRouteGuard component={SuperAdminDashboardPage} />}
+      </Route>
+      {/* Tenants management page */}
+      <Route path="/super-admin/tenants">
         {() => <SuperRouteGuard component={SuperAdminPage} />}
       </Route>
+      {/* Legacy route: redirect old reports URL to dashboard */}
       <Route path="/super-admin/reports">
-        {() => <SuperRouteGuard component={SuperAdminReportsPage} />}
+        {() => <Redirect to="/super-admin/dashboard" />}
       </Route>
       <Route path="/super-admin/settings">
         {() => <SuperRouteGuard component={SuperAdminSettingsPage} />}
@@ -152,8 +158,12 @@ function SuperAdminRouter() {
       <Route path="/super-admin/docs">
         {() => <SuperRouteGuard component={SuperAdminDocsPage} />}
       </Route>
+      {/* Default: redirect /super-admin to dashboard */}
+      <Route path="/super-admin">
+        {() => <Redirect to="/super-admin/dashboard" />}
+      </Route>
       <Route>
-        {() => <Redirect to="/super-admin" />}
+        {() => <Redirect to="/super-admin/dashboard" />}
       </Route>
     </Switch>
   );
@@ -311,7 +321,7 @@ function AppLayout() {
 
   if (isSuperUser && appMode === "super") {
     if (!isSuperRoute) {
-      return <Redirect to="/super-admin" />;
+      return <Redirect to="/super-admin/dashboard" />;
     }
     return <SuperLayout />;
   }

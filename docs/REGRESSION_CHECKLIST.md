@@ -10,7 +10,7 @@ Manual regression checklist for verifying core functionality. Run through this c
 ### 1.1 Login
 - [ ] Navigate to `/login`
 - [ ] Enter valid credentials
-- [ ] Verify redirect to appropriate page (Super Admin → `/super-admin`, Tenant User → `/`)
+- [ ] Verify redirect to appropriate page (Super Admin → `/super-admin/dashboard`, Tenant User → `/`)
 - [ ] Verify session persists on page refresh
 
 ### 1.2 Registration (First User)
@@ -27,31 +27,32 @@ Manual regression checklist for verifying core functionality. Run through this c
 ## 2. Super Admin Mode
 
 ### 2.1 Navigation Isolation
-- [ ] Super Admin sees only super-admin menu items (Tenants, Reports, Settings, Status)
+- [ ] Super Admin sees only super-admin menu items (Dashboard, Tenants, Settings, Status, Docs)
+- [ ] "Global Reports" removed from navigation (now part of Dashboard)
 - [ ] No tenant-specific items visible (Clients, Projects, Tasks, etc.)
 - [ ] Tenant switcher visible in header
 
-### 2.2 Tenant Management
-- [ ] List tenants on `/super-admin`
+### 2.2 Dashboard (Default Landing)
+- [ ] Super Admin lands on `/super-admin/dashboard` after login
+- [ ] Dashboard shows cross-tenant analytics (Tenants, Projects, Users, Tasks, Time tabs)
+- [ ] Old `/super-admin/reports` URL redirects to `/super-admin/dashboard`
+- [ ] Old `/super-admin` URL redirects to `/super-admin/dashboard`
+
+### 2.3 Tenant Management
+- [ ] Navigate to `/super-admin/tenants` or click "Tenants" in sidebar
+- [ ] List tenants displays correctly
 - [ ] Create new tenant (transactional: tenant + workspace + settings)
 - [ ] Edit tenant via drawer
 - [ ] Activate/Suspend/Deactivate tenant
 - [ ] Invite tenant admin (link or email)
 
-### 2.3 Act-As-Tenant (Impersonation)
+### 2.4 Act-As-Tenant (Impersonation)
 - [ ] Select tenant from picker
 - [ ] Impersonation banner appears with tenant name
 - [ ] Navigation switches to full tenant menu
 - [ ] All data operations scoped to impersonated tenant
 - [ ] Click "Exit" button on banner
-- [ ] Returns to super-admin mode
-
-### 2.4 Global Reports (`/super-admin/reports`)
-- [ ] Tenants tab loads with tenant summary
-- [ ] Projects tab shows projects by tenant
-- [ ] Users tab shows user counts by role
-- [ ] Tasks tab shows task status distribution
-- [ ] Time tab shows time tracking summary
+- [ ] Returns to super-admin mode (dashboard)
 
 ### 2.5 System Settings (`/super-admin/settings`)
 - [ ] Platform Admins tab lists super users

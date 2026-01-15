@@ -2,7 +2,6 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   Building2,
-  BarChart3,
   Wrench,
   Activity,
   LayoutDashboard,
@@ -24,9 +23,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const superAdminNavItems = [
-  { title: "Dashboard", url: "/super-admin", icon: LayoutDashboard, exact: true },
-  { title: "Tenants", url: "/super-admin", icon: Building2, exact: true },
-  { title: "Global Reports", url: "/super-admin/reports", icon: BarChart3, exact: false },
+  { title: "Dashboard", url: "/super-admin/dashboard", icon: LayoutDashboard, exact: false },
+  { title: "Tenants", url: "/super-admin/tenants", icon: Building2, exact: false },
   { title: "System Settings", url: "/super-admin/settings", icon: Wrench, exact: false },
   { title: "System Status", url: "/super-admin/status", icon: Activity, exact: false },
   { title: "App Docs", url: "/super-admin/docs", icon: FileText, exact: false },
