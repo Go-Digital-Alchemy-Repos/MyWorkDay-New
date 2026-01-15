@@ -9,7 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Palette, ImageIcon, Type, Save, Loader2 } from "lucide-react";
-import { FileDropzone } from "@/components/common/file-dropzone";
+import { S3Dropzone } from "@/components/common/S3Dropzone";
+import { useAuth } from "@/lib/auth";
+
+interface SystemSettings {
+  id: number;
+  defaultAppName: string | null;
+  defaultLogoUrl: string | null;
+  defaultIconUrl: string | null;
+  defaultFaviconUrl: string | null;
+}
 
 interface TenantSettings {
   displayName?: string;
@@ -30,9 +39,15 @@ export function BrandingTab() {
   const [formData, setFormData] = useState<TenantSettings>({});
   const [isInitialized, setIsInitialized] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data, isLoading, error } = useQuery<{ tenantSettings: TenantSettings | null }>({
     queryKey: ["/api/v1/tenant/settings"],
+  });
+
+  const { data: systemSettings } = useQuery<SystemSettings>({
+    queryKey: ["/api/v1/super/system-settings"],
+    enabled: user?.role === "super_user" || user?.role === "admin",
   });
 
   useEffect(() => {
@@ -62,49 +77,6 @@ export function BrandingTab() {
 
   const handleChange = (field: keyof TenantSettings, value: string | boolean | null) => {
     setFormData((prev) => ({ ...prev, [field]: value || null }));
-  };
-
-  const createAssetUploader = (assetType: "logo" | "icon" | "favicon") => {
-    return async (file: File): Promise<string> => {
-      const formDataUpload = new FormData();
-      formDataUpload.append("file", file);
-      formDataUpload.append("type", assetType);
-
-      const response = await fetch("/api/v1/tenant/settings/brand-assets", {
-        method: "POST",
-        body: formDataUpload,
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Upload failed");
-      }
-
-      const result = await response.json();
-      
-      const fieldMap: Record<string, keyof TenantSettings> = {
-        logo: "logoUrl",
-        icon: "iconUrl",
-        favicon: "faviconUrl",
-      };
-      
-      handleChange(fieldMap[assetType], result.url);
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/tenant/settings"] });
-      toast({ title: `${assetType.charAt(0).toUpperCase() + assetType.slice(1)} uploaded successfully` });
-      return result.url;
-    };
-  };
-
-  const createAssetRemover = (assetType: "logo" | "icon" | "favicon") => {
-    return async () => {
-      const fieldMap: Record<string, keyof TenantSettings> = {
-        logo: "logoUrl",
-        icon: "iconUrl",
-        favicon: "faviconUrl",
-      };
-      handleChange(fieldMap[assetType], null);
-    };
   };
 
   if (isLoading) {
@@ -200,45 +172,33 @@ export function BrandingTab() {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-6 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label>Logo</Label>
-              <FileDropzone
-                onUpload={createAssetUploader("logo")}
-                onRemove={createAssetRemover("logo")}
-                currentUrl={formData.logoUrl}
-                accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                maxSizeMB={5}
-                previewType="image"
-                label="Upload Logo"
-                hint="200x50px PNG or SVG"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Icon</Label>
-              <FileDropzone
-                onUpload={createAssetUploader("icon")}
-                onRemove={createAssetRemover("icon")}
-                currentUrl={formData.iconUrl}
-                accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                maxSizeMB={5}
-                previewType="icon"
-                label="Upload Icon"
-                hint="192x192px for PWA"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Favicon</Label>
-              <FileDropzone
-                onUpload={createAssetUploader("favicon")}
-                onRemove={createAssetRemover("favicon")}
-                currentUrl={formData.faviconUrl}
-                accept="image/png,image/x-icon,image/vnd.microsoft.icon"
-                maxSizeMB={1}
-                previewType="favicon"
-                label="Upload Favicon"
-                hint="32x32px ICO or PNG"
-              />
-            </div>
+            <S3Dropzone
+              category="tenant-branding-logo"
+              label="Logo"
+              description="Full logo for headers (max 2MB, 200x50px PNG or SVG)"
+              valueUrl={formData.logoUrl}
+              inheritedUrl={systemSettings?.defaultLogoUrl}
+              onUploaded={(fileUrl) => handleChange("logoUrl", fileUrl)}
+              onRemoved={() => handleChange("logoUrl", null)}
+            />
+            <S3Dropzone
+              category="tenant-branding-icon"
+              label="Icon"
+              description="Square icon for PWA (max 512KB, 192x192px)"
+              valueUrl={formData.iconUrl}
+              inheritedUrl={systemSettings?.defaultIconUrl}
+              onUploaded={(fileUrl) => handleChange("iconUrl", fileUrl)}
+              onRemoved={() => handleChange("iconUrl", null)}
+            />
+            <S3Dropzone
+              category="tenant-branding-favicon"
+              label="Favicon"
+              description="Browser tab icon (max 512KB, 32x32px ICO or PNG)"
+              valueUrl={formData.faviconUrl}
+              inheritedUrl={systemSettings?.defaultFaviconUrl}
+              onUploaded={(fileUrl) => handleChange("faviconUrl", fileUrl)}
+              onRemoved={() => handleChange("faviconUrl", null)}
+            />
           </div>
         </CardContent>
       </Card>

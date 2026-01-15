@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { FileDropzone } from "@/components/common/file-dropzone";
+import { S3Dropzone } from "@/components/common/S3Dropzone";
 import { User, Mail, Shield, Users, Save, Loader2, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -57,41 +57,26 @@ export default function UserProfilePage() {
     },
   });
 
-  const handleAvatarUpload = async (file: File): Promise<string> => {
-    const formDataUpload = new FormData();
-    formDataUpload.append("file", file);
+  const updateAvatarMutation = useMutation({
+    mutationFn: async (avatarUrl: string | null) => {
+      return apiRequest("PATCH", "/api/users/me", { avatarUrl });
+    },
+    onSuccess: () => {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to update avatar", variant: "destructive" });
+    },
+  });
 
-    const response = await fetch("/api/v1/me/avatar", {
-      method: "POST",
-      body: formDataUpload,
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Upload failed");
-    }
-
-    const result = await response.json();
-    await refetch();
-    queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+  const handleAvatarUploaded = (fileUrl: string) => {
+    updateAvatarMutation.mutate(fileUrl);
     toast({ title: "Avatar uploaded successfully" });
-    return result.url;
   };
 
-  const handleAvatarRemove = async () => {
-    const response = await fetch("/api/v1/me/avatar", {
-      method: "DELETE",
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Remove failed");
-    }
-
-    await refetch();
-    queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+  const handleAvatarRemove = () => {
+    updateAvatarMutation.mutate(null);
     toast({ title: "Avatar removed" });
   };
 
@@ -147,15 +132,13 @@ export default function UserProfilePage() {
                   </Avatar>
                 </div>
                 <div className="flex-1 w-full max-w-xs">
-                  <FileDropzone
-                    onUpload={handleAvatarUpload}
-                    onRemove={handleAvatarRemove}
-                    currentUrl={user.avatarUrl || undefined}
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    maxSizeMB={2}
-                    previewType="icon"
-                    label="Upload Avatar"
-                    hint="PNG, JPG, WebP or GIF. Max 2MB."
+                  <S3Dropzone
+                    category="user-avatar"
+                    label="Profile Picture"
+                    description="PNG, JPG, WebP or GIF. Max 2MB."
+                    valueUrl={user.avatarUrl}
+                    onUploaded={handleAvatarUploaded}
+                    onRemoved={handleAvatarRemove}
                   />
                 </div>
               </div>

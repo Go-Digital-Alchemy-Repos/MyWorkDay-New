@@ -13,8 +13,9 @@ import { useAuth } from "@/lib/auth";
 import { Redirect } from "wouter";
 import { 
   Loader2, Users, FileText, Palette, Settings, Shield, Save, Mail, HardDrive, Check, X, 
-  Plus, Link, Copy, MoreHorizontal, UserCheck, UserX, Clock, AlertCircle, KeyRound
+  Plus, Link, Copy, MoreHorizontal, UserCheck, UserX, Clock, AlertCircle, KeyRound, Image
 } from "lucide-react";
+import { S3Dropzone } from "@/components/common/S3Dropzone";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +38,7 @@ interface SystemSettings {
   id: number;
   defaultAppName: string | null;
   defaultLogoUrl: string | null;
+  defaultIconUrl: string | null;
   defaultFaviconUrl: string | null;
   defaultPrimaryColor: string | null;
   defaultSecondaryColor: string | null;
@@ -518,6 +520,40 @@ export default function SuperAdminSettingsPage() {
                         </div>
                       </div>
                     </div>
+                    
+                    <div className="border-t pt-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Image className="h-5 w-5 text-muted-foreground" />
+                        <h3 className="font-medium">Branding Assets</h3>
+                      </div>
+                      <div className="grid gap-6 md:grid-cols-3">
+                        <S3Dropzone
+                          category="global-branding-logo"
+                          label="Default Logo"
+                          description="Full logo for headers and login pages (max 2MB)"
+                          valueUrl={brandingForm.defaultLogoUrl !== undefined ? brandingForm.defaultLogoUrl : systemSettings?.defaultLogoUrl}
+                          onUploaded={(fileUrl) => setBrandingForm({ ...brandingForm, defaultLogoUrl: fileUrl })}
+                          onRemoved={() => setBrandingForm({ ...brandingForm, defaultLogoUrl: null })}
+                        />
+                        <S3Dropzone
+                          category="global-branding-icon"
+                          label="Default Icon"
+                          description="Square icon for compact spaces (max 512KB)"
+                          valueUrl={brandingForm.defaultIconUrl !== undefined ? brandingForm.defaultIconUrl : systemSettings?.defaultIconUrl}
+                          onUploaded={(fileUrl) => setBrandingForm({ ...brandingForm, defaultIconUrl: fileUrl })}
+                          onRemoved={() => setBrandingForm({ ...brandingForm, defaultIconUrl: null })}
+                        />
+                        <S3Dropzone
+                          category="global-branding-favicon"
+                          label="Default Favicon"
+                          description="Browser tab icon (max 512KB)"
+                          valueUrl={brandingForm.defaultFaviconUrl !== undefined ? brandingForm.defaultFaviconUrl : systemSettings?.defaultFaviconUrl}
+                          onUploaded={(fileUrl) => setBrandingForm({ ...brandingForm, defaultFaviconUrl: fileUrl })}
+                          onRemoved={() => setBrandingForm({ ...brandingForm, defaultFaviconUrl: null })}
+                        />
+                      </div>
+                    </div>
+                    
                     <div className="flex justify-end">
                       <Button 
                         onClick={handleSaveBranding}
