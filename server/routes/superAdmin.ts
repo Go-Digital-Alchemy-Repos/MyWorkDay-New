@@ -47,6 +47,8 @@ import path from "path";
 import { encryptValue, decryptValue, isEncryptionAvailable } from "../lib/encryption";
 import Mailgun from "mailgun.js";
 import FormData from "form-data";
+import { invalidateAgreementCache } from "../middleware/agreementEnforcement";
+import { AgreementStatus } from "@shared/schema";
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -3571,6 +3573,365 @@ router.get("/agreements/tenants-summary", requireSuperUser, async (req, res) => 
   } catch (error) {
     console.error("[agreements] Failed to get tenant agreements summary:", error);
     res.status(500).json({ error: "Failed to get agreements summary" });
+  }
+});
+
+// =============================================================================
+// SUPER ADMIN AGREEMENT MANAGEMENT ENDPOINTS
+// =============================================================================
+
+const agreementCreateSchema = z.object({
+  tenantId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  body: z.string().min(1),
+});
+
+const agreementUpdateSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  body: z.string().min(1).optional(),
+});
+
+// GET /api/v1/super/agreements - List all agreements across all tenants
+router.get("/agreements", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, status } = req.query;
+    
+    let query = db.select({
+      id: tenantAgreements.id,
+      tenantId: tenantAgreements.tenantId,
+      title: tenantAgreements.title,
+      body: tenantAgreements.body,
+      version: tenantAgreements.version,
+      status: tenantAgreements.status,
+      effectiveAt: tenantAgreements.effectiveAt,
+      createdAt: tenantAgreements.createdAt,
+      updatedAt: tenantAgreements.updatedAt,
+    }).from(tenantAgreements);
+    
+    const conditions = [];
+    if (tenantId && typeof tenantId === "string") {
+      conditions.push(eq(tenantAgreements.tenantId, tenantId));
+    }
+    if (status && typeof status === "string") {
+      conditions.push(eq(tenantAgreements.status, status));
+    }
+    
+    const agreements = conditions.length > 0 
+      ? await query.where(and(...conditions)).orderBy(desc(tenantAgreements.updatedAt))
+      : await query.orderBy(desc(tenantAgreements.updatedAt));
+    
+    // Enrich with tenant names
+    const tenantIds = [...new Set(agreements.map(a => a.tenantId))];
+    const tenantData = tenantIds.length > 0 
+      ? await db.select({ id: tenants.id, name: tenants.name }).from(tenants)
+      : [];
+    const tenantMap = new Map(tenantData.map(t => [t.id, t.name]));
+    
+    const enrichedAgreements = agreements.map(a => ({
+      ...a,
+      tenantName: tenantMap.get(a.tenantId) || "Unknown",
+    }));
+    
+    res.json({ agreements: enrichedAgreements, total: enrichedAgreements.length });
+  } catch (error) {
+    console.error("[agreements] Failed to list agreements:", error);
+    res.status(500).json({ error: "Failed to list agreements" });
+  }
+});
+
+// GET /api/v1/super/agreements/:id - Get single agreement details
+router.get("/agreements/:id", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [agreement] = await db.select()
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.id, id))
+      .limit(1);
+    
+    if (!agreement) {
+      return res.status(404).json({ error: "Agreement not found" });
+    }
+    
+    // Get tenant name
+    const [tenant] = await db.select({ name: tenants.name })
+      .from(tenants)
+      .where(eq(tenants.id, agreement.tenantId))
+      .limit(1);
+    
+    // Get acceptance stats
+    const acceptances = await db.select({ count: count() })
+      .from(tenantAgreementAcceptances)
+      .where(eq(tenantAgreementAcceptances.agreementId, id));
+    
+    const totalUsers = await db.select({ count: count() })
+      .from(users)
+      .where(eq(users.tenantId, agreement.tenantId));
+    
+    res.json({
+      ...agreement,
+      tenantName: tenant?.name || "Unknown",
+      acceptedCount: acceptances[0]?.count || 0,
+      totalUsers: totalUsers[0]?.count || 0,
+    });
+  } catch (error) {
+    console.error("[agreements] Failed to get agreement:", error);
+    res.status(500).json({ error: "Failed to get agreement" });
+  }
+});
+
+// POST /api/v1/super/agreements - Create a new draft agreement for a tenant
+router.post("/agreements", requireSuperUser, async (req, res) => {
+  try {
+    const validation = agreementCreateSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: "Invalid request body", details: validation.error.errors });
+    }
+    
+    const { tenantId, title, body } = validation.data;
+    const user = req.user as any;
+    
+    // Verify tenant exists
+    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    // Get next version number for this tenant
+    const existingAgreements = await db.select({ version: tenantAgreements.version })
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.tenantId, tenantId))
+      .orderBy(desc(tenantAgreements.version))
+      .limit(1);
+    
+    const nextVersion = existingAgreements.length > 0 ? existingAgreements[0].version + 1 : 1;
+    
+    const [newAgreement] = await db.insert(tenantAgreements).values({
+      tenantId,
+      title,
+      body,
+      version: nextVersion,
+      status: AgreementStatus.DRAFT,
+      createdByUserId: user.id,
+    }).returning();
+    
+    res.status(201).json({ agreement: newAgreement });
+  } catch (error) {
+    console.error("[agreements] Failed to create agreement:", error);
+    res.status(500).json({ error: "Failed to create agreement" });
+  }
+});
+
+// PATCH /api/v1/super/agreements/:id - Update a draft agreement
+router.patch("/agreements/:id", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const validation = agreementUpdateSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: "Invalid request body", details: validation.error.errors });
+    }
+    
+    // Verify agreement exists and is a draft
+    const [existing] = await db.select()
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.id, id))
+      .limit(1);
+    
+    if (!existing) {
+      return res.status(404).json({ error: "Agreement not found" });
+    }
+    
+    if (existing.status !== AgreementStatus.DRAFT) {
+      return res.status(400).json({ error: "Only draft agreements can be edited" });
+    }
+    
+    const [updated] = await db.update(tenantAgreements)
+      .set({ ...validation.data, updatedAt: new Date() })
+      .where(eq(tenantAgreements.id, id))
+      .returning();
+    
+    res.json({ agreement: updated });
+  } catch (error) {
+    console.error("[agreements] Failed to update agreement:", error);
+    res.status(500).json({ error: "Failed to update agreement" });
+  }
+});
+
+// POST /api/v1/super/agreements/:id/publish - Publish a draft agreement (makes it active)
+router.post("/agreements/:id/publish", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Verify agreement exists and is a draft
+    const [existing] = await db.select()
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.id, id))
+      .limit(1);
+    
+    if (!existing) {
+      return res.status(404).json({ error: "Agreement not found" });
+    }
+    
+    if (existing.status !== AgreementStatus.DRAFT) {
+      return res.status(400).json({ error: "Only draft agreements can be published" });
+    }
+    
+    // Archive any existing active agreement for this tenant
+    await db.update(tenantAgreements)
+      .set({ status: AgreementStatus.ARCHIVED, updatedAt: new Date() })
+      .where(and(
+        eq(tenantAgreements.tenantId, existing.tenantId),
+        eq(tenantAgreements.status, AgreementStatus.ACTIVE)
+      ));
+    
+    // Publish the new agreement
+    const [published] = await db.update(tenantAgreements)
+      .set({ 
+        status: AgreementStatus.ACTIVE, 
+        effectiveAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(tenantAgreements.id, id))
+      .returning();
+    
+    // Invalidate agreement cache for this tenant
+    invalidateAgreementCache(existing.tenantId);
+    
+    res.json({ agreement: published });
+  } catch (error) {
+    console.error("[agreements] Failed to publish agreement:", error);
+    res.status(500).json({ error: "Failed to publish agreement" });
+  }
+});
+
+// POST /api/v1/super/agreements/:id/archive - Archive an active agreement (disables enforcement)
+router.post("/agreements/:id/archive", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [existing] = await db.select()
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.id, id))
+      .limit(1);
+    
+    if (!existing) {
+      return res.status(404).json({ error: "Agreement not found" });
+    }
+    
+    if (existing.status === AgreementStatus.ARCHIVED) {
+      return res.status(400).json({ error: "Agreement is already archived" });
+    }
+    
+    const [archived] = await db.update(tenantAgreements)
+      .set({ status: AgreementStatus.ARCHIVED, updatedAt: new Date() })
+      .where(eq(tenantAgreements.id, id))
+      .returning();
+    
+    // Invalidate agreement cache for this tenant
+    invalidateAgreementCache(existing.tenantId);
+    
+    res.json({ agreement: archived });
+  } catch (error) {
+    console.error("[agreements] Failed to archive agreement:", error);
+    res.status(500).json({ error: "Failed to archive agreement" });
+  }
+});
+
+// DELETE /api/v1/super/agreements/:id - Delete a draft agreement
+router.delete("/agreements/:id", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [existing] = await db.select()
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.id, id))
+      .limit(1);
+    
+    if (!existing) {
+      return res.status(404).json({ error: "Agreement not found" });
+    }
+    
+    if (existing.status !== AgreementStatus.DRAFT) {
+      return res.status(400).json({ error: "Only draft agreements can be deleted" });
+    }
+    
+    await db.delete(tenantAgreements).where(eq(tenantAgreements.id, id));
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[agreements] Failed to delete agreement:", error);
+    res.status(500).json({ error: "Failed to delete agreement" });
+  }
+});
+
+// GET /api/v1/super/agreements/:id/signers - Get signing status for an agreement
+router.get("/agreements/:id/signers", requireSuperUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [agreement] = await db.select()
+      .from(tenantAgreements)
+      .where(eq(tenantAgreements.id, id))
+      .limit(1);
+    
+    if (!agreement) {
+      return res.status(404).json({ error: "Agreement not found" });
+    }
+    
+    // Get all acceptances for this agreement
+    const acceptances = await db.select({
+      id: tenantAgreementAcceptances.id,
+      userId: tenantAgreementAcceptances.userId,
+      version: tenantAgreementAcceptances.version,
+      acceptedAt: tenantAgreementAcceptances.acceptedAt,
+      ipAddress: tenantAgreementAcceptances.ipAddress,
+    })
+      .from(tenantAgreementAcceptances)
+      .where(eq(tenantAgreementAcceptances.agreementId, id))
+      .orderBy(desc(tenantAgreementAcceptances.acceptedAt));
+    
+    // Get all users for this tenant
+    const tenantUsers = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      isActive: users.isActive,
+    })
+      .from(users)
+      .where(eq(users.tenantId, agreement.tenantId));
+    
+    // Build signer map
+    const acceptanceMap = new Map(acceptances.map(a => [a.userId, a]));
+    
+    const signers = tenantUsers.map(u => {
+      const acceptance = acceptanceMap.get(u.id);
+      return {
+        userId: u.id,
+        email: u.email,
+        name: u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.name || u.email,
+        isActive: u.isActive,
+        status: acceptance ? "signed" : "pending",
+        signedAt: acceptance?.acceptedAt || null,
+        signedVersion: acceptance?.version || null,
+        ipAddress: acceptance?.ipAddress || null,
+      };
+    });
+    
+    res.json({
+      agreementId: id,
+      agreementVersion: agreement.version,
+      signers,
+      stats: {
+        total: signers.length,
+        signed: signers.filter(s => s.status === "signed").length,
+        pending: signers.filter(s => s.status === "pending").length,
+      },
+    });
+  } catch (error) {
+    console.error("[agreements] Failed to get signers:", error);
+    res.status(500).json({ error: "Failed to get signers" });
   }
 });
 

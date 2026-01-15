@@ -14,7 +14,7 @@ import { Redirect } from "wouter";
 import { 
   Loader2, Users, FileText, Palette, Settings, Shield, Save, Mail, HardDrive, Check, X, 
   Plus, Link, Copy, MoreHorizontal, UserCheck, UserX, Clock, AlertCircle, KeyRound, Image,
-  TestTube, Eye, EyeOff, Trash2, RefreshCw, Send, CreditCard
+  TestTube, Eye, EyeOff, Trash2, RefreshCw, Send, CreditCard, Archive
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { S3Dropzone } from "@/components/common/S3Dropzone";
@@ -127,6 +127,484 @@ interface InviteResponse {
   tokenMasked: string;
   emailSent?: boolean;
   mailgunConfigured?: boolean;
+}
+
+interface Agreement {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  title: string;
+  body: string;
+  version: number;
+  status: "draft" | "active" | "archived";
+  effectiveAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Tenant {
+  id: string;
+  name: string;
+}
+
+interface SignerInfo {
+  userId: string;
+  email: string;
+  name: string;
+  isActive: boolean;
+  status: "signed" | "pending";
+  signedAt: string | null;
+  signedVersion: number | null;
+}
+
+function AgreementsManagementTab({ 
+  agreementStatus, 
+  agreementsLoading 
+}: { 
+  agreementStatus: TenantAgreementStatus[];
+  agreementsLoading: boolean;
+}) {
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedAgreement, setSelectedAgreement] = useState<Agreement | null>(null);
+  const [signersDrawerOpen, setSignersDrawerOpen] = useState(false);
+  const [viewingSignersFor, setViewingSignersFor] = useState<Agreement | null>(null);
+  const [form, setForm] = useState({ tenantId: "", title: "", body: "" });
+  const [confirmPublishOpen, setConfirmPublishOpen] = useState(false);
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
+  const [actionAgreement, setActionAgreement] = useState<Agreement | null>(null);
+
+  const { data: tenantsData } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/v1/super/tenants/list"],
+    queryFn: async () => {
+      const res = await fetch("/api/v1/super/tenants", { credentials: "include" });
+      const data = await res.json();
+      return data.tenants?.map((t: any) => ({ id: t.id, name: t.name })) || [];
+    },
+  });
+
+  const { data: agreementsData, isLoading: loadingAgreements, refetch: refetchAgreements } = useQuery<{ agreements: Agreement[]; total: number }>({
+    queryKey: ["/api/v1/super/agreements", statusFilter],
+    queryFn: async () => {
+      const params = statusFilter !== "all" ? `?status=${statusFilter}` : "";
+      const res = await fetch(`/api/v1/super/agreements${params}`, { credentials: "include" });
+      return res.json();
+    },
+  });
+
+  const { data: signersData, isLoading: loadingSigners } = useQuery<{ signers: SignerInfo[]; stats: { total: number; signed: number; pending: number } }>({
+    queryKey: ["/api/v1/super/agreements", viewingSignersFor?.id, "signers"],
+    queryFn: async () => {
+      const res = await fetch(`/api/v1/super/agreements/${viewingSignersFor?.id}/signers`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!viewingSignersFor,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { tenantId: string; title: string; body: string }) => {
+      return apiRequest("POST", "/api/v1/super/agreements", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements/tenants-summary"] });
+      toast({ title: "Agreement draft created" });
+      setDrawerOpen(false);
+      setForm({ tenantId: "", title: "", body: "" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to create agreement", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { title?: string; body?: string } }) => {
+      return apiRequest("PATCH", `/api/v1/super/agreements/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements"] });
+      toast({ title: "Agreement updated" });
+      setDrawerOpen(false);
+      setSelectedAgreement(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update agreement", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const publishMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("POST", `/api/v1/super/agreements/${id}/publish`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements/tenants-summary"] });
+      toast({ title: "Agreement published", description: "Users will need to accept the new terms." });
+      setConfirmPublishOpen(false);
+      setActionAgreement(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to publish agreement", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("POST", `/api/v1/super/agreements/${id}/archive`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements/tenants-summary"] });
+      toast({ title: "Agreement archived" });
+      setConfirmArchiveOpen(false);
+      setActionAgreement(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to archive agreement", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/v1/super/agreements/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/agreements"] });
+      toast({ title: "Draft deleted" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete draft", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleOpenCreate = () => {
+    setSelectedAgreement(null);
+    setForm({ tenantId: "", title: "", body: "" });
+    setDrawerOpen(true);
+  };
+
+  const handleOpenEdit = (agreement: Agreement) => {
+    setSelectedAgreement(agreement);
+    setForm({ tenantId: agreement.tenantId, title: agreement.title, body: agreement.body });
+    setDrawerOpen(true);
+  };
+
+  const handleSubmit = () => {
+    if (!form.title.trim() || !form.body.trim()) {
+      toast({ title: "Title and body are required", variant: "destructive" });
+      return;
+    }
+    if (selectedAgreement) {
+      updateMutation.mutate({ id: selectedAgreement.id, data: { title: form.title, body: form.body } });
+    } else {
+      if (!form.tenantId) {
+        toast({ title: "Please select a tenant", variant: "destructive" });
+        return;
+      }
+      createMutation.mutate(form);
+    }
+  };
+
+  const handleViewSigners = (agreement: Agreement) => {
+    setViewingSignersFor(agreement);
+    setSignersDrawerOpen(true);
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "active":
+        return <Badge variant="default" className="bg-green-600"><Check className="h-3 w-3 mr-1" />Active</Badge>;
+      case "draft":
+        return <Badge variant="outline" className="border-amber-600 text-amber-600"><FileText className="h-3 w-3 mr-1" />Draft</Badge>;
+      case "archived":
+        return <Badge variant="secondary"><Archive className="h-3 w-3 mr-1" />Archived</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const agreements = agreementsData?.agreements || [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle>SaaS Agreements</CardTitle>
+            <CardDescription>Create, manage, and publish agreements for tenants</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-agreement-status-filter">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={handleOpenCreate} data-testid="button-create-agreement">
+              <Plus className="h-4 w-4 mr-2" />
+              New Agreement
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingAgreements ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : agreements.length > 0 ? (
+            <div className="space-y-3">
+              {agreements.map((agreement) => (
+                <div key={agreement.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`agreement-row-${agreement.id}`}>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{agreement.title}</span>
+                      <span className="text-sm text-muted-foreground">v{agreement.version}</span>
+                      {getStatusBadge(agreement.status)}
+                    </div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {agreement.tenantName} • Updated {new Date(agreement.updatedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {agreement.status === "active" && (
+                      <Button variant="outline" size="sm" onClick={() => handleViewSigners(agreement)} data-testid={`button-view-signers-${agreement.id}`}>
+                        <Users className="h-4 w-4 mr-1" />
+                        Signers
+                      </Button>
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" data-testid={`button-agreement-actions-${agreement.id}`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {agreement.status === "draft" && (
+                          <>
+                            <DropdownMenuItem onClick={() => handleOpenEdit(agreement)}>
+                              <FileText className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setActionAgreement(agreement); setConfirmPublishOpen(true); }}>
+                              <Send className="h-4 w-4 mr-2" />
+                              Publish
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => deleteMutation.mutate(agreement.id)} className="text-destructive">
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {agreement.status === "active" && (
+                          <DropdownMenuItem onClick={() => { setActionAgreement(agreement); setConfirmArchiveOpen(true); }}>
+                            <Archive className="h-4 w-4 mr-2" />
+                            Archive (Disable)
+                          </DropdownMenuItem>
+                        )}
+                        {agreement.status === "archived" && (
+                          <DropdownMenuItem onClick={() => handleViewSigners(agreement)}>
+                            <Users className="h-4 w-4 mr-2" />
+                            View Signers
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 border-2 border-dashed rounded-lg">
+              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+              <h3 className="font-medium mb-1">No Agreements</h3>
+              <p className="text-sm text-muted-foreground mb-4">Create your first SaaS agreement for tenants</p>
+              <Button onClick={handleOpenCreate} data-testid="button-create-first-agreement">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Agreement
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tenant Compliance Overview</CardTitle>
+          <CardDescription>Agreement status across all tenants</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {agreementsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : agreementStatus.length > 0 ? (
+            <div className="space-y-3">
+              {agreementStatus.map((tenant) => (
+                <div key={tenant.tenantId} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <div className="font-medium">{tenant.tenantName}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {tenant.hasActiveAgreement 
+                        ? `v${tenant.currentVersion} • ${tenant.acceptedCount}/${tenant.totalUsers} accepted`
+                        : "No active agreement"
+                      }
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {tenant.hasActiveAgreement ? (
+                      <Badge variant="default"><Check className="h-3 w-3 mr-1" />Active</Badge>
+                    ) : (
+                      <Badge variant="destructive"><X className="h-3 w-3 mr-1" />Missing</Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">No tenants found</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <SheetContent className="sm:max-w-xl w-full overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{selectedAgreement ? "Edit Agreement" : "Create Agreement"}</SheetTitle>
+            <SheetDescription>
+              {selectedAgreement ? "Update the agreement content" : "Create a new SaaS agreement for a tenant"}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            {!selectedAgreement && (
+              <div className="space-y-2">
+                <Label>Tenant</Label>
+                <Select value={form.tenantId} onValueChange={(v) => setForm({ ...form, tenantId: v })}>
+                  <SelectTrigger data-testid="select-agreement-tenant">
+                    <SelectValue placeholder="Select tenant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tenantsData?.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="Terms of Service"
+                data-testid="input-agreement-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Agreement Content</Label>
+              <textarea
+                value={form.body}
+                onChange={(e) => setForm({ ...form, body: e.target.value })}
+                placeholder="Enter agreement content..."
+                className="w-full min-h-[300px] p-3 border rounded-md font-mono text-sm resize-y"
+                data-testid="textarea-agreement-body"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+              <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-agreement">
+                {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                <Save className="h-4 w-4 mr-2" />
+                {selectedAgreement ? "Update" : "Save Draft"}
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={signersDrawerOpen} onOpenChange={setSignersDrawerOpen}>
+        <SheetContent className="sm:max-w-lg w-full overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Agreement Signers</SheetTitle>
+            <SheetDescription>
+              {viewingSignersFor?.title} v{viewingSignersFor?.version} - {viewingSignersFor?.tenantName}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="py-4">
+            {loadingSigners ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : signersData ? (
+              <div className="space-y-4">
+                <div className="flex justify-between text-sm p-3 bg-muted rounded-lg">
+                  <span><UserCheck className="h-4 w-4 inline mr-1" />{signersData.stats.signed} signed</span>
+                  <span><AlertCircle className="h-4 w-4 inline mr-1" />{signersData.stats.pending} pending</span>
+                  <span><Users className="h-4 w-4 inline mr-1" />{signersData.stats.total} total</span>
+                </div>
+                <div className="space-y-2">
+                  {signersData.signers.map((signer) => (
+                    <div key={signer.userId} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <div className="font-medium">{signer.name}</div>
+                        <div className="text-sm text-muted-foreground">{signer.email}</div>
+                      </div>
+                      <div>
+                        {signer.status === "signed" ? (
+                          <Badge variant="default"><Check className="h-3 w-3 mr-1" />Signed</Badge>
+                        ) : (
+                          <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />Pending</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog open={confirmPublishOpen} onOpenChange={setConfirmPublishOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish Agreement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Publishing this agreement will require all users in {actionAgreement?.tenantName} to accept the new terms before continuing. Any previous active agreement will be archived.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => actionAgreement && publishMutation.mutate(actionAgreement.id)}>
+              Publish Agreement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmArchiveOpen} onOpenChange={setConfirmArchiveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive Agreement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Archiving this agreement will disable enforcement. Users in {actionAgreement?.tenantName} will no longer be required to accept terms.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => actionAgreement && archiveMutation.mutate(actionAgreement.id)}>
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
 }
 
 export default function SuperAdminSettingsPage() {
@@ -678,52 +1156,10 @@ export default function SuperAdminSettingsPage() {
           </TabsContent>
 
           <TabsContent value="agreements">
-            <Card>
-              <CardHeader>
-                <CardTitle>Tenant Agreement Status</CardTitle>
-                <CardDescription>Overview of SaaS agreement compliance across tenants</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {agreementsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : agreementStatus.length > 0 ? (
-                  <div className="space-y-4">
-                    {agreementStatus.map((tenant) => (
-                      <div key={tenant.tenantId} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div>
-                          <div className="font-medium">{tenant.tenantName}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {tenant.hasActiveAgreement 
-                              ? `Version ${tenant.currentVersion} • ${tenant.acceptedCount}/${tenant.totalUsers} accepted`
-                              : "No active agreement"
-                            }
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {tenant.hasActiveAgreement ? (
-                            <Badge variant="default">
-                              <Check className="h-3 w-3 mr-1" />
-                              Active
-                            </Badge>
-                          ) : (
-                            <Badge variant="destructive">
-                              <X className="h-3 w-3 mr-1" />
-                              Missing
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No tenants found
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <AgreementsManagementTab 
+              agreementStatus={agreementStatus}
+              agreementsLoading={agreementsLoading}
+            />
           </TabsContent>
 
           <TabsContent value="branding">

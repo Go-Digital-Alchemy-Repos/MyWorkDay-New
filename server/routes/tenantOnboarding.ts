@@ -563,7 +563,9 @@ router.post("/settings/brand-assets", requireAuth, requireTenantAdmin, upload.si
 });
 
 // =============================================================================
-// AGREEMENT MANAGEMENT ROUTES (Tenant Admin Only)
+// AGREEMENT ROUTES
+// Management endpoints now require super_user role (tenant admins get 403)
+// Read-only endpoints still available to tenant admins
 // =============================================================================
 
 import { tenantAgreements, tenantAgreementAcceptances, AgreementStatus, users } from "@shared/schema";
@@ -578,6 +580,12 @@ const agreementPatchSchema = z.object({
   title: z.string().min(1).optional(),
   body: z.string().min(1).optional(),
 });
+
+// Helper to check if user is super_user (for allowing management via impersonation)
+function isSuperUser(req: any): boolean {
+  const user = req.user as any;
+  return user?.role === UserRole.SUPER_USER;
+}
 
 // GET /api/v1/tenant/agreement - Get current agreement state
 router.get("/agreement", requireAuth, requireTenantAdmin, async (req, res) => {
@@ -633,9 +641,16 @@ router.get("/agreement", requireAuth, requireTenantAdmin, async (req, res) => {
   }
 });
 
-// POST /api/v1/tenant/agreement/draft - Create or update draft
+// POST /api/v1/tenant/agreement/draft - Create or update draft (Super Admin only)
 router.post("/agreement/draft", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
+    // Agreement management has been moved to Super Admin System Settings
+    if (!isSuperUser(req)) {
+      return res.status(403).json({ 
+        error: "Agreement management is now handled by platform administrators. Please contact your platform admin to request changes." 
+      });
+    }
+
     const user = req.user as any;
     const tenantId = req.effectiveTenantId;
 
@@ -695,9 +710,16 @@ router.post("/agreement/draft", requireAuth, requireTenantAdmin, async (req, res
   }
 });
 
-// PATCH /api/v1/tenant/agreement/draft - Update current draft
+// PATCH /api/v1/tenant/agreement/draft - Update current draft (Super Admin only)
 router.patch("/agreement/draft", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
+    // Agreement management has been moved to Super Admin System Settings
+    if (!isSuperUser(req)) {
+      return res.status(403).json({ 
+        error: "Agreement management is now handled by platform administrators. Please contact your platform admin to request changes." 
+      });
+    }
+
     const tenantId = req.effectiveTenantId;
 
     const validation = agreementPatchSchema.safeParse(req.body);
@@ -735,9 +757,16 @@ router.patch("/agreement/draft", requireAuth, requireTenantAdmin, async (req, re
   }
 });
 
-// POST /api/v1/tenant/agreement/publish - Publish draft as active
+// POST /api/v1/tenant/agreement/publish - Publish draft as active (Super Admin only)
 router.post("/agreement/publish", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
+    // Agreement management has been moved to Super Admin System Settings
+    if (!isSuperUser(req)) {
+      return res.status(403).json({ 
+        error: "Agreement management is now handled by platform administrators. Please contact your platform admin to request changes." 
+      });
+    }
+
     const tenantId = req.effectiveTenantId;
 
     // Find the draft
@@ -783,9 +812,16 @@ router.post("/agreement/publish", requireAuth, requireTenantAdmin, async (req, r
   }
 });
 
-// POST /api/v1/tenant/agreement/unpublish - Archive active agreement (disable enforcement)
+// POST /api/v1/tenant/agreement/unpublish - Archive active agreement (Super Admin only)
 router.post("/agreement/unpublish", requireAuth, requireTenantAdmin, async (req, res) => {
   try {
+    // Agreement management has been moved to Super Admin System Settings
+    if (!isSuperUser(req)) {
+      return res.status(403).json({ 
+        error: "Agreement management is now handled by platform administrators. Please contact your platform admin to request changes." 
+      });
+    }
+
     const tenantId = req.effectiveTenantId;
 
     // Archive current active agreement
