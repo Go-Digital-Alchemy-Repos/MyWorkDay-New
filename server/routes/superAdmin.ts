@@ -1,3 +1,34 @@
+/**
+ * Super Admin API Routes
+ * 
+ * Purpose: Platform-level administration endpoints for super users.
+ * 
+ * Key Features:
+ * - Tenant lifecycle management (create, activate, deactivate, delete)
+ * - Platform admin invitation and management
+ * - Global integration configuration (Mailgun, S3)
+ * - System settings and branding
+ * - Data health tools and tenant remediation
+ * - Purge endpoint with safety guards
+ * 
+ * Security Invariants:
+ * - ALL routes require super_user role via requireSuperUser middleware
+ * - Bootstrap endpoint uses timing-safe token comparison
+ * - Purge requires multiple confirmation mechanisms
+ * - Integration secrets are encrypted at rest
+ * 
+ * Organization:
+ * - Bootstrap endpoint (~100 lines)
+ * - Tenant CRUD (~500 lines)
+ * - Platform admin management (~400 lines)
+ * - Integration configuration (~800 lines)
+ * - System settings (~300 lines)
+ * - Health and remediation tools (~500 lines)
+ * 
+ * @see docs/SUPER_SYSTEM_STATUS.md for system status dashboard
+ * @see docs/PLATFORM_ADMINS.md for admin management
+ * @see docs/INTEGRATIONS.md for integration configuration
+ */
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";

@@ -3,27 +3,31 @@
  * 
  * Purpose: Shared test helpers for creating test data and proper cleanup.
  * 
- * Cleanup Order (children before parents):
- *   1. task_assignees, task_tags, task_mentions, task_attachments
- *   2. comments, subtasks
- *   3. tasks
- *   4. sections
- *   5. time_entries, timers
- *   6. project_members, projects
- *   7. activity_logs, tenant_audit_events
- *   8. workspace_members, team_members
- *   9. teams, clients
- *   10. workspaces
- *   11. personal_task_sections, user_notifications
- *   12. tenant_agreement_acceptances, tenant_user_invitations
- *   13. users
- *   14. tenant_agreements, tenant_settings, tenant_integrations, tenant_notes
- *   15. tenants
+ * Key Function: safeDeleteAllUsers()
+ * Deletes ALL test data in FK-safe order. Use in afterAll() for full cleanup.
+ * 
+ * Cleanup Order (safeDeleteAllUsers):
+ *   Level 1-4: Task hierarchy (assignees → tasks → sections)
+ *   Level 5: Time tracking (entries, timers, activity_log)
+ *   Level 6: Memberships (workspace_members, team_members, teams)
+ *   Level 7: Clients (client_contacts, client_invites, client_user_access, clients)
+ *   Level 8: User-related (personal_task_sections, notifications, acceptances)
+ *   Level 9: Workspaces
+ *   Level 10: Tenant-related (tenant_audit_events, agreements, settings, etc.)
+ *   Level 11: Tenants
+ *   Level 12: Platform-level (platform_audit_events, platform_invitations, email_outbox)
+ *   Level 13: Sessions (user_sessions)
+ *   Level 14: Users
+ * 
+ * Critical: platform_audit_events and platform_invitations MUST be deleted
+ * before users due to FK constraints on actor_user_id and invited_by_user_id.
  * 
  * Usage:
  *   - Use factories to create test data with proper tenant scoping
- *   - Call cleanupTestData() in afterEach/afterAll to safely remove test data
+ *   - Call safeDeleteAllUsers() in afterAll() to safely remove test data
  *   - Prefer scoped cleanup (by tenant/user ID) over full table truncation
+ * 
+ * @see docs/TESTING.md for complete test documentation
  */
 
 import { db } from "../db";

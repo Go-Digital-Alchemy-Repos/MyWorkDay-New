@@ -1,3 +1,26 @@
+/**
+ * Main API Routes
+ * 
+ * Purpose: Core API endpoints for the project management application.
+ * 
+ * Organization:
+ * - This file contains ~3,700 lines of route handlers
+ * - Additional routes are split into: /routes/index.ts (super admin, onboarding, etc.)
+ * - Webhook routes in: /routes/webhooks.ts
+ * 
+ * Key Patterns:
+ * - All tenant-scoped endpoints use getEffectiveTenantId() for isolation
+ * - Tenancy validation uses validateTenantOwnership() in soft/strict modes
+ * - File uploads use presigned S3 URLs via /api/attachments/* endpoints
+ * 
+ * Sharp Edges:
+ * - Large file - consider splitting by domain when refactoring
+ * - Some legacy endpoints may not enforce strict tenancy (see KNOWN_ISSUES.md)
+ * - Task operations emit Socket.IO events for real-time updates
+ * 
+ * @see docs/ENDPOINTS.md for complete API documentation
+ * @see docs/KNOWN_ISSUES.md for refactoring notes
+ */
 import type { Express, Request, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
