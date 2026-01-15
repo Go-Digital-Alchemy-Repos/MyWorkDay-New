@@ -8,10 +8,24 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { 
   Mail, Cloud, Save, Loader2, CheckCircle2, XCircle, 
-  AlertTriangle, TestTube, Eye, EyeOff, RefreshCw, Webhook
+  AlertTriangle, TestTube, Eye, EyeOff, RefreshCw, Webhook, Send
 } from "lucide-react";
 import { SiSlack, SiZapier, SiGooglecalendar } from "react-icons/si";
+
+interface SecretMaskedInfo {
+  apiKeyMasked?: string | null;
+  accessKeyIdMasked?: string | null;
+  secretAccessKeyMasked?: string | null;
+}
 
 interface Integration {
   provider: string;
@@ -19,6 +33,7 @@ interface Integration {
   publicConfig: Record<string, any> | null;
   secretConfigured: boolean;
   lastTestedAt: string | null;
+  secretMasked?: SecretMaskedInfo;
 }
 
 interface IntegrationsListResponse {
@@ -29,6 +44,8 @@ export function IntegrationsTab() {
   const { toast } = useToast();
   const [showMailgunKey, setShowMailgunKey] = useState(false);
   const [showS3Keys, setShowS3Keys] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState("");
+  const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
 
   const [mailgunForm, setMailgunForm] = useState({
     domain: "",
@@ -109,6 +126,26 @@ export function IntegrationsTab() {
     },
     onError: () => {
       toast({ title: "Failed to test Mailgun", variant: "destructive" });
+    },
+  });
+
+  const sendTestEmailMutation = useMutation({
+    mutationFn: async (toEmail: string) => {
+      return apiRequest("POST", "/api/v1/tenant/integrations/mailgun/send-test-email", { toEmail });
+    },
+    onSuccess: () => {
+      setShowTestEmailDialog(false);
+      setTestEmailAddress("");
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/tenant/integrations"] });
+      toast({ title: "Test email sent successfully", description: "Check your inbox for the test email." });
+    },
+    onError: (err: any) => {
+      const errorMessage = err?.data?.error?.message || err?.message || "Unknown error";
+      toast({ 
+        title: "Failed to send test email", 
+        description: errorMessage, 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -285,13 +322,15 @@ export function IntegrationsTab() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="mailgun-apiKey">
-                API Key {mailgunIntegration?.secretConfigured && "(Configured)"}
+                API Key {mailgunIntegration?.secretMasked?.apiKeyMasked && (
+                  <span className="text-muted-foreground font-normal">({mailgunIntegration.secretMasked.apiKeyMasked})</span>
+                )}
               </Label>
               <div className="flex gap-2">
                 <Input
                   id="mailgun-apiKey"
                   type={showMailgunKey ? "text" : "password"}
-                  placeholder={mailgunIntegration?.secretConfigured ? "••••••••" : "Enter API key"}
+                  placeholder={mailgunIntegration?.secretConfigured ? "Enter new key to replace" : "Enter API key"}
                   value={mailgunForm.apiKey}
                   onChange={(e) => setMailgunForm({ ...mailgunForm, apiKey: e.target.value })}
                   data-testid="input-mailgun-api-key"
@@ -317,7 +356,7 @@ export function IntegrationsTab() {
             </p>
           )}
 
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 flex-wrap">
             <Button
               type="button"
               variant="outline"
@@ -333,6 +372,16 @@ export function IntegrationsTab() {
                   Test Connection
                 </>
               )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowTestEmailDialog(true)}
+              disabled={mailgunIntegration?.status !== "configured"}
+              data-testid="button-send-test-email"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Send Test Email
             </Button>
             <Button
               type="button"
@@ -352,6 +401,55 @@ export function IntegrationsTab() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={showTestEmailDialog} onOpenChange={setShowTestEmailDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Test Email</DialogTitle>
+            <DialogDescription>
+              Send a test email to verify your Mailgun configuration is working correctly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="test-email-address">Recipient Email Address</Label>
+              <Input
+                id="test-email-address"
+                type="email"
+                placeholder="you@example.com"
+                value={testEmailAddress}
+                onChange={(e) => setTestEmailAddress(e.target.value)}
+                data-testid="input-test-email-address"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowTestEmailDialog(false);
+                setTestEmailAddress("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => sendTestEmailMutation.mutate(testEmailAddress)}
+              disabled={sendTestEmailMutation.isPending || !testEmailAddress || !testEmailAddress.includes("@")}
+              data-testid="button-confirm-send-test-email"
+            >
+              {sendTestEmailMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Send Email
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -405,13 +503,15 @@ export function IntegrationsTab() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="s3-accessKey">
-                Access Key ID {s3Integration?.secretConfigured && "(Configured)"}
+                Access Key ID {s3Integration?.secretMasked?.accessKeyIdMasked && (
+                  <span className="text-muted-foreground font-normal">({s3Integration.secretMasked.accessKeyIdMasked})</span>
+                )}
               </Label>
               <div className="flex gap-2">
                 <Input
                   id="s3-accessKey"
                   type={showS3Keys ? "text" : "password"}
-                  placeholder={s3Integration?.secretConfigured ? "••••••••" : "Enter access key"}
+                  placeholder={s3Integration?.secretConfigured ? "Enter new key to replace" : "Enter access key"}
                   value={s3Form.accessKeyId}
                   onChange={(e) => setS3Form({ ...s3Form, accessKeyId: e.target.value })}
                   data-testid="input-s3-access-key"
@@ -419,12 +519,16 @@ export function IntegrationsTab() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="s3-secretKey">Secret Access Key</Label>
+              <Label htmlFor="s3-secretKey">
+                Secret Access Key {s3Integration?.secretMasked?.secretAccessKeyMasked && (
+                  <span className="text-muted-foreground font-normal">({s3Integration.secretMasked.secretAccessKeyMasked})</span>
+                )}
+              </Label>
               <div className="flex gap-2">
                 <Input
                   id="s3-secretKey"
                   type={showS3Keys ? "text" : "password"}
-                  placeholder={s3Integration?.secretConfigured ? "••••••••" : "Enter secret key"}
+                  placeholder={s3Integration?.secretConfigured ? "Enter new key to replace" : "Enter secret key"}
                   value={s3Form.secretAccessKey}
                   onChange={(e) => setS3Form({ ...s3Form, secretAccessKey: e.target.value })}
                   data-testid="input-s3-secret-key"

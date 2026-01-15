@@ -17,6 +17,7 @@
  */
 
 import { Router } from "express";
+import crypto from "crypto";
 import { storage } from "../storage";
 import { z } from "zod";
 import { db } from "../db";
@@ -445,6 +446,53 @@ router.post("/integrations/:provider/test", requireAuth, requireTenantAdmin, asy
   } catch (error) {
     console.error("Error testing integration:", error);
     res.status(500).json({ error: "Failed to test integration" });
+  }
+});
+
+// POST /api/v1/tenant/integrations/mailgun/send-test-email - Send a test email
+router.post("/integrations/mailgun/send-test-email", requireAuth, requireTenantAdmin, async (req, res) => {
+  const requestId = crypto.randomUUID();
+  res.setHeader("X-Request-Id", requestId);
+  
+  try {
+    const tenantId = req.effectiveTenantId;
+    const { toEmail } = req.body;
+
+    if (!toEmail || typeof toEmail !== "string" || !toEmail.includes("@")) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "A valid recipient email address is required",
+          requestId,
+        },
+      });
+    }
+
+    const tenant = await storage.getTenant(tenantId);
+    const tenantName = tenant?.name || "Unknown Tenant";
+
+    const result = await tenantIntegrationService.sendTestEmail(tenantId, toEmail, tenantName, requestId);
+
+    if (!result.ok) {
+      return res.status(400).json({
+        error: {
+          code: result.error?.code || "MAILGUN_SEND_FAILED",
+          message: result.error?.message || "Failed to send test email",
+          requestId,
+        },
+      });
+    }
+
+    res.json({ success: true, message: "Test email sent successfully" });
+  } catch (error) {
+    console.error("Error sending test email:", error);
+    res.status(500).json({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Failed to send test email",
+        requestId,
+      },
+    });
   }
 });
 

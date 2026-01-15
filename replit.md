@@ -27,7 +27,11 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Expanded Super Admin Dashboard**: Features tenant management, global reports, system settings, and system status.
 - **System Settings Table**: Stores platform-wide defaults for branding and configuration.
 - **White Label Branding**: Tenants can customize app appearance (app names, logos, favicons, colors, login messages).
-- **Per-Tenant Integrations**: Tenants can configure their own Mailgun (email) and S3 (storage) integrations with encrypted secrets.
+- **Per-Tenant Integrations**: Tenants can configure their own Mailgun (email) and S3 (storage) integrations with encrypted secrets. Features include:
+  - Secret masking in API responses (shows last 4 chars: `••••XXXX`)
+  - Debug logging behind `MAILGUN_DEBUG=true` env flag
+  - Real Mailgun domain validation via API on test
+  - Send Test Email functionality with actual email delivery via Mailgun API
 - **Authentication**: Session-based authentication using Passport.js.
 - **Real-time Communication**: Socket.IO for live updates.
 - **Database Schema**: Includes entities for users, workspaces, teams, clients, projects, tasks, activity logs, time tracking, tenant settings, and integrations.

@@ -2,6 +2,8 @@ import { db } from "../db";
 import { tenantIntegrations, IntegrationStatus } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { encryptValue, decryptValue, isEncryptionAvailable } from "../lib/encryption";
+import Mailgun from "mailgun.js";
+import FormData from "form-data";
 
 export type IntegrationProvider = "mailgun" | "s3";
 
@@ -29,12 +31,34 @@ interface S3SecretConfig {
 type PublicConfig = MailgunPublicConfig | S3PublicConfig;
 type SecretConfig = MailgunSecretConfig | S3SecretConfig;
 
+interface SecretMaskedInfo {
+  apiKeyMasked?: string | null;
+  accessKeyIdMasked?: string | null;
+  secretAccessKeyMasked?: string | null;
+}
+
 export interface IntegrationResponse {
   provider: string;
   status: string;
   publicConfig: PublicConfig | null;
   secretConfigured: boolean;
   lastTestedAt: Date | null;
+  secretMasked?: SecretMaskedInfo;
+}
+
+function debugLog(message: string, data?: Record<string, any>) {
+  if (process.env.MAILGUN_DEBUG === "true") {
+    const safeData = data ? { ...data } : {};
+    delete safeData.apiKey;
+    delete safeData.secretAccessKey;
+    delete safeData.accessKeyId;
+    console.log(`[TenantIntegrations DEBUG] ${message}`, safeData);
+  }
+}
+
+function maskSecret(secret: string | undefined | null): string | null {
+  if (!secret || secret.length < 4) return null;
+  return "••••" + secret.slice(-4);
 }
 
 export interface IntegrationUpdateInput {
@@ -44,6 +68,8 @@ export interface IntegrationUpdateInput {
 
 export class TenantIntegrationService {
   async getIntegration(tenantId: string, provider: IntegrationProvider): Promise<IntegrationResponse | null> {
+    debugLog("getIntegration called", { tenantId, provider });
+    
     const [integration] = await db
       .select()
       .from(tenantIntegrations)
@@ -54,8 +80,37 @@ export class TenantIntegrationService {
       .limit(1);
 
     if (!integration) {
+      debugLog("getIntegration - not found", { tenantId, provider });
       return null;
     }
+
+    let secretMasked: SecretMaskedInfo | undefined;
+    if (integration.configEncrypted && isEncryptionAvailable()) {
+      try {
+        const secrets = JSON.parse(decryptValue(integration.configEncrypted)) as SecretConfig;
+        if (provider === "mailgun") {
+          const mgSecrets = secrets as MailgunSecretConfig;
+          secretMasked = {
+            apiKeyMasked: maskSecret(mgSecrets.apiKey),
+          };
+        } else if (provider === "s3") {
+          const s3Secrets = secrets as S3SecretConfig;
+          secretMasked = {
+            accessKeyIdMasked: maskSecret(s3Secrets.accessKeyId),
+            secretAccessKeyMasked: maskSecret(s3Secrets.secretAccessKey),
+          };
+        }
+      } catch (err) {
+        debugLog("getIntegration - failed to decrypt secrets for masking", { tenantId, provider });
+      }
+    }
+
+    debugLog("getIntegration - found", { 
+      tenantId, 
+      provider, 
+      status: integration.status, 
+      hasSecrets: !!integration.configEncrypted 
+    });
 
     return {
       provider: integration.provider,
@@ -63,10 +118,13 @@ export class TenantIntegrationService {
       publicConfig: integration.configPublic as PublicConfig | null,
       secretConfigured: !!integration.configEncrypted,
       lastTestedAt: integration.lastTestedAt,
+      secretMasked,
     };
   }
 
   async listIntegrations(tenantId: string): Promise<IntegrationResponse[]> {
+    debugLog("listIntegrations called", { tenantId });
+    
     const integrations = await db
       .select()
       .from(tenantIntegrations)
@@ -78,12 +136,31 @@ export class TenantIntegrationService {
     for (const provider of providers) {
       const existing = integrations.find(i => i.provider === provider);
       if (existing) {
+        let secretMasked: SecretMaskedInfo | undefined;
+        if (existing.configEncrypted && isEncryptionAvailable()) {
+          try {
+            const secrets = JSON.parse(decryptValue(existing.configEncrypted)) as SecretConfig;
+            if (provider === "mailgun") {
+              const mgSecrets = secrets as MailgunSecretConfig;
+              secretMasked = { apiKeyMasked: maskSecret(mgSecrets.apiKey) };
+            } else if (provider === "s3") {
+              const s3Secrets = secrets as S3SecretConfig;
+              secretMasked = {
+                accessKeyIdMasked: maskSecret(s3Secrets.accessKeyId),
+                secretAccessKeyMasked: maskSecret(s3Secrets.secretAccessKey),
+              };
+            }
+          } catch {
+            debugLog("listIntegrations - failed to decrypt secrets for masking", { tenantId, provider });
+          }
+        }
         result.push({
           provider: existing.provider,
           status: existing.status,
           publicConfig: existing.configPublic as PublicConfig | null,
           secretConfigured: !!existing.configEncrypted,
           lastTestedAt: existing.lastTestedAt,
+          secretMasked,
         });
       } else {
         result.push({
@@ -96,6 +173,7 @@ export class TenantIntegrationService {
       }
     }
 
+    debugLog("listIntegrations - complete", { tenantId, count: result.length });
     return result;
   }
 
@@ -104,7 +182,15 @@ export class TenantIntegrationService {
     provider: IntegrationProvider,
     input: IntegrationUpdateInput
   ): Promise<IntegrationResponse> {
+    debugLog("upsertIntegration called", { 
+      tenantId, 
+      provider, 
+      hasPublicConfig: !!input.publicConfig,
+      hasSecretConfig: !!input.secretConfig 
+    });
+
     if (process.env.NODE_ENV === "production" && !isEncryptionAvailable()) {
+      debugLog("upsertIntegration - ENCRYPTION_KEY_MISSING", { tenantId, provider });
       throw new Error("Encryption key not configured. Cannot save integration secrets.");
     }
 
@@ -179,6 +265,7 @@ export class TenantIntegrationService {
           updatedAt: new Date(),
         })
         .where(eq(tenantIntegrations.id, existing.id));
+      debugLog("upsertIntegration - updated existing", { tenantId, provider, status, savedOk: true });
     } else {
       await db.insert(tenantIntegrations).values({
         tenantId,
@@ -187,6 +274,7 @@ export class TenantIntegrationService {
         configEncrypted,
         status,
       });
+      debugLog("upsertIntegration - inserted new", { tenantId, provider, status, savedOk: true });
     }
 
     return {
@@ -315,8 +403,77 @@ export class TenantIntegrationService {
       return { success: false, message: "Mailgun domain or from email not configured" };
     }
 
-    console.log(`[Mailgun] Testing integration for tenant ${tenantId} - domain: ${config.domain}`);
-    return { success: true, message: "Mailgun configuration is valid" };
+    try {
+      const mailgun = new Mailgun(FormData);
+      const mg = mailgun.client({ username: "api", key: secrets.apiKey });
+      await mg.domains.get(config.domain);
+      debugLog("testMailgun - domain validated", { tenantId, domain: config.domain });
+      return { success: true, message: "Mailgun configuration is valid" };
+    } catch (error: any) {
+      debugLog("testMailgun - failed", { tenantId, error: error.message });
+      return { success: false, message: error.message || "Failed to validate Mailgun domain" };
+    }
+  }
+
+  async sendTestEmail(
+    tenantId: string,
+    toEmail: string,
+    tenantName: string,
+    requestId: string
+  ): Promise<{ ok: boolean; error?: { code: string; message: string; requestId: string } }> {
+    debugLog("sendTestEmail called", { tenantId, toEmail, requestId });
+
+    const integration = await this.getIntegration(tenantId, "mailgun");
+    if (!integration || integration.status !== IntegrationStatus.CONFIGURED) {
+      return {
+        ok: false,
+        error: {
+          code: "MAILGUN_NOT_CONFIGURED",
+          message: "Mailgun is not configured for this tenant",
+          requestId,
+        },
+      };
+    }
+
+    const secrets = await this.getDecryptedSecrets(tenantId, "mailgun") as MailgunSecretConfig | null;
+    if (!secrets?.apiKey) {
+      return {
+        ok: false,
+        error: {
+          code: "MAILGUN_API_KEY_MISSING",
+          message: "Mailgun API key is not configured",
+          requestId,
+        },
+      };
+    }
+
+    const config = integration.publicConfig as MailgunPublicConfig;
+
+    try {
+      const mailgun = new Mailgun(FormData);
+      const mg = mailgun.client({ username: "api", key: secrets.apiKey });
+
+      const timestamp = new Date().toISOString();
+      await mg.messages.create(config.domain, {
+        from: config.fromEmail,
+        to: [toEmail],
+        subject: "Mailgun Test - MyWorkDay",
+        text: `This is a test email from MyWorkDay.\n\nTenant: ${tenantName}\nTimestamp: ${timestamp}\nRequest ID: ${requestId}\n\nIf you received this email, your Mailgun integration is working correctly.`,
+      });
+
+      debugLog("sendTestEmail - success", { tenantId, toEmail, requestId });
+      return { ok: true };
+    } catch (error: any) {
+      debugLog("sendTestEmail - failed", { tenantId, error: error.message, requestId });
+      return {
+        ok: false,
+        error: {
+          code: "MAILGUN_SEND_FAILED",
+          message: error.message || "Failed to send test email",
+          requestId,
+        },
+      };
+    }
   }
 
   private async testS3(tenantId: string): Promise<{ success: boolean; message: string }> {
