@@ -32,7 +32,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory, clients, clientContacts, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory, clients, clientContacts, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents, workspaceMembers } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
@@ -519,6 +519,7 @@ const inviteAdminSchema = z.object({
   email: z.string().email("Valid email is required"),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
+  role: z.enum(["admin", "employee"]).optional().default("admin"),
   expiresInDays: z.number().min(1).max(30).optional(),
   inviteType: z.enum(["link", "email"]).optional().default("link"),
 });
@@ -562,6 +563,7 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
       email: data.email,
       firstName: data.firstName,
       lastName: data.lastName,
+      role: data.role,
       expiresInDays: data.expiresInDays,
       createdByUserId: superUser.id,
       workspaceId,
@@ -642,6 +644,350 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
     }
     console.error("Error creating tenant admin invitation:", error);
     res.status(500).json({ error: "Failed to create invitation" });
+  }
+});
+
+// =============================================================================
+// USER MANAGEMENT ENDPOINTS
+// =============================================================================
+
+// List all users for a tenant
+router.get("/tenants/:tenantId/users", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const tenantUsers = await storage.getUsersByTenant(tenantId);
+    
+    res.json({
+      users: tenantUsers.map(user => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        isActive: user.isActive,
+        avatarUrl: user.avatarUrl,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      })),
+      total: tenantUsers.length,
+    });
+  } catch (error) {
+    console.error("Error fetching tenant users:", error);
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+// List all invitations for a tenant
+router.get("/tenants/:tenantId/invitations", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const tenantInvitations = await storage.getInvitationsByTenant(tenantId);
+    
+    res.json({
+      invitations: tenantInvitations.map(inv => ({
+        id: inv.id,
+        email: inv.email,
+        role: inv.role,
+        status: inv.status,
+        expiresAt: inv.expiresAt,
+        createdAt: inv.createdAt,
+        usedAt: inv.usedAt,
+      })),
+      total: tenantInvitations.length,
+    });
+  } catch (error) {
+    console.error("Error fetching tenant invitations:", error);
+    res.status(500).json({ error: "Failed to fetch invitations" });
+  }
+});
+
+// Create a user directly (manual activation)
+const createUserSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  role: z.enum(["admin", "employee"]).default("employee"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  isActive: z.boolean().default(true),
+});
+
+router.post("/tenants/:tenantId/users", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const data = createUserSchema.parse(req.body);
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    // Check if email already exists
+    const existingUser = await storage.getUserByEmail(data.email);
+    if (existingUser) {
+      return res.status(409).json({ error: "A user with this email already exists" });
+    }
+    
+    // Hash the password
+    const { hashPassword } = await import("../auth");
+    const passwordHash = await hashPassword(data.password);
+    
+    // Get primary workspace for this tenant
+    const tenantWorkspaces = await db.select().from(workspaces)
+      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
+    const primaryWorkspace = tenantWorkspaces[0];
+    
+    // Create the user
+    const newUser = await storage.createUserWithTenant({
+      email: data.email,
+      name: `${data.firstName} ${data.lastName}`,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      role: data.role,
+      passwordHash,
+      isActive: data.isActive,
+      tenantId,
+    });
+    
+    // Add to primary workspace if exists
+    if (primaryWorkspace) {
+      await db.insert(workspaceMembers).values({
+        workspaceId: primaryWorkspace.id,
+        userId: newUser.id,
+        role: data.role === "admin" ? "admin" : "member",
+      }).onConflictDoNothing();
+    }
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "user_created",
+      `User ${data.email} created manually`,
+      superUser?.id,
+      { email: data.email, role: data.role, isActive: data.isActive }
+    );
+    
+    res.status(201).json({
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        role: newUser.role,
+        isActive: newUser.isActive,
+        createdAt: newUser.createdAt,
+      },
+      message: "User created successfully",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error creating user:", error);
+    res.status(500).json({ error: "Failed to create user" });
+  }
+});
+
+// Update a user
+const updateUserSchema = z.object({
+  email: z.string().email().optional(),
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  role: z.enum(["admin", "employee"]).optional(),
+  isActive: z.boolean().optional(),
+});
+
+router.patch("/tenants/:tenantId/users/:userId", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, userId } = req.params;
+    const data = updateUserSchema.parse(req.body);
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const existingUser = await storage.getUserByIdAndTenant(userId, tenantId);
+    if (!existingUser) {
+      return res.status(404).json({ error: "User not found in this tenant" });
+    }
+    
+    // Build updates
+    const updates: any = {};
+    if (data.email) updates.email = data.email;
+    if (data.firstName !== undefined) {
+      updates.firstName = data.firstName;
+      updates.name = `${data.firstName} ${data.lastName || existingUser.lastName || ""}`.trim();
+    }
+    if (data.lastName !== undefined) {
+      updates.lastName = data.lastName;
+      updates.name = `${data.firstName || existingUser.firstName || ""} ${data.lastName}`.trim();
+    }
+    if (data.name) updates.name = data.name;
+    if (data.role) updates.role = data.role;
+    if (data.isActive !== undefined) updates.isActive = data.isActive;
+    
+    const updatedUser = await storage.updateUserWithTenant(userId, tenantId, updates);
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "user_updated",
+      `User ${existingUser.email} updated`,
+      superUser?.id,
+      { userId, changes: data }
+    );
+    
+    res.json({
+      user: updatedUser,
+      message: "User updated successfully",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error updating user:", error);
+    res.status(500).json({ error: "Failed to update user" });
+  }
+});
+
+// Activate/deactivate a user
+router.post("/tenants/:tenantId/users/:userId/activate", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, userId } = req.params;
+    const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body);
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const existingUser = await storage.getUserByIdAndTenant(userId, tenantId);
+    if (!existingUser) {
+      return res.status(404).json({ error: "User not found in this tenant" });
+    }
+    
+    const updatedUser = await storage.setUserActiveWithTenant(userId, tenantId, isActive);
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      isActive ? "user_activated" : "user_deactivated",
+      `User ${existingUser.email} ${isActive ? "activated" : "deactivated"}`,
+      superUser?.id,
+      { userId, email: existingUser.email }
+    );
+    
+    res.json({
+      user: updatedUser,
+      message: `User ${isActive ? "activated" : "deactivated"} successfully`,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error updating user activation:", error);
+    res.status(500).json({ error: "Failed to update user activation" });
+  }
+});
+
+// Set user password
+const setPasswordSchema = z.object({
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+router.post("/tenants/:tenantId/users/:userId/set-password", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, userId } = req.params;
+    const { password } = setPasswordSchema.parse(req.body);
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const existingUser = await storage.getUserByIdAndTenant(userId, tenantId);
+    if (!existingUser) {
+      return res.status(404).json({ error: "User not found in this tenant" });
+    }
+    
+    // Hash the password
+    const { hashPassword } = await import("../auth");
+    const passwordHash = await hashPassword(password);
+    
+    await storage.setUserPasswordWithTenant(userId, tenantId, passwordHash);
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "user_password_set",
+      `Password set for user ${existingUser.email}`,
+      superUser?.id,
+      { userId, email: existingUser.email }
+    );
+    
+    res.json({
+      message: "Password set successfully",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("Error setting user password:", error);
+    res.status(500).json({ error: "Failed to set password" });
+  }
+});
+
+// Revoke an invitation
+router.post("/tenants/:tenantId/invitations/:invitationId/revoke", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, invitationId } = req.params;
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const invitation = await storage.revokeInvitation(invitationId);
+    if (!invitation) {
+      return res.status(404).json({ error: "Invitation not found" });
+    }
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "invite_revoked",
+      `Invitation for ${invitation.email} revoked`,
+      superUser?.id,
+      { invitationId, email: invitation.email }
+    );
+    
+    res.json({
+      invitation,
+      message: "Invitation revoked successfully",
+    });
+  } catch (error) {
+    console.error("Error revoking invitation:", error);
+    res.status(500).json({ error: "Failed to revoke invitation" });
   }
 });
 
