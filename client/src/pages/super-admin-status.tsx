@@ -98,6 +98,39 @@ interface DebugConfig {
   confirmPhrases: Record<string, string>;
 }
 
+interface OrphanTableResult {
+  table: string;
+  count: number;
+  sampleIds: Array<{ id: string; display: string }>;
+  recommendedAction: string;
+}
+
+interface OrphanDetectionResult {
+  totalOrphans: number;
+  tablesWithOrphans: number;
+  tables: OrphanTableResult[];
+  quarantineTenant: {
+    id?: string;
+    name?: string;
+    exists: boolean;
+  };
+}
+
+interface OrphanFixResult {
+  dryRun: boolean;
+  quarantineTenantId: string | null;
+  quarantineCreated: boolean;
+  totalFixed: number;
+  totalWouldFix: number;
+  results: Array<{
+    table: string;
+    action: string;
+    countBefore: number;
+    countFixed: number;
+    targetTenantId: string | null;
+  }>;
+}
+
 interface TenantPickerItem {
   id: string;
   name: string;
@@ -480,6 +513,8 @@ function DebugToolsPanel() {
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
+  const [orphanFixConfirmText, setOrphanFixConfirmText] = useState("");
+  const [orphanFixResult, setOrphanFixResult] = useState<OrphanFixResult | null>(null);
 
   const { data: debugConfig, isLoading: configLoading } = useQuery<DebugConfig>({
     queryKey: ["/api/v1/super/debug/config"],
@@ -510,6 +545,10 @@ function DebugToolsPanel() {
 
   const { data: integrityChecks, isLoading: integrityLoading, refetch: refetchIntegrity } = useQuery<IntegrityChecksResponse>({
     queryKey: ["/api/v1/super/debug/integrity/checks"],
+  });
+
+  const { data: orphanDetection, isLoading: orphanLoading, refetch: refetchOrphans } = useQuery<OrphanDetectionResult>({
+    queryKey: ["/api/v1/super/health/orphans"],
   });
 
   const { data: tenantsList } = useQuery<TenantPickerItem[]>({
@@ -581,6 +620,27 @@ function DebugToolsPanel() {
     },
     onError: (error: any) => {
       toast({ title: "Backfill failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const orphanFixMutation = useMutation({
+    mutationFn: async (params: { dryRun: boolean; confirmText?: string }) => {
+      const res = await apiRequest("POST", "/api/v1/super/health/orphans/fix", params);
+      return res.json();
+    },
+    onSuccess: (data: OrphanFixResult) => {
+      setOrphanFixResult(data);
+      if (data.dryRun) {
+        toast({ title: "Dry run complete", description: `Would fix ${data.totalWouldFix} orphan rows` });
+      } else {
+        toast({ title: "Orphans fixed", description: `Fixed ${data.totalFixed} rows to quarantine tenant` });
+        refetchOrphans();
+        refetchSummary();
+      }
+      setOrphanFixConfirmText("");
+    },
+    onError: (error: any) => {
+      toast({ title: "Orphan fix failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -995,6 +1055,178 @@ function DebugToolsPanel() {
                   <div className="text-xs text-muted-foreground text-right">
                     Last checked: {new Date(integrityChecks.timestamp).toLocaleString()}
                   </div>
+                </>
+              ) : null}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="orphan-fix" className="border rounded-lg">
+          <AccordionTrigger className="px-4 hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Wrench className="h-5 w-5" />
+              <span className="font-semibold">Orphan Fix Wizard</span>
+              {orphanDetection && orphanDetection.totalOrphans > 0 && (
+                <Badge variant="destructive" className="ml-2">
+                  {orphanDetection.totalOrphans} orphans
+                </Badge>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="px-4 pb-4">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Detect and quarantine rows missing tenantId
+                </p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => refetchOrphans()} 
+                  disabled={orphanLoading}
+                  data-testid="button-refresh-orphans"
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${orphanLoading ? "animate-spin" : ""}`} />
+                  Scan
+                </Button>
+              </div>
+
+              {orphanLoading ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : orphanDetection ? (
+                <>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <div className="p-3 border rounded-lg">
+                      <div className="text-sm text-muted-foreground">Total Orphans</div>
+                      <div className={`text-xl font-bold ${orphanDetection.totalOrphans > 0 ? "text-destructive" : "text-green-600"}`}>
+                        {orphanDetection.totalOrphans}
+                      </div>
+                    </div>
+                    <div className="p-3 border rounded-lg">
+                      <div className="text-sm text-muted-foreground">Tables With Orphans</div>
+                      <div className={`text-xl font-bold ${orphanDetection.tablesWithOrphans > 0 ? "text-yellow-600" : "text-green-600"}`}>
+                        {orphanDetection.tablesWithOrphans}
+                      </div>
+                    </div>
+                    <div className="p-3 border rounded-lg">
+                      <div className="text-sm text-muted-foreground">Quarantine Tenant</div>
+                      <div className="text-sm font-medium">
+                        {orphanDetection.quarantineTenant.exists ? (
+                          <span className="text-green-600">Exists</span>
+                        ) : (
+                          <span className="text-muted-foreground">Will be created</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {orphanDetection.totalOrphans > 0 && (
+                    <>
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium">Orphans by Table</h4>
+                        <div className="grid gap-2 md:grid-cols-4">
+                          {orphanDetection.tables
+                            .filter(t => t.count > 0)
+                            .map(tableResult => (
+                              <div key={tableResult.table} className="p-2 border rounded-lg">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sm capitalize">{tableResult.table}</span>
+                                  <Badge variant="secondary">{tableResult.count}</Badge>
+                                </div>
+                                {tableResult.sampleIds.length > 0 && (
+                                  <div className="mt-1 text-xs text-muted-foreground truncate">
+                                    {tableResult.sampleIds.slice(0, 2).map(s => s.display).join(", ")}
+                                    {tableResult.sampleIds.length > 2 && "..."}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-4">
+                          <Button
+                            variant="outline"
+                            onClick={() => orphanFixMutation.mutate({ dryRun: true })}
+                            disabled={orphanFixMutation.isPending}
+                            data-testid="button-orphan-dryrun"
+                          >
+                            {orphanFixMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            Preview Fix (Dry Run)
+                          </Button>
+                        </div>
+
+                        {orphanFixResult && orphanFixResult.dryRun && (
+                          <div className="p-4 border rounded-lg bg-muted/50 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-medium">Dry Run Preview</h4>
+                              <Badge variant="outline">Would fix {orphanFixResult.totalWouldFix} rows</Badge>
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-3">
+                              {orphanFixResult.results
+                                .filter(r => r.action === "would_fix")
+                                .map(r => (
+                                  <div key={r.table} className="text-sm flex justify-between">
+                                    <span className="capitalize">{r.table}:</span>
+                                    <span>{r.countBefore}</span>
+                                  </div>
+                                ))}
+                            </div>
+
+                            <Separator />
+
+                            <div className="space-y-2">
+                              <Label htmlFor="orphan-confirm">Type FIX_ORPHANS to execute</Label>
+                              <div className="flex gap-2">
+                                <Input
+                                  id="orphan-confirm"
+                                  value={orphanFixConfirmText}
+                                  onChange={(e) => setOrphanFixConfirmText(e.target.value)}
+                                  placeholder="FIX_ORPHANS"
+                                  className="max-w-xs"
+                                  data-testid="input-orphan-confirm"
+                                />
+                                <Button
+                                  onClick={() => orphanFixMutation.mutate({ dryRun: false, confirmText: orphanFixConfirmText })}
+                                  disabled={orphanFixConfirmText !== "FIX_ORPHANS" || orphanFixMutation.isPending}
+                                  data-testid="button-orphan-execute"
+                                >
+                                  {orphanFixMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                  Execute Fix
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {orphanFixResult && !orphanFixResult.dryRun && (
+                          <div className="p-4 border rounded-lg border-green-500/50 bg-green-50 dark:bg-green-950/20 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                              <h4 className="font-medium text-green-800 dark:text-green-300">Fix Applied</h4>
+                            </div>
+                            <p className="text-sm text-green-700 dark:text-green-400">
+                              Moved {orphanFixResult.totalFixed} rows to quarantine tenant
+                              {orphanFixResult.quarantineCreated && " (created new quarantine tenant)"}
+                            </p>
+                            <div className="text-xs text-muted-foreground">
+                              Quarantine Tenant ID: {orphanFixResult.quarantineTenantId}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {orphanDetection.totalOrphans === 0 && (
+                    <div className="text-center py-8 text-green-600">
+                      <CheckCircle className="h-8 w-8 mx-auto mb-2" />
+                      No orphan rows found
+                    </div>
+                  )}
                 </>
               ) : null}
             </div>
