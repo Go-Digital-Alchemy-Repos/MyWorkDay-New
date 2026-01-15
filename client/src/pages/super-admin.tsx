@@ -12,28 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest, setActingTenantId, getActingTenantId } from "@/lib/queryClient";
 import { useLocation } from "wouter";
-import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Palette, HardDrive, Save, TestTube, Eye, EyeOff, Mail, Lock, Check, X, Upload, FileText, Users, Download, PlayCircle, PauseCircle, Power, ExternalLink } from "lucide-react";
+import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Upload, Users, Download, PlayCircle, PauseCircle, Power, ExternalLink, Mail, FileText, Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { TenantSettingsDialog } from "@/components/super-admin/tenant-settings-dialog";
 import { TenantDrawer } from "@/components/super-admin/tenant-drawer";
 import type { Tenant } from "@shared/schema";
-
-interface TenantSettings {
-  displayName?: string;
-  appName?: string | null;
-  logoUrl?: string | null;
-  faviconUrl?: string | null;
-  primaryColor?: string | null;
-  secondaryColor?: string | null;
-  accentColor?: string | null;
-  loginMessage?: string | null;
-  supportEmail?: string | null;
-  whiteLabelEnabled?: boolean;
-  hideVendorBranding?: boolean;
-}
-
-type IntegrationStatus = "not_configured" | "configured" | "error";
 
 interface TenancyHealthResponse {
   currentMode: string;
@@ -114,8 +97,6 @@ export default function SuperAdminPage() {
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
   const [inviteType, setInviteType] = useState<"link" | "email">("link");
   const [activeTab, setActiveTab] = useState("tenants");
-  const [settingsTenant, setSettingsTenant] = useState<Tenant | null>(null);
-  const [settingsTab, setSettingsTab] = useState("branding");
   const [importingTenant, setImportingTenant] = useState<Tenant | null>(null);
   const [csvUsers, setCsvUsers] = useState<CSVUser[]>([]);
   const [importResults, setImportResults] = useState<ImportResponse | null>(null);
@@ -648,7 +629,10 @@ export default function SuperAdminPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => setSettingsTenant(tenant)}
+                      onClick={() => {
+                        localStorage.setItem(`tenantDrawerTab_${tenant.id}`, "branding");
+                        setSelectedTenant(tenant);
+                      }}
                       data-testid={`button-settings-tenant-${tenant.id}`}
                     >
                       <Settings className="h-4 w-4" />
@@ -1258,12 +1242,6 @@ export default function SuperAdminPage() {
           )}
         </TabsContent>
       </Tabs>
-
-      <TenantSettingsDialog
-        tenant={settingsTenant}
-        open={!!settingsTenant}
-        onOpenChange={(open) => !open && setSettingsTenant(null)}
-      />
 
       {/* Confirmation Dialog for Activate/Suspend/Deactivate */}
       <Dialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
