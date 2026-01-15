@@ -33,6 +33,8 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Real Mailgun domain validation via API on test
   - Send Test Email functionality with actual email delivery via Mailgun API
 - **Authentication**: Session-based authentication using Passport.js.
+- **Rate Limiting**: IP and email-based brute-force protection for auth endpoints (login, bootstrap, invite accept). Configurable via env vars.
+- **Email Observability**: Outbox logging for all emails with status tracking (queued/sent/failed), resend capability for failed invites/password resets, and admin visibility.
 - **Real-time Communication**: Socket.IO for live updates.
 - **Database Schema**: Includes entities for users, workspaces, teams, clients, projects, tasks, activity logs, time tracking, tenant settings, and integrations.
 - **Workload Forecast**: Project-level analytics with budget tracking and assignee workload distribution.
