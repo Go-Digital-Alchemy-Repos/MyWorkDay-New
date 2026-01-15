@@ -27,6 +27,11 @@ import type { User } from "@shared/schema";
 import type { Express, RequestHandler } from "express";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
+import { 
+  loginRateLimiter, 
+  bootstrapRateLimiter, 
+  inviteAcceptRateLimiter 
+} from "./middleware/rateLimit";
 
 const scryptAsync = promisify(scrypt);
 
@@ -138,7 +143,7 @@ export function setupAuth(app: Express): void {
     }
   });
 
-  app.post("/api/auth/login", (req, res, next) => {
+  app.post("/api/auth/login", loginRateLimiter, (req, res, next) => {
     passport.authenticate("local", async (err: Error | null, user: Express.User | false, info: { message: string }) => {
       if (err) {
         return res.status(500).json({ error: "Authentication error" });
@@ -333,7 +338,7 @@ export function setupBootstrapEndpoints(app: Express): void {
    * Creates the first super admin account (only when no users exist)
    * Logs the user in immediately after creation.
    */
-  app.post("/api/v1/auth/bootstrap-register", async (req, res) => {
+  app.post("/api/v1/auth/bootstrap-register", bootstrapRateLimiter, async (req, res) => {
     try {
       const { email, password, firstName, lastName } = req.body;
 
@@ -559,7 +564,7 @@ export function setupPlatformInviteEndpoints(app: Express): void {
    * POST /api/v1/auth/platform-invite/accept
    * Accepts a platform invite, sets the user's password, and logs them in.
    */
-  app.post("/api/v1/auth/platform-invite/accept", async (req, res) => {
+  app.post("/api/v1/auth/platform-invite/accept", inviteAcceptRateLimiter, async (req, res) => {
     try {
       const { token, password } = req.body;
       
