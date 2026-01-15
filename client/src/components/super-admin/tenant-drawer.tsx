@@ -1365,7 +1365,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                     </div>
                   </div>
                   <Button
-                    onClick={() => inviteAdminMutation.mutate({ email: inviteEmail, firstName: inviteFirstName, lastName: inviteLastName })}
+                    onClick={() => inviteAdminMutation.mutate({ email: inviteEmail, firstName: inviteFirstName || undefined, lastName: inviteLastName || undefined, inviteType: "link" })}
                     disabled={inviteAdminMutation.isPending || !inviteEmail}
                     data-testid="button-wizard-send-invite"
                   >
