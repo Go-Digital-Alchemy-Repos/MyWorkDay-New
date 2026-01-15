@@ -55,7 +55,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Invitation tab: View invitation status, regenerate invite links, resend invitation emails
   - Security tab: Reset user password with `mustChangePasswordOnNextLogin` flag enforcement
 - **Password Security**: Users table includes `mustChangePasswordOnNextLogin` boolean field for forced password changes on next login
-- **SaaS Agreement System**: Manages tenant SaaS agreements with an active/archived lifecycle, versioning, and user acceptance tracking, enforced by middleware.
+- **SaaS Agreement System**: Manages tenant SaaS agreements with an active/archived lifecycle, versioning, and user acceptance tracking, enforced by middleware. Supports global default agreements (tenantId = null) that apply to all tenants without specific overrides. Tenant-specific agreements take precedence over global defaults.
 - **Frontend Structure**: Organized into `pages/` and `components/`, utilizing FullScreenDrawer for entity editing with unsaved changes guards.
 - **Backend Structure**: Modular routes, `DatabaseStorage` class, middleware for error handling, validation, and authentication.
 - **Design Guidelines**: Professional design with Inter font, 3-column layout, and dark mode support.
