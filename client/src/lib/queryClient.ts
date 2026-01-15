@@ -156,3 +156,94 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Tenant-scoped query key prefixes.
+ * These queries contain tenant-specific data and must be cleared on mode transitions.
+ * 
+ * IMPORTANT: This list must be comprehensive. Any tenant-specific API endpoint
+ * should have its prefix listed here to ensure proper cache isolation.
+ * 
+ * Note: This is a best-effort prefix-based approach. For guaranteed isolation,
+ * consider implementing tenantId namespacing in query keys (e.g., ["tenant", tenantId, "/api/..."]).
+ */
+export const TENANT_SCOPED_QUERY_PREFIXES = [
+  "/api/projects",
+  "/api/clients",
+  "/api/teams",
+  "/api/workspaces",
+  "/api/tasks",
+  "/api/time-entries",
+  "/api/user",
+  "/api/auth/me",
+  "/api/v1/projects",
+  "/api/v1/tenant",
+  "/api/v1/workspaces",
+  "/api/v1/tasks",
+  "/api/v1/clients",
+  "/api/v1/teams",
+  "/api/v1/time",
+  "/api/v1/analytics",
+  "/api/v1/forecast",
+  "/api/v1/workload",
+  "/api/activities",
+  "/api/comments",
+  "/api/tags",
+  "/api/sections",
+  "/api/attachments",
+] as const;
+
+/**
+ * Super-scoped query key prefixes.
+ * These queries contain super admin data and should be preserved during tenant mode.
+ */
+export const SUPER_SCOPED_QUERY_PREFIXES = [
+  "/api/v1/super",
+] as const;
+
+/**
+ * Clear all tenant-scoped caches when switching between tenants or exiting impersonation.
+ * This ensures no stale tenant data is visible after mode transitions.
+ */
+export function clearTenantScopedCaches(): void {
+  queryClient.cancelQueries();
+  
+  TENANT_SCOPED_QUERY_PREFIXES.forEach(prefix => {
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith(prefix);
+      },
+    });
+  });
+}
+
+/**
+ * Clear super-scoped caches when entering tenant mode.
+ * Typically not needed, but useful for complete isolation.
+ */
+export function clearSuperScopedCaches(): void {
+  SUPER_SCOPED_QUERY_PREFIXES.forEach(prefix => {
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith(prefix);
+      },
+    });
+  });
+}
+
+/**
+ * Validate that a tenant ID exists in the system.
+ * Used to prevent impersonation of non-existent tenants.
+ */
+export async function validateTenantExists(tenantId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/v1/super/tenants/${tenantId}`, {
+      credentials: "include",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

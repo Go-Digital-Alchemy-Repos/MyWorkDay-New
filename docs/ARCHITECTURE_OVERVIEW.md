@@ -272,6 +272,91 @@ Routes that are fully super-only:
 
 ---
 
+## Navigation & Mode Switching
+
+### App Modes
+
+The application supports two primary modes:
+
+1. **Super Mode** - For super admin users managing tenants
+2. **Tenant Mode** - For regular users or super admins impersonating a tenant
+
+### Mode Determination Rules
+
+```
+If user.role == "super_user" AND effectiveTenantId is null:
+  → appMode = "super"
+
+If effectiveTenantId exists (regardless of user role):
+  → appMode = "tenant" AND isImpersonating = true
+
+If user.role != "super_user":
+  → appMode = "tenant" AND isImpersonating = false
+```
+
+### Route Guards
+
+| Guard | Purpose |
+|-------|---------|
+| `ProtectedRoute` | Requires authentication |
+| `SuperRouteGuard` | Requires super_user role |
+| `TenantRouteGuard` | Requires tenant context (blocks super users not impersonating) |
+
+### Cache Isolation Strategy
+
+The app uses tenant-scoped and super-scoped query key prefixes for selective cache clearing:
+
+**Tenant-Scoped Prefixes** (cleared on mode transitions):
+- `/api/projects`, `/api/clients`, `/api/teams`, `/api/workspaces`
+- `/api/tasks`, `/api/time-entries`, `/api/user`, `/api/auth/me`
+- `/api/v1/projects`, `/api/v1/tenant`, `/api/v1/workspaces`
+- `/api/v1/tasks`, `/api/v1/clients`, `/api/v1/teams`, `/api/v1/time`
+- `/api/v1/analytics`, `/api/v1/forecast`, `/api/v1/workload`
+- `/api/activities`, `/api/comments`, `/api/tags`, `/api/sections`, `/api/attachments`
+
+**Super-Scoped Prefixes** (preserved in tenant mode):
+- `/api/v1/super`
+
+**Limitation**: This is prefix-based matching. For guaranteed isolation, future
+improvements could implement tenantId namespacing in query keys.
+
+### Cache Invalidation Functions
+
+```typescript
+clearTenantScopedCaches()  // Called when switching tenants or exiting impersonation
+clearSuperScopedCaches()   // Optional, for complete isolation
+validateTenantExists(id)   // Validates tenant before impersonation restoration
+```
+
+### Impersonation Flow
+
+1. **Start Impersonation**:
+   - Clear tenant caches
+   - Store tenant ID in localStorage with super user verification
+   - Set `X-Tenant-Id` header on all API requests
+
+2. **Stop Impersonation**:
+   - Clear tenant caches
+   - Remove localStorage state
+   - Invalidate super tenant list query
+   - Reset to super mode navigation
+
+3. **Restore on Page Load**:
+   - Validate stored tenant ID still exists
+   - If invalid, force exit impersonation with cache clear
+
+### Key Navigation Files
+
+| File | Purpose |
+|------|---------|
+| `client/src/hooks/useAppMode.ts` | Central mode management hook |
+| `client/src/lib/queryClient.ts` | Cache utilities and query configuration |
+| `client/src/App.tsx` | Route guards and layout switching |
+| `client/src/components/impersonation-banner.tsx` | Tenant impersonation UI |
+| `client/src/components/tenant-switcher.tsx` | Tenant selection dropdown |
+
+---
+
 ## Key Configuration Files
 
 | File | Purpose |

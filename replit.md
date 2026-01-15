@@ -51,6 +51,12 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **API Error Handling**: Standardized error envelope with stable error codes and request ID correlation.
 - **Tenant Data Health Remediation**: Tools for backfilling missing `tenantId` values, quarantine management, and data integrity checks.
 - **Performance Optimizations**: N+1 query fixes and query debugging utilities.
+- **Navigation Mode Hardening**: Enhanced super/tenant mode switching with:
+  - `useAppMode` hook with tenant validation on impersonation restoration
+  - `isModeTransitioning` state for UI transition handling
+  - Cache isolation utilities (`clearTenantScopedCaches`, `validateTenantExists`)
+  - Tenant-scoped query prefix constants for selective invalidation
+  - Route guards (SuperRouteGuard, TenantRouteGuard) for access control
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.

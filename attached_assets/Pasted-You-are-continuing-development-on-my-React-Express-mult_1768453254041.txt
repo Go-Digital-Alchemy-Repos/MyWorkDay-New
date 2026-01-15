@@ -1,0 +1,177 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+NEXT PROMPT: Navigation edge-case hardening (Super vs Tenant mode) + Cache Invalidation
+Goal: Make appMode switching (super_user normal mode vs acting-as-tenant) rock-solid, and prevent any cross-tenant UI
+artifacts by clearing/invalidation of tenant-scoped caches when switching modes.
+
+This is a correctness and safety prompt. No redesign. No schema changes.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change endpoint paths or response shapes.
+- Do NOT change auth, tenancy enforcement, or agreement enforcement behavior.
+- Do NOT change role permission rules.
+- Do NOT redesign UI layouts; only adjust routing guards, nav rendering conditions, and cache handling.
+- No DB schema changes.
+- Any state changes must be reversible and localized.
+
+===============================================================================
+GOAL
+===============================================================================
+1) Super Admin mode (not impersonating):
+   - Show only Super Admin menu items
+   - Block access to tenant routes and redirect safely
+2) Tenant mode (impersonating OR normal tenant user):
+   - Show tenant menu based on role
+   - Super-only menu hidden
+   - If impersonating: show banner + one-click exit
+3) Cache correctness:
+   - On entering tenant mode: clear/invalidate all tenant-scoped queries and state
+   - On exiting tenant mode: clear tenant-scoped caches and reset to super context
+   - Prevent any data from previous tenant remaining visible
+
+===============================================================================
+PART A — SINGLE SOURCE OF TRUTH FOR MODE + TENANT CONTEXT
+===============================================================================
+1) Create/confirm a central app mode selector:
+- appMode = "super" | "tenant"
+- isImpersonating = boolean
+- effectiveTenantId and effectiveTenantName stored centrally
+
+2) Rules:
+- If user.role == "super_user" AND effectiveTenantId is null => appMode="super"
+- If effectiveTenantId exists => appMode="tenant" AND isImpersonating=true
+- If user.role != "super_user" => appMode="tenant" AND isImpersonating=false
+
+3) Ensure effectiveTenantId is validated:
+- If effectiveTenantId references a tenant that does not exist or is not allowed:
+  - force exit impersonation
+  - show warning toast
+  - navigate to /super/tenants
+
+===============================================================================
+PART B — ROUTE GUARDS (NO CONTRACT CHANGES)
+===============================================================================
+Implement robust route guards:
+
+1) Super mode guard
+If appMode="super":
+- Any attempt to access tenant routes (/projects, /clients, /my-tasks, etc.)
+  => redirect to /super/tenants (or /super/dashboard)
+  => show toast: “Select a tenant to access tenant tools.”
+
+2) Tenant mode guard
+If user.role != "super_user":
+- Any attempt to access /super/* => 403 page or redirect to tenant home.
+
+3) Impersonation exit behavior
+When exiting impersonation:
+- Clear effectiveTenantId and effectiveTenantName
+- Navigate to /super/tenants
+- Ensure tenant menu disappears immediately
+
+4) Agreement gating interaction
+- Ensure super routes remain accessible in super mode (even if agreement gating exists for tenant routes).
+- Ensure impersonating super is treated like a tenant user for agreement gating only if that is current behavior (do not change it).
+
+===============================================================================
+PART C — CACHE INVALIDATION STRATEGY (TanStack Query + Any Local Stores)
+===============================================================================
+1) Identify all tenant-scoped query keys:
+Examples: ["clients"], ["projects"], ["tasks"], ["timeEntries"], ["teams"], ["workspaces"], etc.
+
+2) On mode transitions:
+A) Enter tenant mode (start impersonation)
+- queryClient.cancelQueries()
+- queryClient.clear() OR selective invalidation (prefer selective if you can reliably scope)
+- reset any local stores that hold tenant data
+- then refetch tenant-critical queries (me/tenantContext first, then others)
+
+B) Exit tenant mode
+- queryClient.cancelQueries()
+- clear tenant-scoped caches
+- reset tenant stores
+- refetch super-critical queries (super/tenants list, system settings, etc.)
+
+IMPORTANT:
+- Avoid clearing auth/session state.
+- Preserve “me” query but refetch it after mode switch to refresh effectiveTenantId state.
+
+3) Namespacing enhancement (recommended, non-breaking)
+If feasible without refactoring:
+- include effectiveTenantId in tenant query keys:
+  ["projects", effectiveTenantId]
+  ["clients", effectiveTenantId]
+This makes cache isolation automatic and safer.
+Do NOT rewrite every query; implement gradually:
+- start with the top 10 most-visible datasets (projects, clients, tasks, timeEntries, teams, workspaces, settings)
+
+===============================================================================
+PART D — UI NAV RENDERING (MINIMAL)
+===============================================================================
+1) Sidebar component:
+- Render SuperSidebar if appMode="super"
+- Render TenantSidebar if appMode="tenant"
+- Ensure no cross-render flicker on transitions (use a short “loading” state while switching modes)
+
+2) Header indicators:
+- If impersonating:
+  - show banner: “Acting as Tenant: <name>”
+  - include Exit button
+- If super mode:
+  - show tenant switcher control (if implemented)
+  - no tenant pickers/project selectors visible
+
+3) Deep link behavior:
+- If user pastes a tenant URL while in super mode:
+  - redirect with toast and preserve attempted url in memory
+  - after they select a tenant, optionally offer “Continue to previous page” (optional, safe)
+
+===============================================================================
+PART E — TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend (if relevant): none required unless you add endpoints (you should not).
+
+Frontend tests (preferred):
+1) super_mode_blocks_tenant_routes.test.tsx
+- super not impersonating goes to /projects => redirected to /super/tenants
+
+2) tenant_user_blocks_super_routes.test.tsx
+- tenant user cannot access /super/status
+
+3) impersonation_switch_clears_cache.test.tsx
+- enter tenant A => load projects list
+- switch to tenant B => ensure projects list refetches and does not show tenant A data
+
+4) exit_impersonation_resets_nav.test.tsx
+- exit returns to super sidebar only
+
+If UI tests are not present, add a lightweight smoke harness or document manual steps in /docs/REGRESSION_CHECKLIST.md.
+
+===============================================================================
+DOCUMENTATION STANDARD (REQUIRED)
+===============================================================================
+- Update /docs/ARCHITECTURE_OVERVIEW.md with:
+  - appMode rules
+  - effectiveTenantId storage/clearing
+  - cache invalidation strategy
+- Add module header comments in:
+  - app mode hook/store
+  - route guard module
+  - sidebar switcher component
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Super mode shows only Super Admin menu and cannot access tenant routes without acting-as-tenant.
+2) Tenant users cannot access /super/* routes.
+3) Entering/exiting impersonation never shows stale tenant data (cache isolation).
+4) No endpoint or schema changes.
+5) Tests pass or documented manual checklist is updated.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Which query keys were tenant-scoped and how you isolated them
+- Files changed (routing, sidebar, appMode hook, query client setup)
+- Manual test checklist (local + Railway)
