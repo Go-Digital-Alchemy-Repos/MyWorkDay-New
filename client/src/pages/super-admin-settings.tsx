@@ -14,7 +14,7 @@ import { Redirect } from "wouter";
 import { 
   Loader2, Users, FileText, Palette, Settings, Shield, Save, Mail, HardDrive, Check, X, 
   Plus, Link, Copy, MoreHorizontal, UserCheck, UserX, Clock, AlertCircle, KeyRound, Image,
-  TestTube, Eye, EyeOff, Trash2, RefreshCw, Send, CreditCard, Archive
+  TestTube, Eye, EyeOff, Trash2, RefreshCw, Send, CreditCard, Archive, Globe
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { S3Dropzone } from "@/components/common/S3Dropzone";
@@ -300,10 +300,15 @@ function AgreementsManagementTab({
       updateMutation.mutate({ id: selectedAgreement.id, data: { title: form.title, body: form.body } });
     } else {
       if (!form.tenantId) {
-        toast({ title: "Please select a tenant", variant: "destructive" });
+        toast({ title: "Please select a scope", variant: "destructive" });
         return;
       }
-      createMutation.mutate(form);
+      // Convert "__all_tenants__" sentinel value to null for global default
+      const submitForm = {
+        ...form,
+        tenantId: form.tenantId === "__all_tenants__" ? null : form.tenantId,
+      };
+      createMutation.mutate(submitForm);
     }
   };
 
@@ -367,6 +372,9 @@ function AgreementsManagementTab({
                       <span className="font-medium">{agreement.title}</span>
                       <span className="text-sm text-muted-foreground">v{agreement.version}</span>
                       {getStatusBadge(agreement.status)}
+                      {(agreement as any).scope === "global" && (
+                        <Badge variant="outline" className="text-xs"><Globe className="h-3 w-3 mr-1" />Default</Badge>
+                      )}
                     </div>
                     <div className="text-sm text-muted-foreground mt-1">
                       {agreement.tenantName} • Updated {new Date(agreement.updatedAt).toLocaleDateString()}
@@ -478,23 +486,31 @@ function AgreementsManagementTab({
           <SheetHeader>
             <SheetTitle>{selectedAgreement ? "Edit Agreement" : "Create Agreement"}</SheetTitle>
             <SheetDescription>
-              {selectedAgreement ? "Update the agreement content" : "Create a new SaaS agreement for a tenant"}
+              {selectedAgreement ? "Update the agreement content" : "Create a new SaaS agreement for all tenants or a specific tenant"}
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
             {!selectedAgreement && (
               <div className="space-y-2">
-                <Label>Tenant</Label>
+                <Label>Scope</Label>
                 <Select value={form.tenantId} onValueChange={(v) => setForm({ ...form, tenantId: v })}>
                   <SelectTrigger data-testid="select-agreement-tenant">
-                    <SelectValue placeholder="Select tenant" />
+                    <SelectValue placeholder="Select scope" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__all_tenants__">All Tenants (Global Default)</SelectItem>
                     {tenantsData?.map((t) => (
                       <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  {form.tenantId === "__all_tenants__" 
+                    ? "This agreement will apply to all tenants that don't have a specific agreement." 
+                    : form.tenantId 
+                      ? "This agreement will apply only to the selected tenant." 
+                      : "Select a scope for this agreement."}
+                </p>
               </div>
             )}
             <div className="space-y-2">
