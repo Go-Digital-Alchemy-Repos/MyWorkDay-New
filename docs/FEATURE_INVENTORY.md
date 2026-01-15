@@ -207,14 +207,30 @@ Final task assignment: `finalTaskId = subtaskId || taskId`
 ---
 
 ### 11. S3 Uploads
-**Files:** `server/s3.ts`
+**Files:** `server/s3.ts`, `server/services/uploads/s3UploadService.ts`, `server/routes/uploads.ts`
+**Documentation:** `docs/UPLOADS_S3.md`
 
 | Feature | Description |
 |---------|-------------|
-| Brand Assets | Logo, favicon, icon uploads |
-| Attachments | Task/project file attachments |
-| Presigned URLs | Secure upload/download |
+| Unified Upload Service | Category-based validation and key generation |
+| Global Branding | Logo, icon, favicon uploads (Super Admin) |
+| Tenant Branding | Per-tenant logo, icon, favicon with inheritance from global |
+| User Avatars | Profile picture uploads |
+| Task Attachments | File attachments with DB record management |
+| Presigned URLs | Secure upload with 5-minute expiration |
 | Per-Tenant S3 | Tenant-configured bucket (optional) |
+| Tenant Isolation | S3 keys namespaced by tenant ID |
+
+**Key Components:**
+- `S3Dropzone` - Reusable React component for drag-drop uploads
+- `useS3Upload` - React hook for custom upload implementations
+- `s3UploadService` - Server-side validation and presigning
+
+**Upload Categories:**
+- `global-branding-{logo|icon|favicon}` - Super Admin only
+- `tenant-branding-{logo|icon|favicon}` - Tenant Admin only
+- `user-avatar` - Any authenticated user
+- `task-attachment` - Uses specialized attachment flow
 
 ---
 

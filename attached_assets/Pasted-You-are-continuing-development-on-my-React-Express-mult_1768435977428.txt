@@ -1,0 +1,169 @@
+You are continuing development on my React + Express multi-tenant app (single codebase), deployed on Railway.
+NEXT PROMPT: Fix Mailgun Integration Persistence + Secret Masking (Super Admin + Tenant Admin)
+Problem: In production (Railway), Mailgun settings do not persist after refresh and disappear from fields.
+Goal: Make Mailgun settings save reliably, be tenant-scoped where appropriate, and handle secrets safely (write-only + masked).
+
+This is a targeted bugfix + safety hardening prompt. Do NOT refactor unrelated settings or integrations.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT remove/rename existing endpoints.
+- Do NOT change endpoint paths.
+- Do NOT change success response shapes (additive only).
+- Do NOT expose secrets in API responses, logs, or client state.
+- Do NOT alter auth/tenancy/agreement enforcement behavior.
+- Keep changes confined to Mailgun settings storage, retrieval, UI binding, and one safe “test email” endpoint.
+
+===============================================================================
+GOAL
+===============================================================================
+1) Persist Mailgun settings correctly in Railway (DB write + DB read).
+2) Treat Mailgun API key/signing key as write-only:
+   - UI can submit and update them
+   - backend stores them
+   - backend never returns raw secret values after save
+   - UI displays masked placeholders and “configured” status
+3) Ensure tenant scoping:
+   - Tenant Mailgun settings belong to the tenant
+   - Super Admin “Global Integrations” (if it exists) can optionally act as fallback only if your app already supports it
+4) Add a “Send Test Email” tool that proves configuration works (no secrets echoed).
+
+===============================================================================
+PART A — DIAGNOSE CURRENT ROOT CAUSE (NO WRITES FIRST)
+===============================================================================
+1) Identify current settings tables/columns used for Mailgun:
+- Are Mailgun fields stored under Tenant Settings, Workspace Settings, or Integrations table?
+- Confirm whether the saving endpoint is actually writing to DB.
+- Confirm whether the loading endpoint is reading from DB.
+- Confirm the frontend form is bound to the same data shape returned by GET.
+
+2) Add temporary debug logging (server-side) behind env flag:
+- MAILGUN_DEBUG=true
+Log only:
+- requestId, tenantId, workspaceId (if used), route name, “saved ok” booleans
+Do NOT log secrets or full payload.
+
+===============================================================================
+PART B — FIX PERSISTENCE (MINIMAL, NON-DESTRUCTIVE)
+===============================================================================
+1) Ensure the save handler:
+- Validates tenant scope (effectiveTenantId required for tenant settings)
+- Writes Mailgun fields to the correct record (insert if missing, otherwise update)
+- Uses a transaction if there are multiple writes
+- Returns a stable response that includes:
+  - mailgunConfigured: true/false
+  - masked fields (optional) OR null
+  - never raw keys
+
+2) Ensure the load handler:
+- Reads the same settings record written by save handler
+- Returns:
+  {
+    domain: string|null,
+    fromEmail: string|null,
+    publicReplyTo?: string|null,
+    mailgunConfigured: boolean,
+    apiKeyMasked?: "••••1234" | null,
+    signingKeyMasked?: "••••abcd" | null
+  }
+- If secrets exist in DB, return only masked info.
+
+3) Fix UI binding:
+- After Save:
+  - immediately refetch settings and update form state
+  - fields should NOT clear on refresh
+- Secret fields:
+  - show placeholder “Configured” and last4 masked if available
+  - allow user to overwrite with a new secret
+  - “Clear key” button clears from DB (guarded confirm)
+
+===============================================================================
+PART C — SECRET STORAGE SAFETY
+===============================================================================
+1) Storage
+- Store secrets only in DB fields intended for secrets.
+- If secrets are currently stored in plaintext and no encryption exists:
+  - do NOT add complex encryption in this prompt
+  - but do ensure secrets never return to client and never appear in logs
+
+2) API Responses
+- Never return raw API keys/signing keys.
+- Masking method:
+  - store full secret
+  - display “••••” + last 4 characters (computed server-side)
+
+3) Audit events (if you have audit log table)
+- mailgun_settings_updated
+- mailgun_secret_cleared
+Include actorUserId, tenantId, requestId (no secret values).
+
+===============================================================================
+PART D — SEND TEST EMAIL (SAFE TOOL)
+===============================================================================
+Add (or fix if exists) an endpoint:
+
+POST /api/v1/tenant/integrations/mailgun/test
+Body: { toEmail: string }
+Rules:
+- validate toEmail format
+- require mailgunConfigured=true
+- send a simple plaintext email:
+  subject: "Mailgun test"
+  body includes: tenant name, timestamp, requestId
+- return:
+  { ok: true } or { ok: false, error: { code, message, requestId } }
+Never include secrets.
+
+UI:
+- In Integrations tab:
+  - “Send Test Email” section with input toEmail + button
+  - show success/failure toast
+
+===============================================================================
+PART E — TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend tests:
+1) mailgun_settings_persist.test.ts
+- save settings (including secrets) then load settings
+- confirms domain/fromEmail persist
+- confirms mailgunConfigured true
+- confirms apiKey NOT returned, only masked
+
+2) mailgun_tenant_isolation.test.ts
+- tenant A cannot read/write tenant B settings
+
+3) mailgun_test_email_requires_config.test.ts
+- returns error code when not configured
+- returns ok when configured (mock Mailgun)
+
+Frontend (if test infra exists):
+4) integrations_form_rehydrates_on_refresh.test.tsx
+- after save, refetch repopulates fields and shows “Configured” for secrets
+
+===============================================================================
+DOCUMENTATION STANDARD (REQUIRED)
+===============================================================================
+- Update /docs/INTEGRATIONS_MAILGUN.md:
+  - write-only secret fields
+  - masking behavior
+  - test email usage
+- Update /docs/ENVIRONMENT_VARIABLES.md if any env vars are used by Mailgun sending layer
+- Add header comments in mailgun integration service/routes about “never return secrets”
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Mailgun settings persist on Railway refresh and after redeploy.
+2) Secrets are write-only; UI shows configured/masked indicators.
+3) Tenant scoping is correct.
+4) Test email works and produces clear error messages with requestId.
+5) No unrelated app code is changed; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Root cause found (why it wasn’t persisting)
+- Files changed (server + client)
+- Exact response shape for GET settings
+- Manual test checklist for Railway
