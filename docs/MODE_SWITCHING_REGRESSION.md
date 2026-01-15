@@ -41,14 +41,26 @@ Manual test cases for validating super/tenant mode switching behavior.
 | 3.3 | Refresh the page | Should auto-exit to Super Admin |
 | 3.4 | Check console | Should see warning about inaccessible tenant |
 
-### 4. Deep Link Handling
+### 4. Deep Link Handling with URL Restoration
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 4.1 | While impersonating, copy the URL of a project page | URL like `/projects/123` |
-| 4.2 | Exit impersonation | Returns to Super Admin |
-| 4.3 | Paste the project URL directly | Should redirect to Super Admin (not access tenant route) |
-| 4.4 | Impersonate again, then paste URL | Should load the project page |
+| 4.1 | Log in as super admin (not impersonating) | Super Admin dashboard shows |
+| 4.2 | Paste a tenant URL directly (e.g., `/projects/123`) | Should redirect to Super Admin with toast "Tenant access required" |
+| 4.3 | Check sessionStorage for `last_attempted_tenant_url_v1` | Should contain `/projects/123` |
+| 4.4 | Select a tenant from the list | After tenant context loads, should auto-navigate to `/projects/123` |
+| 4.5 | Check sessionStorage again | Key should be cleared |
+| 4.6 | Exit impersonation | Returns to Super Admin |
+| 4.7 | Check sessionStorage | Key should remain cleared (cleared on exit) |
+
+### 4b. Deep Link Safety
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 4b.1 | Manually set `sessionStorage.setItem('last_attempted_tenant_url_v1', 'https://evil.com')` | |
+| 4b.2 | Select a tenant | Should NOT navigate to external URL |
+| 4b.3 | Manually set `sessionStorage.setItem('last_attempted_tenant_url_v1', '/super-admin')` | |
+| 4b.4 | Select a tenant | Should NOT navigate to super route |
 
 ### 5. Session Persistence
 
@@ -79,11 +91,24 @@ After each test, verify no console errors:
 
 ---
 
+### 7. Tenant Context Gate
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 7.1 | Select a tenant from Super Admin | Should show loading spinner briefly |
+| 7.2 | Observe main content area | Spinner shows "Loading tenant context..." |
+| 7.3 | After load completes | Tenant dashboard renders |
+| 7.4 | (Simulate error by blocking API) | Should show error state with "Retry" and "Exit Tenant Mode" |
+
+---
+
 ## Known Edge Cases
 
 1. **Multiple tabs**: Impersonation state is shared via localStorage
 2. **Stale cache**: Switching tenants too quickly may show stale data briefly
 3. **Network errors**: Tenant validation may fail, causing force exit
+4. **Last attempted URL**: Stored in sessionStorage (per-tab), resets on browser close
+5. **URL restoration timing**: Happens after tenant context loads, may have brief flash
 
 ---
 

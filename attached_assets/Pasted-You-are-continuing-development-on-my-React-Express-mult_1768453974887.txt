@@ -1,0 +1,132 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+ADD-ON REFINEMENT: “Tenant Context Loaded” gate + “Continue to last attempted tenant URL” after context loads.
+
+This extends the navigation hardening work. No backend changes, no schema changes, no endpoint changes.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- No endpoint changes.
+- No response shape changes.
+- No DB schema changes.
+- No auth/tenancy/agreement behavior changes.
+- Keep changes limited to routing/layout wrappers + shared state hooks.
+
+===============================================================================
+GOAL
+===============================================================================
+1) Tenant pages won’t render until effectiveTenantId + tenant context is confirmed loaded.
+2) If a user tries to access a tenant route while NOT in tenant mode (super mode), we:
+   - redirect them to /super/tenants (or equivalent)
+   - remember the intended tenant URL client-side
+   - after they select/enter a tenant and tenant context loads, automatically navigate them back to that URL
+
+This prevents confusion and makes deep links work cleanly for super admins.
+
+===============================================================================
+PART A — TENANT CONTEXT GATE (BASE)
+===============================================================================
+Implement TenantContextGate as described previously:
+- Blocks tenant route rendering until:
+  - effectiveTenantId exists
+  - tenantContextLoaded == true
+  - tenantContext.tenantId matches effectiveTenantId
+- Shows minimal spinner while loading
+- Shows clean error + Retry + Exit Tenant Mode if error
+
+===============================================================================
+PART B — “LAST ATTEMPTED TENANT URL” (CLIENT-SIDE ONLY)
+===============================================================================
+B1) Storage
+Use sessionStorage (preferred) so it resets naturally per session:
+- key: "last_attempted_tenant_url_v1"
+Store a single string URL path + query, e.g. "/projects/123?tab=tasks"
+Do NOT store secrets or tokens.
+
+B2) When to set last attempted URL
+If appMode="super" (super_user not impersonating) tries to access a tenant route:
+- Before redirecting to /super/tenants, store current location as lastAttemptedTenantUrl.
+
+Define “tenant routes” as:
+- any route rendered by TenantLayout / TenantRouter
+(or a path prefix list you already use, e.g. /clients, /projects, /my-tasks, /time-tracking, etc.)
+
+B3) When to clear last attempted URL
+- After successfully navigating to it once (post tenant context load), clear it.
+- If user explicitly exits impersonation, clear it.
+- If it points to a route that fails authorization (403/451), clear it and show message.
+
+B4) When to restore/navigate
+After tenant context loads successfully (gate transitions to loaded):
+- If lastAttemptedTenantUrl exists:
+  - Validate it is a safe internal path (starts with "/"; no absolute URLs)
+  - Navigate to it (replace history optional)
+  - Clear the stored value
+- If none exists, proceed normally (default tenant landing page).
+
+B5) Safety constraints
+- Do NOT attempt to restore if:
+  - tenant context load failed
+  - user is not allowed to access tenant tools
+  - lastAttemptedTenantUrl is a super route (/super/*)
+- Prevent redirect loops:
+  - If lastAttemptedTenantUrl equals current location, clear it.
+
+===============================================================================
+PART C — WHERE TO WIRE THIS
+===============================================================================
+1) Route guard layer (preferred)
+- In your route guard for super mode blocking tenant pages:
+  - set sessionStorage lastAttemptedTenantUrl
+  - redirect to /super/tenants with toast
+
+2) TenantContextGate (restore on load)
+- When tenant context becomes loaded and matches effectiveTenantId:
+  - check for lastAttemptedTenantUrl and navigate
+
+Optional:
+- If tenant selection flow exists (tenant switcher):
+  - after selecting tenant, do not immediately navigate; let TenantContextGate handle restore.
+
+===============================================================================
+TESTS (LIGHTWEIGHT BUT REQUIRED)
+===============================================================================
+1) stores_last_attempted_url_when_blocked.test.tsx
+- in super mode, visiting tenant route stores url and redirects
+
+2) restores_url_after_tenant_context_load.test.tsx
+- after tenant context loaded, navigates to stored path and clears it
+
+3) does_not_restore_external_or_super_paths.test.tsx
+- blocks "http://..." or "/super/..." and clears key
+
+4) clears_on_exit_impersonation.test.tsx
+- exit clears stored url
+
+If UI test infra is limited, update /docs/REGRESSION_CHECKLIST.md with explicit manual steps.
+
+===============================================================================
+DOCUMENTATION STANDARD (REQUIRED)
+===============================================================================
+- Update /docs/ARCHITECTURE_OVERVIEW.md:
+  - TenantContextGate behavior
+  - lastAttemptedTenantUrl rules
+- Add header comments in:
+  - TenantContextGate
+  - route guard storing logic
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+1) Tenant pages never render without confirmed tenant context.
+2) Super mode attempts to open tenant links redirect to tenant selector AND remember the destination.
+3) After tenant selection and context load, app auto-navigates to the remembered tenant URL once, then clears it.
+4) No backend changes. No schema changes.
+5) Tests pass or manual checklist updated.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Where lastAttemptedTenantUrl is stored and cleared
+- Which routes count as “tenant routes”
+- Manual test steps for deep links and fast switching

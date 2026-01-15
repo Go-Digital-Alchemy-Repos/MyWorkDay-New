@@ -301,6 +301,37 @@ If user.role != "super_user":
 | `ProtectedRoute` | Requires authentication |
 | `SuperRouteGuard` | Requires super_user role |
 | `TenantRouteGuard` | Requires tenant context (blocks super users not impersonating) |
+| `TenantContextGate` | Blocks rendering until tenant context is loaded and validated |
+
+### TenantContextGate
+
+The `TenantContextGate` component wraps all tenant routes and:
+
+1. **Blocks rendering** until tenant context is confirmed loaded
+2. **Shows loading spinner** while fetching tenant settings
+3. **Shows error state** with Retry + Exit Tenant Mode buttons on failure
+4. **Validates context match** - ensures loaded tenant matches `effectiveTenantId`
+5. **Restores last attempted URL** after successful context load
+
+### Last Attempted Tenant URL
+
+When a super admin tries to access a tenant route while in super mode:
+
+1. **URL is stored** in `sessionStorage` key `last_attempted_tenant_url_v1`
+2. **User is redirected** to `/super-admin` (tenant selector) with toast notification
+3. **After selecting a tenant** and context loads, app auto-navigates to stored URL
+4. **URL is cleared** after:
+   - Successful navigation to the stored URL
+   - Exit impersonation
+   - Authorization failure (403/451) on the tenant context request
+
+**Safety Rules:**
+- Only internal paths stored (must start with "/")
+- Super routes (`/super-admin/*`) are never stored
+- External URLs are rejected
+- Redirect loops are prevented
+
+**Note:** `/super-admin` is the tenant selector equivalent in this application
 
 ### Cache Isolation Strategy
 
@@ -351,8 +382,10 @@ validateTenantExists(id)   // Validates tenant before impersonation restoration
 |------|---------|
 | `client/src/hooks/useAppMode.ts` | Central mode management hook |
 | `client/src/lib/queryClient.ts` | Cache utilities and query configuration |
+| `client/src/lib/tenant-url-storage.ts` | Last attempted tenant URL utilities |
 | `client/src/App.tsx` | Route guards and layout switching |
 | `client/src/components/impersonation-banner.tsx` | Tenant impersonation UI |
+| `client/src/components/tenant-context-gate.tsx` | Tenant context loading gate |
 | `client/src/components/tenant-switcher.tsx` | Tenant selection dropdown |
 
 ---

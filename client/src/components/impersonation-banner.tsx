@@ -5,6 +5,7 @@ import { useLocation } from "wouter";
 import { AlertTriangle, X, Building2, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { clearLastAttemptedTenantUrl } from "@/lib/tenant-url-storage";
 
 export function ImpersonationBanner() {
   const { isImpersonating, effectiveTenantName, stopImpersonation } = useAppMode();
@@ -18,6 +19,8 @@ export function ImpersonationBanner() {
     setIsExiting(true);
     try {
       await apiRequest("POST", "/api/v1/super/impersonate/stop", {});
+      // Clear stored tenant URL on exit impersonation
+      clearLastAttemptedTenantUrl();
       stopImpersonation();
       setLocation("/super-admin");
       toast({
@@ -25,6 +28,7 @@ export function ImpersonationBanner() {
         description: "You are back in Super Admin mode",
       });
     } catch (error) {
+      clearLastAttemptedTenantUrl();
       stopImpersonation();
       setLocation("/super-admin");
     } finally {

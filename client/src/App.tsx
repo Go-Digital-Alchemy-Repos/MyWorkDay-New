@@ -10,11 +10,13 @@ import { SuperSidebar } from "@/components/super-sidebar";
 import { TenantSidebar } from "@/components/tenant-sidebar";
 import { TenantSwitcher } from "@/components/tenant-switcher";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
+import { TenantContextGate } from "@/components/tenant-context-gate";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { UserMenu } from "@/components/user-menu";
 import { TenantThemeProvider } from "@/lib/tenant-theme-loader";
 import { useAppMode } from "@/hooks/useAppMode";
 import { useToast } from "@/hooks/use-toast";
+import { setLastAttemptedTenantUrl, isTenantRoute } from "@/lib/tenant-url-storage";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import MyTasks from "@/pages/my-tasks";
@@ -78,21 +80,36 @@ function SuperRouteGuard({ component: Component }: { component: React.ComponentT
   return <Component />;
 }
 
+/**
+ * TenantRouteGuard
+ * 
+ * Guards tenant routes and handles:
+ * 1. Authentication check
+ * 2. Super user in super mode - stores last attempted URL, shows toast, redirects to tenant selector
+ * 3. Otherwise renders the component
+ * 
+ * Note: Does NOT wrap with TenantContextGate - that's done at layout level
+ * Note: Redirects to /super-admin which is the tenant selector equivalent in this app
+ */
 function TenantRouteGuard({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated, isLoading, user } = useAuth();
   const { appMode } = useAppMode();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === "super_user" && appMode === "super") {
+      // Store the attempted tenant URL before redirecting
+      if (isTenantRoute(location)) {
+        setLastAttemptedTenantUrl(location);
+      }
       toast({
         title: "Tenant access required",
         description: "Switch to a tenant to access this page.",
       });
       setLocation("/super-admin");
     }
-  }, [isLoading, isAuthenticated, user?.role, appMode, toast, setLocation]);
+  }, [isLoading, isAuthenticated, user?.role, appMode, toast, setLocation, location]);
 
   if (isLoading) {
     return (
@@ -107,6 +124,10 @@ function TenantRouteGuard({ component: Component }: { component: React.Component
   }
 
   if (user?.role === "super_user" && appMode === "super") {
+    // Store URL before redirecting (fallback if effect didn't run)
+    if (isTenantRoute(location)) {
+      setLastAttemptedTenantUrl(location);
+    }
     return <Redirect to="/super-admin" />;
   }
 
@@ -235,7 +256,9 @@ function TenantLayout() {
               </div>
             </header>
             <main className="flex-1 overflow-hidden">
-              <TenantRouter />
+              <TenantContextGate>
+                <TenantRouter />
+              </TenantContextGate>
             </main>
           </div>
         </div>
