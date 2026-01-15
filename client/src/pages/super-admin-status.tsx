@@ -1896,71 +1896,86 @@ export default function SuperAdminStatusPage() {
                     </div>
                   ) : statusSummary ? (
                     <div className="space-y-6">
-                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                        <div className="p-4 border rounded-lg">
+                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3" data-testid="status-summary-grid">
+                        <div className="p-4 border rounded-lg" data-testid="status-card-db">
                           <div className="flex items-center gap-2 mb-2">
                             <Database className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">Database</span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <Badge variant={statusSummary.checks.db.status === "ok" ? "default" : "destructive"}>
+                            <Badge 
+                              variant={statusSummary.checks.db.status === "ok" ? "default" : "destructive"}
+                              data-testid="badge-db-status"
+                            >
                               {statusSummary.checks.db.status}
                             </Badge>
-                            <span className="text-sm text-muted-foreground">
+                            <span className="text-sm text-muted-foreground" data-testid="text-db-latency">
                               {statusSummary.checks.db.latencyMs}ms
                             </span>
                           </div>
                           {statusSummary.checks.db.error && (
-                            <p className="text-xs text-destructive mt-2">{statusSummary.checks.db.error}</p>
+                            <p className="text-xs text-destructive mt-2" data-testid="text-db-error">{statusSummary.checks.db.error}</p>
                           )}
                         </div>
 
-                        <div className="p-4 border rounded-lg">
+                        <div className="p-4 border rounded-lg" data-testid="status-card-migrations">
                           <div className="flex items-center gap-2 mb-2">
                             <Server className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">Migrations</span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <Badge variant={statusSummary.checks.migrations.available ? "default" : "secondary"}>
+                            <Badge 
+                              variant={statusSummary.checks.migrations.available ? "default" : "secondary"}
+                              data-testid="badge-migrations-status"
+                            >
                               {statusSummary.checks.migrations.available ? "Available" : "Unknown"}
                             </Badge>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-muted-foreground" data-testid="text-migrations-version">
                               {statusSummary.checks.migrations.version || "N/A"}
                             </span>
                           </div>
                         </div>
 
-                        <div className="p-4 border rounded-lg">
+                        <div className="p-4 border rounded-lg" data-testid="status-card-s3">
                           <div className="flex items-center gap-2 mb-2">
                             <HardDrive className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">S3 Storage</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant={statusSummary.checks.s3.configured ? "default" : "secondary"}>
+                            <Badge 
+                              variant={statusSummary.checks.s3.configured ? "default" : "secondary"}
+                              data-testid="badge-s3-configured"
+                            >
                               {statusSummary.checks.s3.configured ? "Configured" : "Not Configured"}
                             </Badge>
                             {statusSummary.checks.s3.configured && (
-                              <Badge variant={statusSummary.checks.s3.presign === "ok" ? "default" : "destructive"}>
+                              <Badge 
+                                variant={statusSummary.checks.s3.presign === "ok" ? "default" : "destructive"}
+                                data-testid="badge-s3-presign"
+                              >
                                 Presign: {statusSummary.checks.s3.presign}
                               </Badge>
                             )}
                           </div>
                           {statusSummary.checks.s3.error && (
-                            <p className="text-xs text-destructive mt-2">{statusSummary.checks.s3.error}</p>
+                            <p className="text-xs text-destructive mt-2" data-testid="text-s3-error">{statusSummary.checks.s3.error}</p>
                           )}
                         </div>
 
-                        <div className="p-4 border rounded-lg">
+                        <div className="p-4 border rounded-lg" data-testid="status-card-mailgun">
                           <div className="flex items-center gap-2 mb-2">
                             <Mail className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">Mailgun</span>
                           </div>
-                          <Badge variant={statusSummary.checks.mailgun.configured ? "default" : "secondary"}>
+                          <Badge 
+                            variant={statusSummary.checks.mailgun.configured ? "default" : "secondary"}
+                            data-testid="badge-mailgun-configured"
+                          >
                             {statusSummary.checks.mailgun.configured ? "Configured" : "Not Configured"}
                           </Badge>
                         </div>
 
-                        <div className="p-4 border rounded-lg">
+                        <div className="p-4 border rounded-lg" data-testid="status-card-auth">
                           <div className="flex items-center gap-2 mb-2">
                             <Lock className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">Auth Config</span>
@@ -1968,24 +1983,32 @@ export default function SuperAdminStatusPage() {
                           <div className="space-y-1 text-xs">
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">Environment</span>
-                              <span className="font-medium">{statusSummary.checks.auth.environment}</span>
+                              <span className="font-medium" data-testid="text-auth-environment">{statusSummary.checks.auth.environment}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">Cookie Secure</span>
-                              <Badge variant={statusSummary.checks.auth.cookieSecure ? "default" : "secondary"} className="text-xs">
+                              <Badge 
+                                variant={statusSummary.checks.auth.cookieSecure ? "default" : "secondary"} 
+                                className="text-xs"
+                                data-testid="badge-auth-cookie-secure"
+                              >
                                 {statusSummary.checks.auth.cookieSecure ? "Yes" : "No"}
                               </Badge>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">Session Secret</span>
-                              <Badge variant={statusSummary.checks.auth.sessionSecretSet ? "default" : "destructive"} className="text-xs">
+                              <Badge 
+                                variant={statusSummary.checks.auth.sessionSecretSet ? "default" : "destructive"} 
+                                className="text-xs"
+                                data-testid="badge-auth-session-secret"
+                              >
                                 {statusSummary.checks.auth.sessionSecretSet ? "Set" : "Not Set"}
                               </Badge>
                             </div>
                           </div>
                         </div>
 
-                        <div className="p-4 border rounded-lg">
+                        <div className="p-4 border rounded-lg" data-testid="status-card-orphans">
                           <div className="flex items-center gap-2 mb-2">
                             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">Orphan Records</span>
@@ -1993,12 +2016,15 @@ export default function SuperAdminStatusPage() {
                           <div className="space-y-1">
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">Missing TenantID</span>
-                              <Badge variant={statusSummary.checks.orphanCounts.totalMissing > 0 ? "destructive" : "default"}>
+                              <Badge 
+                                variant={statusSummary.checks.orphanCounts.totalMissing > 0 ? "destructive" : "default"}
+                                data-testid="badge-orphan-count"
+                              >
                                 {statusSummary.checks.orphanCounts.totalMissing}
                               </Badge>
                             </div>
                             {statusSummary.checks.orphanCounts.totalMissing > 0 && (
-                              <details className="text-xs">
+                              <details className="text-xs" data-testid="details-orphan-breakdown">
                                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                                   View by table
                                 </summary>
@@ -2006,7 +2032,7 @@ export default function SuperAdminStatusPage() {
                                   {Object.entries(statusSummary.checks.orphanCounts.byTable)
                                     .filter(([, count]) => count > 0)
                                     .map(([table, count]) => (
-                                      <div key={table} className="flex justify-between">
+                                      <div key={table} className="flex justify-between" data-testid={`text-orphan-table-${table}`}>
                                         <span>{table}</span>
                                         <span className="font-medium">{count}</span>
                                       </div>
@@ -2017,14 +2043,14 @@ export default function SuperAdminStatusPage() {
                             )}
                           </div>
                           {statusSummary.checks.orphanCounts.error && (
-                            <p className="text-xs text-destructive mt-2">{statusSummary.checks.orphanCounts.error}</p>
+                            <p className="text-xs text-destructive mt-2" data-testid="text-orphan-error">{statusSummary.checks.orphanCounts.error}</p>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-4">
-                        <span>Last checked: {new Date(statusSummary.timestamp).toLocaleString()}</span>
-                        <span>Request ID: {statusSummary.requestId}</span>
+                      <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-4" data-testid="status-summary-footer">
+                        <span data-testid="text-status-timestamp">Last checked: {new Date(statusSummary.timestamp).toLocaleString()}</span>
+                        <span data-testid="text-status-request-id">Request ID: {statusSummary.requestId}</span>
                       </div>
                     </div>
                   ) : (
