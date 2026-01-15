@@ -284,6 +284,12 @@ export interface IStorage {
     workspaceId: string;
   }): Promise<{ invitation: Invitation; token: string }>;
 
+  // User invite management for Super Admin
+  getLatestInvitationByUserEmail(email: string, tenantId: string): Promise<Invitation | undefined>;
+  regenerateInvitation(invitationId: string, createdByUserId: string): Promise<{ invitation: Invitation; token: string }>;
+  setUserMustChangePassword(userId: string, tenantId: string, mustChange: boolean): Promise<User | undefined>;
+  setUserPasswordWithMustChange(userId: string, tenantId: string, passwordHash: string, mustChange: boolean): Promise<User | undefined>;
+
   // Personal Task Sections (My Tasks organization)
   getPersonalTaskSection(id: string): Promise<PersonalTaskSection | undefined>;
   getPersonalTaskSections(userId: string): Promise<PersonalTaskSection[]>;
@@ -1821,6 +1827,74 @@ export class DatabaseStorage implements IStorage {
     }).returning();
 
     return { invitation, token };
+  }
+
+  async getLatestInvitationByUserEmail(email: string, tenantId: string): Promise<Invitation | undefined> {
+    const [invitation] = await db.select()
+      .from(invitations)
+      .where(and(
+        eq(invitations.email, email),
+        eq(invitations.tenantId, tenantId)
+      ))
+      .orderBy(desc(invitations.createdAt))
+      .limit(1);
+    return invitation || undefined;
+  }
+
+  async regenerateInvitation(invitationId: string, createdByUserId: string): Promise<{ invitation: Invitation; token: string }> {
+    const existingInvitation = await db.select().from(invitations).where(eq(invitations.id, invitationId)).limit(1);
+    if (!existingInvitation.length) {
+      throw new Error("Invitation not found");
+    }
+
+    const oldInvite = existingInvitation[0];
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const [newInvitation] = await db.update(invitations)
+      .set({
+        tokenHash,
+        status: "pending",
+        expiresAt,
+        usedAt: null,
+      })
+      .where(eq(invitations.id, invitationId))
+      .returning();
+
+    return { invitation: newInvitation, token };
+  }
+
+  async setUserMustChangePassword(userId: string, tenantId: string, mustChange: boolean): Promise<User | undefined> {
+    const [updated] = await db.update(users)
+      .set({ 
+        mustChangePasswordOnNextLogin: mustChange,
+        updatedAt: new Date() 
+      })
+      .where(and(
+        eq(users.id, userId),
+        eq(users.tenantId, tenantId)
+      ))
+      .returning();
+    return updated || undefined;
+  }
+
+  async setUserPasswordWithMustChange(userId: string, tenantId: string, passwordHash: string, mustChange: boolean): Promise<User | undefined> {
+    const [updated] = await db.update(users)
+      .set({ 
+        passwordHash,
+        mustChangePasswordOnNextLogin: mustChange,
+        updatedAt: new Date() 
+      })
+      .where(and(
+        eq(users.id, userId),
+        eq(users.tenantId, tenantId)
+      ))
+      .returning();
+    return updated || undefined;
   }
 
   // =============================================================================
