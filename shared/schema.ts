@@ -812,6 +812,24 @@ export const platformInvitations = pgTable("platform_invitations", {
 ]);
 
 /**
+ * Password Reset Tokens table - for password reset flow
+ * Tokens are hashed before storage for security
+ * createdByUserId is nullable - null means user-initiated, set means admin-initiated
+ */
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id), // null = user-initiated, set = admin-initiated
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("password_reset_tokens_user_idx").on(table.userId),
+  index("password_reset_tokens_expires_idx").on(table.expiresAt),
+]);
+
+/**
  * Platform Audit Events table - for auditing platform admin actions
  * Separate from tenant audit events as these are platform-level
  */

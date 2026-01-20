@@ -21,7 +21,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { db } from "./db";
-import { users, UserRole, platformInvitations, platformAuditEvents } from "@shared/schema";
+import { users, UserRole, platformInvitations, platformAuditEvents, invitations, tenants, workspaces, passwordResetTokens } from "@shared/schema";
 import { eq, sql, and, desc } from "drizzle-orm";
 import { createHash } from "crypto";
 import type { User } from "@shared/schema";
@@ -699,6 +699,596 @@ export function setupPlatformInviteEndpoints(app: Express): void {
         error: { code: "INTERNAL_ERROR", message: "Failed to accept invite" },
         code: "INTERNAL_ERROR",
         message: "Failed to accept invite"
+      });
+    }
+  });
+}
+
+/**
+ * Tenant invite endpoints for onboarding new tenant users.
+ * Allows invited users to verify their invite token and set their password.
+ * These are PUBLIC endpoints - no authentication required.
+ */
+export function setupTenantInviteEndpoints(app: Express): void {
+  /**
+   * GET /api/v1/public/invites/validate
+   * Validates a tenant invite token and returns safe preview info.
+   * Does not require authentication.
+   */
+  app.get("/api/v1/public/invites/validate", async (req, res) => {
+    try {
+      const { token } = req.query;
+      
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Token is required" },
+          code: "VALIDATION_ERROR",
+          message: "Token is required"
+        });
+      }
+      
+      // Hash the token to compare with stored hash
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      
+      // Find the invite with tenant and workspace info
+      const [invite] = await db.select({
+        id: invitations.id,
+        email: invitations.email,
+        role: invitations.role,
+        status: invitations.status,
+        expiresAt: invitations.expiresAt,
+        usedAt: invitations.usedAt,
+        tenantId: invitations.tenantId,
+        workspaceId: invitations.workspaceId,
+      })
+        .from(invitations)
+        .where(eq(invitations.tokenHash, tokenHash))
+        .limit(1);
+      
+      if (!invite) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "INVALID_TOKEN", message: "Invalid or expired invite link" },
+          code: "INVALID_TOKEN",
+          message: "Invalid or expired invite link"
+        });
+      }
+      
+      // Check if already used
+      if (invite.status === "accepted" || invite.usedAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_ALREADY_USED", message: "This invite has already been used" },
+          code: "TOKEN_ALREADY_USED",
+          message: "This invite has already been used"
+        });
+      }
+      
+      // Check if revoked
+      if (invite.status === "revoked") {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_REVOKED", message: "This invite has been revoked" },
+          code: "TOKEN_REVOKED",
+          message: "This invite has been revoked"
+        });
+      }
+      
+      // Check if expired
+      if (new Date() > invite.expiresAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_EXPIRED", message: "This invite has expired" },
+          code: "TOKEN_EXPIRED",
+          message: "This invite has expired"
+        });
+      }
+      
+      // Get tenant name
+      let tenantName = "Unknown Organization";
+      if (invite.tenantId) {
+        const [tenant] = await db.select({ name: tenants.name })
+          .from(tenants)
+          .where(eq(tenants.id, invite.tenantId))
+          .limit(1);
+        if (tenant) {
+          tenantName = tenant.name;
+        }
+      }
+      
+      // Get workspace name
+      let workspaceName = "Unknown Workspace";
+      const [workspace] = await db.select({ name: workspaces.name })
+        .from(workspaces)
+        .where(eq(workspaces.id, invite.workspaceId))
+        .limit(1);
+      if (workspace) {
+        workspaceName = workspace.name;
+      }
+      
+      // Mask email for privacy (show first 2 chars + domain)
+      const [localPart, domain] = invite.email.split("@");
+      const maskedEmail = localPart.length > 2 
+        ? `${localPart.substring(0, 2)}***@${domain}`
+        : `***@${domain}`;
+      
+      res.json({
+        ok: true,
+        emailMasked: maskedEmail,
+        email: invite.email, // Full email for form pre-fill
+        tenantName,
+        workspaceName,
+        role: invite.role,
+        expiresAt: invite.expiresAt.toISOString(),
+      });
+    } catch (error) {
+      console.error("[auth] tenant-invite/validate error:", error);
+      res.status(500).json({
+        ok: false,
+        error: { code: "INTERNAL_ERROR", message: "Failed to validate invite" },
+        code: "INTERNAL_ERROR",
+        message: "Failed to validate invite"
+      });
+    }
+  });
+
+  /**
+   * POST /api/v1/public/invites/accept
+   * Accepts a tenant invite, creates/activates user, sets password, and logs them in.
+   * Does not require authentication.
+   */
+  app.post("/api/v1/public/invites/accept", inviteAcceptRateLimiter, async (req, res) => {
+    try {
+      const { token, password, firstName, lastName } = req.body;
+      
+      if (!token || !password) {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Token and password are required" },
+          code: "VALIDATION_ERROR",
+          message: "Token and password are required"
+        });
+      }
+      
+      if (password.length < 8) {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Password must be at least 8 characters" },
+          code: "VALIDATION_ERROR",
+          message: "Password must be at least 8 characters"
+        });
+      }
+      
+      // Hash the token to compare with stored hash
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      
+      // Find the invite
+      const [invite] = await db.select()
+        .from(invitations)
+        .where(eq(invitations.tokenHash, tokenHash))
+        .limit(1);
+      
+      if (!invite) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "INVALID_TOKEN", message: "Invalid invite link" },
+          code: "INVALID_TOKEN",
+          message: "Invalid invite link"
+        });
+      }
+      
+      // Validate invite status
+      if (invite.status === "accepted" || invite.usedAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_ALREADY_USED", message: "This invite has already been used" },
+          code: "TOKEN_ALREADY_USED",
+          message: "This invite has already been used"
+        });
+      }
+      
+      if (invite.status === "revoked") {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_REVOKED", message: "This invite has been revoked" },
+          code: "TOKEN_REVOKED",
+          message: "This invite has been revoked"
+        });
+      }
+      
+      if (new Date() > invite.expiresAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_EXPIRED", message: "This invite has expired" },
+          code: "TOKEN_EXPIRED",
+          message: "This invite has expired"
+        });
+      }
+      
+      // Hash the password
+      const passwordHash = await hashPassword(password);
+      
+      // Check if user with this email already exists
+      let user = await storage.getUserByEmail(invite.email);
+      
+      if (user) {
+        // Update existing user with password and activate
+        const [updatedUser] = await db.update(users)
+          .set({
+            passwordHash,
+            firstName: firstName || user.firstName,
+            lastName: lastName || user.lastName,
+            isActive: true,
+            mustChangePasswordOnNextLogin: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id))
+          .returning();
+        user = updatedUser;
+      } else {
+        // Create new user
+        const [newUser] = await db.insert(users)
+          .values({
+            email: invite.email,
+            passwordHash,
+            firstName: firstName || null,
+            lastName: lastName || null,
+            role: invite.role === "admin" ? UserRole.ADMIN : UserRole.EMPLOYEE,
+            tenantId: invite.tenantId,
+            isActive: true,
+            mustChangePasswordOnNextLogin: false,
+          })
+          .returning();
+        user = newUser;
+        
+        // Add user to workspace
+        await storage.addUserToWorkspace(user.id, invite.workspaceId);
+      }
+      
+      // Mark invite as accepted
+      await db.update(invitations)
+        .set({
+          status: "accepted",
+          usedAt: new Date(),
+        })
+        .where(eq(invitations.id, invite.id));
+      
+      // Log the user in (establish session)
+      const { passwordHash: _, ...userWithoutPassword } = user;
+      
+      req.login(userWithoutPassword, (loginErr) => {
+        if (loginErr) {
+          console.error("[auth] tenant-invite login error:", loginErr);
+          return res.json({
+            ok: true,
+            success: true,
+            user: userWithoutPassword,
+            message: "Account activated. Please log in manually.",
+            autoLoginFailed: true,
+          });
+        }
+        
+        // Set workspace in session
+        req.session.workspaceId = invite.workspaceId;
+        
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[auth] session save error:", saveErr);
+          }
+          
+          console.log(JSON.stringify({
+            level: "info",
+            component: "auth",
+            event: "tenant_invite_accepted",
+            userId: userWithoutPassword.id,
+            email: userWithoutPassword.email,
+            tenantId: invite.tenantId,
+            workspaceId: invite.workspaceId,
+            timestamp: new Date().toISOString(),
+          }));
+          
+          res.json({
+            ok: true,
+            success: true,
+            user: userWithoutPassword,
+            message: "Account activated successfully.",
+            autoLoginFailed: false,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("[auth] tenant-invite/accept error:", error);
+      res.status(500).json({
+        ok: false,
+        error: { code: "INTERNAL_ERROR", message: "Failed to accept invite" },
+        code: "INTERNAL_ERROR",
+        message: "Failed to accept invite"
+      });
+    }
+  });
+}
+
+/**
+ * Password Reset Endpoints
+ * 
+ * Implements forgot password flow with optional email delivery.
+ * - POST /api/v1/auth/forgot-password - Request a password reset
+ * - POST /api/v1/auth/reset-password - Reset password with token
+ * - GET /api/v1/auth/reset-password/validate - Validate a reset token
+ * 
+ * Security:
+ * - Tokens are hashed before storage (SHA-256)
+ * - Rate limited to prevent abuse
+ * - Generic response to prevent email enumeration
+ * - Short token expiry (30 minutes)
+ */
+export function setupPasswordResetEndpoints(app: Express): void {
+  /**
+   * POST /api/v1/auth/forgot-password
+   * Request a password reset link. Always returns success to prevent email enumeration.
+   */
+  app.post("/api/v1/auth/forgot-password", loginRateLimiter, async (req, res) => {
+    try {
+      const { email } = req.body;
+      
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Email is required" },
+          message: "Email is required"
+        });
+      }
+      
+      // Always respond with success to prevent email enumeration
+      const genericResponse = {
+        ok: true,
+        message: "If an account exists with that email, you will receive password reset instructions."
+      };
+      
+      // Find user by email
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
+      
+      if (!user) {
+        // User doesn't exist, but we don't reveal this
+        console.log(`[auth] forgot-password: no user found for ${email}`);
+        return res.json(genericResponse);
+      }
+      
+      if (!user.isActive) {
+        // User is deactivated, don't reveal this
+        console.log(`[auth] forgot-password: user ${email} is deactivated`);
+        return res.json(genericResponse);
+      }
+      
+      // Generate reset token
+      const token = randomBytes(32).toString("hex");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+      
+      // Store token hash
+      await db.insert(passwordResetTokens).values({
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+        createdByUserId: null, // User-initiated
+      });
+      
+      // Generate reset URL
+      const appPublicUrl = process.env.APP_PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
+      const resetUrl = `${appPublicUrl}/auth/reset-password?token=${token}`;
+      
+      // Log for audit
+      console.log(JSON.stringify({
+        level: "info",
+        component: "auth",
+        event: "password_reset_requested",
+        userId: user.id,
+        email: user.email,
+        timestamp: new Date().toISOString(),
+      }));
+      
+      // TODO: Send email via Mailgun if configured
+      // For now, we just log the reset URL (in development only)
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[auth] Password reset URL for ${email}: ${resetUrl}`);
+      }
+      
+      res.json(genericResponse);
+    } catch (error) {
+      console.error("[auth] forgot-password error:", error);
+      res.status(500).json({
+        ok: false,
+        error: { code: "INTERNAL_ERROR", message: "Failed to process request" },
+        message: "Failed to process request"
+      });
+    }
+  });
+
+  /**
+   * GET /api/v1/auth/reset-password/validate
+   * Validate a password reset token before showing the form.
+   */
+  app.get("/api/v1/auth/reset-password/validate", async (req, res) => {
+    try {
+      const { token } = req.query;
+      
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Token is required" },
+          message: "Token is required"
+        });
+      }
+      
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      
+      const [resetToken] = await db.select()
+        .from(passwordResetTokens)
+        .where(eq(passwordResetTokens.tokenHash, tokenHash))
+        .limit(1);
+      
+      if (!resetToken) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "INVALID_TOKEN", message: "Invalid or expired reset link" },
+          message: "Invalid or expired reset link"
+        });
+      }
+      
+      if (resetToken.usedAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_ALREADY_USED", message: "This reset link has already been used" },
+          message: "This reset link has already been used"
+        });
+      }
+      
+      if (new Date() > resetToken.expiresAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_EXPIRED", message: "This reset link has expired" },
+          message: "This reset link has expired"
+        });
+      }
+      
+      // Get user email (masked)
+      const [user] = await db.select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, resetToken.userId))
+        .limit(1);
+      
+      if (!user) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "USER_NOT_FOUND", message: "User not found" },
+          message: "User not found"
+        });
+      }
+      
+      // Mask email
+      const [localPart, domain] = user.email.split("@");
+      const maskedEmail = localPart.length > 2 
+        ? `${localPart.substring(0, 2)}***@${domain}`
+        : `***@${domain}`;
+      
+      res.json({
+        ok: true,
+        emailMasked: maskedEmail,
+        expiresAt: resetToken.expiresAt.toISOString(),
+      });
+    } catch (error) {
+      console.error("[auth] reset-password/validate error:", error);
+      res.status(500).json({
+        ok: false,
+        error: { code: "INTERNAL_ERROR", message: "Failed to validate token" },
+        message: "Failed to validate token"
+      });
+    }
+  });
+
+  /**
+   * POST /api/v1/auth/reset-password
+   * Reset password using a valid token.
+   */
+  app.post("/api/v1/auth/reset-password", inviteAcceptRateLimiter, async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      
+      if (!token || !newPassword) {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Token and new password are required" },
+          message: "Token and new password are required"
+        });
+      }
+      
+      if (newPassword.length < 8) {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "Password must be at least 8 characters" },
+          message: "Password must be at least 8 characters"
+        });
+      }
+      
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      
+      const [resetToken] = await db.select()
+        .from(passwordResetTokens)
+        .where(eq(passwordResetTokens.tokenHash, tokenHash))
+        .limit(1);
+      
+      if (!resetToken) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "INVALID_TOKEN", message: "Invalid reset link" },
+          message: "Invalid reset link"
+        });
+      }
+      
+      if (resetToken.usedAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_ALREADY_USED", message: "This reset link has already been used" },
+          message: "This reset link has already been used"
+        });
+      }
+      
+      if (new Date() > resetToken.expiresAt) {
+        return res.status(410).json({
+          ok: false,
+          error: { code: "TOKEN_EXPIRED", message: "This reset link has expired" },
+          message: "This reset link has expired"
+        });
+      }
+      
+      // Hash the new password
+      const passwordHash = await hashPassword(newPassword);
+      
+      // Update user password and clear mustChangePasswordOnNextLogin
+      const [updatedUser] = await db.update(users)
+        .set({
+          passwordHash,
+          mustChangePasswordOnNextLogin: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, resetToken.userId))
+        .returning();
+      
+      if (!updatedUser) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "USER_NOT_FOUND", message: "User not found" },
+          message: "User not found"
+        });
+      }
+      
+      // Mark token as used
+      await db.update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetTokens.id, resetToken.id));
+      
+      // Log for audit
+      console.log(JSON.stringify({
+        level: "info",
+        component: "auth",
+        event: "password_reset_completed",
+        userId: updatedUser.id,
+        email: updatedUser.email,
+        initiatedBy: resetToken.createdByUserId ? "admin" : "user",
+        timestamp: new Date().toISOString(),
+      }));
+      
+      res.json({
+        ok: true,
+        message: "Password reset successfully. You can now log in with your new password."
+      });
+    } catch (error) {
+      console.error("[auth] reset-password error:", error);
+      res.status(500).json({
+        ok: false,
+        error: { code: "INTERNAL_ERROR", message: "Failed to reset password" },
+        message: "Failed to reset password"
       });
     }
   });

@@ -37,6 +37,9 @@ import AccountPage from "@/pages/account";
 import UserProfilePage from "@/pages/user-profile";
 import AcceptTermsPage from "@/pages/accept-terms";
 import PlatformInvitePage from "@/pages/platform-invite";
+import AcceptInvitePage from "@/pages/accept-invite";
+import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 
@@ -289,7 +292,7 @@ function AppLayout() {
   const { appMode } = useAppMode();
   const [location] = useLocation();
 
-  if (location === "/login" || location === "/tenant-onboarding" || location === "/accept-terms" || location.startsWith("/auth/platform-invite")) {
+  if (location === "/login" || location === "/tenant-onboarding" || location === "/accept-terms" || location.startsWith("/auth/platform-invite") || location.startsWith("/accept-invite/") || location.startsWith("/auth/forgot-password") || location.startsWith("/auth/reset-password")) {
     return (
       <Switch>
         <Route path="/login" component={LoginPage} />
@@ -300,6 +303,9 @@ function AppLayout() {
           {() => <ProtectedRoute component={AcceptTermsPage} />}
         </Route>
         <Route path="/auth/platform-invite" component={PlatformInvitePage} />
+        <Route path="/accept-invite/:token" component={AcceptInvitePage} />
+        <Route path="/auth/forgot-password" component={ForgotPasswordPage} />
+        <Route path="/auth/reset-password" component={ResetPasswordPage} />
       </Switch>
     );
   }

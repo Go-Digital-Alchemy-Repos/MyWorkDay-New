@@ -1159,6 +1159,75 @@ router.post("/tenants/:tenantId/users/:userId/reset-password", requireSuperUser,
   }
 });
 
+// Generate password reset link for a user (Super Admin can copy and share)
+router.post("/tenants/:tenantId/users/:userId/generate-reset-link", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, userId } = req.params;
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const existingUser = await storage.getUserByIdAndTenant(userId, tenantId);
+    if (!existingUser) {
+      return res.status(404).json({ error: "User not found in this tenant" });
+    }
+    
+    // Invalidate any existing active reset tokens for this user
+    const { passwordResetTokens } = await import("@shared/schema");
+    const { eq, and, isNull } = await import("drizzle-orm");
+    await db
+      .update(passwordResetTokens)
+      .set({ usedAt: new Date() }) // Mark as used to invalidate
+      .where(and(
+        eq(passwordResetTokens.userId, existingUser.id),
+        isNull(passwordResetTokens.usedAt)
+      ));
+    
+    // Generate reset token
+    const crypto = await import("crypto");
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours for admin-generated links
+    
+    // Store token hash
+    await db.insert(passwordResetTokens).values({
+      userId: existingUser.id,
+      tokenHash,
+      expiresAt,
+      createdByUserId: superUser.id, // Admin-initiated
+    });
+    
+    // Generate reset URL - always use APP_PUBLIC_URL in production for Railway compatibility
+    const appPublicUrl = process.env.APP_PUBLIC_URL;
+    if (!appPublicUrl) {
+      console.warn("[generate-reset-link] APP_PUBLIC_URL not set, link may be incorrect behind proxy");
+    }
+    const baseUrl = appPublicUrl || `${req.protocol}://${req.get("host")}`;
+    const resetUrl = `${baseUrl}/auth/reset-password?token=${token}`;
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "password_reset_link_generated",
+      `Password reset link generated for user ${existingUser.email}`,
+      superUser?.id,
+      { userId, email: existingUser.email }
+    );
+    
+    res.json({
+      resetUrl,
+      expiresAt: expiresAt.toISOString(),
+      message: "Password reset link generated successfully. The link expires in 24 hours.",
+    });
+  } catch (error) {
+    console.error("Error generating password reset link:", error);
+    res.status(500).json({ error: "Failed to generate password reset link" });
+  }
+});
+
 // Revoke an invitation
 router.post("/tenants/:tenantId/invitations/:invitationId/revoke", requireSuperUser, async (req, res) => {
   try {

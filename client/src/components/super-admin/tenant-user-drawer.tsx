@@ -79,6 +79,7 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
   const [showPassword, setShowPassword] = useState(false);
   const [confirmRegenerateInvite, setConfirmRegenerateInvite] = useState(false);
   const [lastGeneratedUrl, setLastGeneratedUrl] = useState<string | null>(null);
+  const [lastResetLinkUrl, setLastResetLinkUrl] = useState<string | null>(null);
 
   const { data: user, isLoading: userLoading } = useQuery<TenantUser>({
     queryKey: ["/api/v1/super/tenants", tenantId, "users", userId],
@@ -152,6 +153,31 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
     },
   });
 
+  const generateResetLinkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/users/${userId}/generate-reset-link`);
+      return res.json();
+    },
+    onSuccess: async (data) => {
+      setLastResetLinkUrl(data.resetUrl);
+      try {
+        await navigator.clipboard.writeText(data.resetUrl);
+        toast({ 
+          title: "Reset link generated and copied", 
+          description: `Link expires at ${new Date(data.expiresAt).toLocaleString()}` 
+        });
+      } catch {
+        toast({ 
+          title: "Reset link generated", 
+          description: "Link ready - use the copy button to copy it." 
+        });
+      }
+    },
+    onError: () => {
+      toast({ title: "Failed to generate reset link", variant: "destructive" });
+    },
+  });
+
   const toggleUserActiveMutation = useMutation({
     mutationFn: async (isActive: boolean) => {
       return apiRequest("POST", `/api/v1/super/tenants/${tenantId}/users/${userId}/activate`, { isActive });
@@ -171,6 +197,7 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
       setNewPassword("");
       setShowResetPassword(false);
       setLastGeneratedUrl(null);
+      setLastResetLinkUrl(null);
     }
   }, [open]);
 
@@ -496,6 +523,59 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
                           >
                             Cancel
                           </Button>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      Password Reset Link
+                    </CardTitle>
+                    <CardDescription>
+                      Generate a password reset link that you can share with the user. This is useful when you don't want to set a temporary password.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => generateResetLinkMutation.mutate()}
+                      disabled={generateResetLinkMutation.isPending}
+                      data-testid="button-generate-reset-link"
+                    >
+                      {generateResetLinkMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Key className="h-4 w-4 mr-2" />
+                      )}
+                      Generate Reset Link
+                    </Button>
+                    
+                    {lastResetLinkUrl && (
+                      <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                            <span className="text-sm text-green-700 dark:text-green-400">Reset link generated and copied</span>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => copyToClipboard(lastResetLinkUrl)}
+                            data-testid="button-copy-reset-link"
+                          >
+                            <Copy className="h-4 w-4 mr-2" />
+                            Copy
+                          </Button>
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground font-mono truncate">
+                          {lastResetLinkUrl}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Expires in 24 hours
                         </div>
                       </div>
                     )}
