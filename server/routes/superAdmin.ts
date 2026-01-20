@@ -1823,6 +1823,56 @@ router.post("/tenants/:tenantId/invitations/:invitationId/regenerate", requireSu
   }
 });
 
+// Delete an invitation (only for revoked or expired invitations)
+router.delete("/tenants/:tenantId/invitations/:invitationId", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, invitationId } = req.params;
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const invitation = await storage.getInvitationById(invitationId);
+    if (!invitation) {
+      return res.status(404).json({ error: "Invitation not found" });
+    }
+    
+    // Verify invitation belongs to this tenant
+    if (invitation.tenantId !== tenantId) {
+      return res.status(404).json({ error: "Invitation not found in this tenant" });
+    }
+    
+    // Only allow deletion of revoked or expired invitations
+    const isExpired = new Date(invitation.expiresAt) < new Date();
+    if (invitation.status !== "revoked" && !isExpired) {
+      return res.status(400).json({ 
+        error: "Can only delete revoked or expired invitations. Active pending invitations must be revoked first." 
+      });
+    }
+    
+    await storage.deleteInvitation(invitationId);
+    
+    // Record audit event
+    await recordTenantAuditEvent(
+      tenantId,
+      "invite_deleted",
+      `Invitation for ${invitation.email} deleted permanently`,
+      superUser?.id,
+      { invitationId, email: invitation.email, previousStatus: invitation.status }
+    );
+    
+    res.json({
+      success: true,
+      message: "Invitation deleted permanently",
+    });
+  } catch (error) {
+    console.error("Error deleting invitation:", error);
+    res.status(500).json({ error: "Failed to delete invitation" });
+  }
+});
+
 // =============================================================================
 // BULK CSV IMPORT - Import users from CSV with invite links
 // =============================================================================

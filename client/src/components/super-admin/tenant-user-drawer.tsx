@@ -38,7 +38,8 @@ import {
   X,
   Lock,
   LogIn,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from "lucide-react";
 
 interface TenantUser {
@@ -80,6 +81,7 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
   const [mustChangeOnNextLogin, setMustChangeOnNextLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [confirmRegenerateInvite, setConfirmRegenerateInvite] = useState(false);
+  const [confirmDeleteInvite, setConfirmDeleteInvite] = useState(false);
   const [lastGeneratedUrl, setLastGeneratedUrl] = useState<string | null>(null);
   const [lastResetLinkUrl, setLastResetLinkUrl] = useState<string | null>(null);
 
@@ -216,11 +218,27 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
     },
   });
 
+  const deleteInvitationMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      const res = await apiRequest("DELETE", `/api/v1/super/tenants/${tenantId}/invitations/${invitationId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenantId, "users", userId, "invitation"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenantId, "invitations"] });
+      toast({ title: "Invitation deleted", description: "The invitation record has been permanently removed." });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete invitation", variant: "destructive" });
+    },
+  });
+
   useEffect(() => {
     if (!open) {
       setActiveTab("overview");
       setNewPassword("");
       setShowResetPassword(false);
+      setConfirmDeleteInvite(false);
       setLastGeneratedUrl(null);
       setLastResetLinkUrl(null);
     }
@@ -430,7 +448,7 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
 
                         {!invitationData?.hasAcceptedInvitation && (
                           <div className="space-y-3 pt-4">
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                               <Button
                                 variant="outline"
                                 onClick={() => setConfirmRegenerateInvite(true)}
@@ -456,6 +474,25 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
                                 )}
                                 Send Invite Email
                               </Button>
+                              {/* Show delete button for revoked or expired invitations */}
+                              {invitationData?.invitation && (
+                                invitationData.invitation.status === "revoked" || 
+                                new Date(invitationData.invitation.expiresAt) < new Date()
+                              ) && (
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => setConfirmDeleteInvite(true)}
+                                  disabled={deleteInvitationMutation.isPending}
+                                  data-testid="button-delete-invite"
+                                >
+                                  {deleteInvitationMutation.isPending ? (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                  )}
+                                  Delete Invitation
+                                </Button>
+                              )}
                             </div>
 
                             {lastGeneratedUrl && (
@@ -659,6 +696,33 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
               data-testid="button-confirm-regenerate"
             >
               Regenerate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDeleteInvite} onOpenChange={setConfirmDeleteInvite}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Invitation Permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the invitation record for this user. 
+              This action cannot be undone. You can create a new invitation if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-invite">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              className="bg-destructive text-destructive-foreground"
+              onClick={() => {
+                if (invitationData?.invitation?.id) {
+                  deleteInvitationMutation.mutate(invitationData.invitation.id);
+                }
+                setConfirmDeleteInvite(false);
+              }}
+              data-testid="button-confirm-delete-invite"
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
