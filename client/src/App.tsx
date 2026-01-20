@@ -257,7 +257,8 @@ function TenantLayout() {
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className={`flex flex-col h-screen w-full ${isImpersonating ? "ring-2 ring-amber-500 ring-inset" : ""}`}>
-        {isImpersonating && <ImpersonationBanner />}
+        {/* Tenant impersonation banner (Act as Tenant mode) */}
+        <ImpersonationBanner />
         <div className="flex flex-1 overflow-hidden">
           <TenantSidebar />
           <div className="flex flex-col flex-1 overflow-hidden">
@@ -266,7 +267,7 @@ function TenantLayout() {
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 {isImpersonating && (
                   <span className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded" data-testid="badge-impersonating">
-                    IMPERSONATING
+                    TENANT IMPERSONATION
                   </span>
                 )}
               </div>
@@ -339,6 +340,23 @@ function AppLayout() {
   return <TenantLayout />;
 }
 
+function UserImpersonationWrapper({ children }: { children: React.ReactNode }) {
+  const { userImpersonation } = useAuth();
+  
+  if (userImpersonation?.isImpersonating) {
+    return (
+      <div className="flex flex-col h-screen">
+        <ImpersonationBanner userImpersonation={userImpersonation} />
+        <div className="flex-1 overflow-hidden">
+          {children}
+        </div>
+      </div>
+    );
+  }
+  
+  return <>{children}</>;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -346,7 +364,9 @@ function App() {
         <TooltipProvider>
           <AuthProvider>
             <TenantThemeProvider>
-              <AppLayout />
+              <UserImpersonationWrapper>
+                <AppLayout />
+              </UserImpersonationWrapper>
             </TenantThemeProvider>
           </AuthProvider>
           <Toaster />

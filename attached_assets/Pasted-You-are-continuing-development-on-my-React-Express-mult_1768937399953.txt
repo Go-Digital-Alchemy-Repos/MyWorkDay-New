@@ -1,0 +1,282 @@
+You are continuing development on my React + Express multi-tenant app (single codebase) deployed on Railway.
+PRIORITY: Super Admin must be able to fully provision tenant users (create/activate/set password/reset) and impersonate for testing.
+Implement ALL items below in one cohesive, safe change set.
+
+This prompt is narrowly focused on tenant-user provisioning + super impersonation for testing. Do NOT add unrelated features.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes.
+- Add-only endpoints are allowed.
+- Do NOT weaken tenancy/auth/agreement enforcement.
+- Do NOT log tokens or passwords.
+- Do NOT email passwords.
+- Passwords are always hashed server-side (bcrypt/argon2).
+- Every Super Admin action must be audited (actor, tenant, target user, requestId).
+- Optimize for Railway (proxy/cookies) and ensure auth state refresh works.
+
+===============================================================================
+GOAL (WHAT MUST WORK WHEN DONE)
+===============================================================================
+As a Super Admin, I must be able to:
+1) Create (or find) a tenant user by email
+2) Assign role (TENANT_ADMIN / EMPLOYEE / CLIENT)
+3) Activate the user immediately (no invite acceptance required)
+4) Choose access method:
+   A) Set initial password now (optional: force change on next login)
+   B) Generate a password reset link (copyable; email optional)
+5) Later: manage that user (activate/deactivate, role updates, reset password, set password)
+6) For testing: “Login as this user” that switches the full UI to the tenant experience with a persistent banner + one-click exit
+7) Every failure shows X-Request-Id and the UI displays it.
+
+===============================================================================
+PART A — DIAGNOSE WHY CURRENT PROVISIONING IS FAILING (REQUIRED)
+===============================================================================
+1) Identify current blockers causing lack of control:
+- user created but inactive?
+- password hash not persisted?
+- invite token required for activation?
+- tenant scoping middleware blocking super routes?
+- cookie/auth/me not refreshing?
+- SPA route guard causing redirect loops?
+
+2) Add safe, flag-controlled diagnostics:
+- SUPER_USER_PROVISION_DEBUG=true
+- Log ONLY:
+  - requestId
+  - actorId
+  - tenantId
+  - target user email/userId
+  - which step failed (find/create/activate/setPassword/createResetToken/impersonate)
+  - sanitized DB error code/constraint/table
+NO tokens, no passwords, no secrets.
+
+===============================================================================
+PART B — SERVER: ADD A SINGLE “PROVISION USER” ENDPOINT (ADD-ONLY)
+===============================================================================
+Add:
+POST /api/v1/super/tenants/:tenantId/users/provision
+
+Input:
+{
+  email: string,
+  firstName?: string,
+  lastName?: string,
+  role: "TENANT_ADMIN"|"EMPLOYEE"|"CLIENT",
+  activateNow: boolean,                  // default true in UI
+  method: "SET_PASSWORD"|"RESET_LINK",
+  password?: string,                     // required if SET_PASSWORD
+  mustChangeOnNextLogin?: boolean,       // default true for SET_PASSWORD
+  sendEmail?: boolean                    // optional, only for RESET_LINK
+}
+
+Behavior:
+1) Super-only authorization check (must be system super admin).
+2) Validate tenant exists and is not DELETED (respect tenant lifecycle).
+3) Find existing tenant user by email within tenant membership:
+- If exists: update name/role/isActive (if requested)
+- If not: create user in tenant with role and isActive as requested
+4) If method == SET_PASSWORD:
+- validate password strength minimally (length, etc.)
+- hash password server-side
+- persist passwordHash
+- set mustChangePasswordOnNextLogin (default true)
+- invalidate any outstanding password reset tokens for this user
+5) If method == RESET_LINK:
+- generate reset token (hashed in DB), expiry 30–60 minutes
+- create resetUrl: APP_PUBLIC_URL + "/auth/reset-password?token=..."
+- if sendEmail==true and Mailgun configured: send resetUrl email
+6) Return SAFE response (no secrets):
+{
+  ok: true,
+  user: { id, email, firstName, lastName, role, isActive, mustChangePasswordOnNextLogin?: boolean },
+  resetUrl?: string,
+  expiresAt?: string,
+  emailSent?: boolean
+}
+
+Audit events (required):
+- super_provision_user_created
+- super_provision_user_updated
+- super_provision_user_activated
+- super_provision_user_set_password
+- super_provision_user_generated_reset_link
+
+===============================================================================
+PART C — SERVER: RELIABLE SUPER USER MANAGEMENT ENDPOINTS (ADD-ONLY IF MISSING)
+===============================================================================
+1) PATCH /api/v1/super/tenants/:tenantId/users/:userId
+- Update: firstName, lastName, role, isActive
+- Tenant-scoped validation: user must belong to tenant
+
+2) POST /api/v1/super/tenants/:tenantId/users/:userId/reset-link
+- Generates resetUrl + expiry, returns { resetUrl, expiresAt, emailSent? }
+- Optional sendEmail parameter; if no mailgun, still return resetUrl for copy
+
+3) POST /api/v1/super/tenants/:tenantId/users/:userId/set-password
+Body: { password, mustChangeOnNextLogin?: boolean }
+- Hash + persist
+- Set mustChange flag default true
+- Invalidate existing reset tokens
+
+4) POST /api/v1/super/tenants/:tenantId/users/:userId/activate
+- Sets isActive=true
+
+All actions audited, confirmation-gated in UI.
+
+DB NOTE (additive only if needed):
+- mustChangePasswordOnNextLogin boolean default false
+- password_reset_tokens table if missing:
+  id, userId, tokenHash, expiresAt, usedAt, createdAt, createdByUserId nullable
+
+===============================================================================
+PART D — FRONTEND: “PROVISION USER ACCESS” DRAWER (SUPER ADMIN)
+===============================================================================
+In Super Admin → Tenant Drawer:
+- Add button: “Provision User Access”
+- Opens full-width drawer with 3 steps:
+
+Step 1: User Info
+- email (required)
+- firstName, lastName
+- role dropdown (TENANT_ADMIN/EMPLOYEE/CLIENT)
+- checkbox: Activate now (default on)
+
+Step 2: Access Method
+- radio: Set initial password OR Generate reset link
+- If password:
+  - password + confirm
+  - checkbox: Force change on next login (default on)
+- If reset link:
+  - checkbox: Send email (disabled if Mailgun not configured)
+  - still always show copyable reset link result after provisioning
+
+Step 3: Review & Provision
+- confirm action
+- call provision endpoint
+
+After success, show a results panel:
+- User status badge: ACTIVE/PENDING/INACTIVE
+- Role badge
+- If reset link: show resetUrl + copy button + expiresAt + “Send email” if possible
+- If password set: show “Password set” + mustChange flag (never display password)
+- buttons:
+  - “Open User Manager”
+  - “Login as this user” (Part F)
+
+Failures:
+- Show toast/banner with Request ID from X-Request-Id header + “Copy Request ID”.
+
+===============================================================================
+PART E — FRONTEND: TENANT USER DRAWER (SUPER ADMIN)
+===============================================================================
+From the tenant user list (inside tenant drawer), each row must allow:
+- Manage User (opens TenantUserDrawer)
+Inside drawer:
+- Overview: name/email/role/isActive
+- Security:
+  - Activate/Deactivate toggle
+  - Generate reset link (copy)
+  - Set password (admin sets new password; force change checkbox)
+  - View mustChange flag
+All changes call endpoints from Part C and show requestId on failures.
+
+===============================================================================
+PART F — SUPER ADMIN “LOGIN AS THIS USER” FOR TESTING (RECOMMENDED, MUST IMPLEMENT)
+===============================================================================
+Add Super Admin-only endpoint:
+POST /api/v1/super/tenants/:tenantId/users/:userId/impersonate-login
+
+Behavior:
+- Establish a cookie-based session that impersonates the TARGET USER for the selected tenant.
+- Must set enough session context so the UI renders the tenant experience:
+  - effectiveTenantId = tenantId
+  - effectiveUserId = target user id (impersonated)
+  - effectiveRole = target user role for nav rendering
+  - isImpersonatingUser = true
+- Return { ok: true } and client navigates to tenant landing (/my-tasks or /projects).
+
+Exit impersonation endpoint:
+POST /api/v1/super/impersonation/exit (or reuse existing exit endpoint)
+- Clears impersonation fields from session
+- Returns { ok: true }
+
+UI requirements:
+- When impersonating user:
+  - Render FULL tenant sidebar/menu (projects/tasks/time tracking/etc.)
+  - Show persistent top banner:
+    “Impersonating user: <email> in tenant: <name>”
+    Buttons:
+      - Exit to Super Admin
+      - Open Tenant Settings (optional)
+- Exiting must:
+  - clear caches
+  - refetch /auth/me
+  - return to /super/dashboard
+
+Security:
+- super-only
+- audited: super_impersonate_user_start / super_impersonate_user_end
+- banner is non-dismissible except exit
+- ensure agreement gating remains enforced as it would be for that user
+
+===============================================================================
+PART G — AUTH REFRESH + CACHE INVALIDATION (CRITICAL)
+===============================================================================
+- Ensure /api/v1/auth/me reflects impersonation immediately.
+- After provision or impersonation:
+  - invalidate auth query
+  - clear tenant caches (TanStack Query) to avoid stale data
+- Add “Tenant Context Loaded” gate to prevent flicker/stale UI during fast switches.
+
+===============================================================================
+PART H — RAILWAY HARDENING (REQUIRED)
+===============================================================================
+- Ensure Express trust proxy is set (Railway)
+- Cookies:
+  - secure in production
+  - SameSite=Lax
+- Ensure SPA routes needed for reset-password are served correctly:
+  - /auth/reset-password
+- Ensure requestId header (X-Request-Id) exists on errors.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) super_provision_creates_active_user_set_password.test.ts
+2) super_provision_existing_user_updates_role_and_activates.test.ts
+3) super_provision_generates_reset_link.test.ts
+4) super_set_password_sets_must_change_flag.test.ts
+5) super_generate_reset_link_scoped_to_tenant.test.ts
+6) super_impersonate_login_sets_session_context.test.ts
+7) impersonation_exit_clears_session.test.ts
+8) tenant_user_mgmt_requires_super_admin.test.ts
+
+Frontend (if test infra exists):
+9) provision_drawer_shows_success_and_copy_reset_link.test.tsx
+10) impersonation_switch_renders_tenant_nav_and_banner.test.tsx
+11) failures_show_request_id.test.tsx
+
+Docs:
+- Update /docs/SUPER_ADMIN_GUIDE.md (Provision + Impersonation)
+- Update /docs/AUTHENTICATION.md (reset link, mustChange behavior)
+- Update /docs/DEPLOYMENT_RAILWAY.md (cookies, trust proxy, SPA routes)
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Super Admin can provision a tenant admin and immediately get access working (password set or reset link).
+- Super Admin can activate/deactivate and reset/change tenant user password anytime.
+- Super Admin can “Login as this user” and see the FULL tenant experience with a persistent exit banner.
+- Works on Railway reliably; no invite acceptance required; no incognito dependency.
+- No breaking changes; audited; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Root causes found for why prior provisioning was ineffective
+- Endpoints added and where session impersonation is stored
+- UI components added/updated
+- Manual Railway checklist to provision + impersonate + exit

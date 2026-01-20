@@ -3,10 +3,29 @@ import { useLocation } from "wouter";
 import { type User, UserRole } from "@shared/schema";
 import { clearActingAsState, setSuperUserFlag } from "./queryClient";
 
+interface UserImpersonationData {
+  isImpersonating: boolean;
+  impersonatedUser: {
+    id: string;
+    email: string;
+    role: string;
+  };
+  impersonatedTenant: {
+    id: string;
+    name: string;
+  };
+  originalSuperUser: {
+    id: string;
+    email: string;
+  };
+  startedAt: string;
+}
+
 interface AuthContextType {
   user: Omit<User, "passwordHash"> | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  userImpersonation: UserImpersonationData | null;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: Omit<User, "passwordHash"> }>;
   logout: () => Promise<void>;
   refetch: () => Promise<void>;
@@ -17,6 +36,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Omit<User, "passwordHash"> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [userImpersonation, setUserImpersonation] = useState<UserImpersonationData | null>(null);
   const [, setLocation] = useLocation();
 
   const fetchUser = useCallback(async () => {
@@ -27,15 +47,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        // Set user impersonation state from session
+        setUserImpersonation(data.impersonation || null);
         // Set super user flag when session is restored
         setSuperUserFlag(data.user?.role === UserRole.SUPER_USER);
       } else {
         setUser(null);
+        setUserImpersonation(null);
         // Clear super user state when not authenticated
         clearActingAsState();
       }
     } catch {
       setUser(null);
+      setUserImpersonation(null);
       // Clear super user state on error
       clearActingAsState();
     } finally {
@@ -71,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (meResponse.ok) {
           const meData = await meResponse.json();
           setUser(meData.user);
+          setUserImpersonation(meData.impersonation || null);
           setIsLoading(false);
           // Set super user flag based on user role
           setSuperUserFlag(meData.user?.role === UserRole.SUPER_USER);
@@ -94,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Clear acting tenant state to prevent it from being used by next user
       clearActingAsState();
       setUser(null);
+      setUserImpersonation(null);
       setLocation("/login");
     }
   };
@@ -104,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        userImpersonation,
         login,
         logout,
         refetch: fetchUser,

@@ -215,10 +215,32 @@ export function setupAuth(app: Express): void {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const user = req.user as any;
+    const session = req.session as any;
+    
+    // Include impersonation context if active
+    const impersonation = session.isImpersonatingUser ? {
+      isImpersonating: true,
+      impersonatedUser: {
+        id: session.impersonatedUserId,
+        email: session.impersonatedUserEmail,
+        role: session.impersonatedUserRole,
+      },
+      impersonatedTenant: {
+        id: session.impersonatedTenantId,
+        name: session.impersonatedTenantName,
+      },
+      originalSuperUser: {
+        id: session.originalSuperUserId,
+        email: session.originalSuperUserEmail,
+      },
+      startedAt: session.impersonationStartedAt,
+    } : null;
+    
     res.json({ 
       user: req.user, 
       workspaceId: req.session.workspaceId,
       tenantId: user?.tenantId || null,
+      impersonation,
     });
   });
 
