@@ -2,7 +2,8 @@ import { useLocation, useRoute, Redirect } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Building2, BarChart3, Puzzle, Settings as SettingsIcon, Palette, HardDrive, FileText, ClipboardList, CreditCard, Mail } from "lucide-react";
+import { Users, Building2, BarChart3, Puzzle, Settings as SettingsIcon, Palette, HardDrive, FileText, ClipboardList, CreditCard, Mail, UserCircle } from "lucide-react";
+import { ProfileTab } from "@/components/settings/profile-tab";
 import { TeamTab } from "@/components/settings/team-tab";
 import { WorkspacesTab } from "@/components/settings/workspaces-tab";
 import { ReportsTab } from "@/components/settings/reports-tab";
@@ -15,6 +16,7 @@ import { BillingTab } from "@/components/settings/billing-tab";
 import { EmailLogsTab } from "@/components/settings/email-logs-tab";
 
 const SETTINGS_TABS = [
+  { id: "profile", label: "Profile", icon: UserCircle },
   { id: "team", label: "Team", icon: Users },
   { id: "workspaces", label: "Workspaces", icon: Building2 },
   { id: "branding", label: "Branding", icon: Palette },
@@ -37,7 +39,7 @@ export default function SettingsPage() {
     return <Redirect to="/" />;
   }
 
-  const activeTab = params?.tab || "team";
+  const activeTab = params?.tab || "profile";
 
   const handleTabChange = (value: string) => {
     setLocation(`/settings/${value}`);
@@ -57,7 +59,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-10 h-auto p-1">
+          <TabsList className="grid w-full grid-cols-11 h-auto p-1">
             {SETTINGS_TABS.map((tab) => (
               <TabsTrigger
                 key={tab.id}
@@ -70,6 +72,10 @@ export default function SettingsPage() {
               </TabsTrigger>
             ))}
           </TabsList>
+
+          <TabsContent value="profile" className="mt-6">
+            <ProfileTab />
+          </TabsContent>
 
           <TabsContent value="team" className="mt-6">
             <TeamTab />

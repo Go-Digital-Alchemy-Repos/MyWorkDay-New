@@ -1,0 +1,373 @@
+# Add Tenant ID Display & Fix Missing Settings Tabs for Tenant Admins
+
+I'm working on MyWorkDay, a multi-tenant project management SaaS application.
+
+## Tech Stack Context
+- Frontend: React 18 + TypeScript + Tailwind CSS + shadcn/ui + TanStack Query
+- Backend: Express.js + TypeScript + Drizzle ORM
+- Database: PostgreSQL
+- Session Auth: Passport.js
+
+## Requirements
+
+### 1. Display Tenant ID in Settings Overview
+
+**Location:** Settings page, Overview/Profile tab (where tenant admins manage company info)
+
+**What to Add:**
+- Display the tenant's unique ID (UUID from database)
+- Show in read-only format with copy-to-clipboard functionality
+- Label it clearly as "Tenant ID" or "Organization ID"
+- Include helpful description: "Use this ID when contacting support"
+
+**Implementation:**
+
+Check the current settings page location:
+- `/client/src/pages/settings.tsx` - Main settings page
+- `/client/src/components/settings/profile-tab.tsx` OR similar - Overview/company tab
+
+**Add Tenant ID Display:**
+```tsx
+// In the overview/profile tab component
+import { useAuth } from '@/lib/auth';
+import { Button } from '@/components/ui/button';
+import { Copy, Check } from 'lucide-react';
+import { useState } from 'react';
+
+function TenantIdDisplay() {
+  const { user } = useAuth();
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(user?.tenantId || '');
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!user?.tenantId) return null;
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">Organization ID</label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 px-3 py-2 bg-muted rounded-md text-sm font-mono">
+          {user.tenantId}
+        </code>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={copyToClipboard}
+        >
+          {copied ? (
+            <><Check className="h-4 w-4 mr-2" /> Copied</>
+          ) : (
+            <><Copy className="h-4 w-4 mr-2" /> Copy</>
+          )}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Use this ID when contacting support or integrating with external services.
+      </p>
+    </div>
+  );
+}
+```
+
+### 2. Fix Missing Settings Tabs for Tenant Admins
+
+**Current Issue:** Tenant admins are missing settings tabs like:
+- Branding (white-label customization)
+- Integrations (Mailgun, S3, Stripe)
+- Team/User Management
+- Workspaces
+- Billing
+- Email Logs
+- Workload Reports
+- Agreements
+
+**Investigation Needed:**
+
+#### A. Check Settings Page Structure
+
+Look at `/client/src/pages/settings.tsx`:
+```tsx
+export function SettingsPage() {
+  const { user } = useAuth();
+  
+  // CHECK: Are tabs conditionally rendered based on role?
+  // SHOULD BE: admin role gets all tenant-scoped tabs
+  
+  const tabs = [
+    { value: 'profile', label: 'Profile', component: ProfileTab },
+    { value: 'workspaces', label: 'Workspaces', component: WorkspacesTab, requireAdmin: true },
+    { value: 'team', label: 'Team', component: TeamTab, requireAdmin: true },
+    { value: 'branding', label: 'Branding', component: BrandingTab, requireAdmin: true },
+    { value: 'integrations', label: 'Integrations', component: IntegrationsTab, requireAdmin: true },
+    { value: 'billing', label: 'Billing', component: BillingTab, requireAdmin: true },
+    { value: 'workload', label: 'Workload', component: WorkloadTab, requireAdmin: true },
+    { value: 'reports', label: 'Reports', component: ReportsTab, requireAdmin: true },
+    { value: 'email-logs', label: 'Email Logs', component: EmailLogsTab, requireAdmin: true },
+    { value: 'agreement', label: 'Terms', component: AgreementTab, requireAdmin: true },
+  ];
+
+  // Filter tabs based on user role
+  const visibleTabs = tabs.filter(tab => {
+    if (tab.requireAdmin) {
+      return user?.role === 'admin' || user?.role === 'super_user';
+    }
+    return true;
+  });
+
+  return (
+    <div className="container mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6">Settings</h1>
+      
+      <Tabs defaultValue="profile">
+        <TabsList>
+          {visibleTabs.map(tab => (
+            <TabsTrigger key={tab.value} value={tab.value}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        
+        {visibleTabs.map(tab => (
+          <TabsContent key={tab.value} value={tab.value}>
+            <tab.component />
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
+  );
+}
+```
+
+#### B. Check Role-Based Access Control
+
+Verify in the settings page or route guards:
+```tsx
+// Should allow 'admin' role (not just 'super_user')
+if (user?.role !== 'admin' && user?.role !== 'super_user') {
+  return <Navigate to="/unauthorized" />;
+}
+```
+
+#### C. Verify Backend Endpoints Allow Tenant Admins
+
+Check these endpoints accept `admin` role:
+```typescript
+// In server/routes.ts or tenant settings routes
+
+// Should use requireTenantAdmin middleware (allows admin + super_user)
+app.get('/api/v1/tenant-settings', requireAuth, requireTenantContext, requireTenantAdmin, async (req, res) => {
+  // Returns tenant settings for branding
+});
+
+app.patch('/api/v1/tenant-settings', requireAuth, requireTenantContext, requireTenantAdmin, async (req, res) => {
+  // Updates tenant settings
+});
+
+app.get('/api/v1/integrations/mailgun', requireAuth, requireTenantContext, requireTenantAdmin, async (req, res) => {
+  // Returns Mailgun integration config
+});
+
+// Make sure requireTenantAdmin allows BOTH admin AND super_user roles
+```
+
+#### D. Check Middleware Definition
+
+Verify `/server/middleware/authContext.ts` or similar:
+```typescript
+export const requireTenantAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ 
+      ok: false, 
+      code: 'UNAUTHORIZED', 
+      message: 'Not authenticated' 
+    });
+  }
+
+  // MUST allow both 'admin' and 'super_user'
+  if (req.user.role !== 'admin' && req.user.role !== 'super_user') {
+    return res.status(403).json({ 
+      ok: false, 
+      code: 'FORBIDDEN', 
+      message: 'Admin access required' 
+    });
+  }
+
+  next();
+};
+```
+
+### 3. Complete Settings Tab Requirements
+
+Tenant admins (role: 'admin') should have access to:
+
+#### Required Tabs:
+
+1. **Profile/Overview** (All users)
+   - User's personal info
+   - **NEW: Display Tenant ID with copy button**
+   - Change password
+   - Avatar upload
+
+2. **Workspaces** (Admin only)
+   - List/create/edit workspaces
+   - Manage workspace members
+
+3. **Team** (Admin only)
+   - Invite users
+   - Manage team members
+   - Bulk CSV import
+   - User roles and permissions
+
+4. **Branding** (Admin only)
+   - Company name
+   - Logo upload
+   - Favicon upload
+   - Color customization (primary, secondary, accent)
+   - Login message
+   - Support email
+   - White-label toggles
+
+5. **Integrations** (Admin only)
+   - Mailgun (email delivery)
+   - S3 (file storage)
+   - Stripe (billing) - if enabled
+   - Test connection buttons
+   - Status indicators
+
+6. **Billing** (Admin only) - if Stripe enabled
+   - Subscription status
+   - Payment method
+   - Invoice history
+   - Usage metrics
+
+7. **Workload** (Admin only)
+   - Task distribution by employee
+   - Completion metrics
+   - Workload reports
+
+8. **Reports** (Admin only)
+   - Time tracking reports
+   - Project analytics
+   - Export functionality
+
+9. **Email Logs** (Admin only)
+   - Outbox status
+   - Failed email tracking
+   - Resend functionality
+
+10. **Agreement/Terms** (Admin only)
+    - Current agreement status
+    - Agreement history
+    - Acceptance tracking
+
+### 4. Debug Checklist
+
+Please verify and fix:
+
+- [ ] `/client/src/pages/settings.tsx` shows all tabs for admin role
+- [ ] Tabs are not hidden by role checks that only allow super_user
+- [ ] Backend endpoints use `requireTenantAdmin` (not just `requireSuperUser`)
+- [ ] `requireTenantAdmin` middleware allows both 'admin' AND 'super_user'
+- [ ] Tenant ID is displayed in Overview/Profile tab with copy button
+- [ ] Each settings tab component exists and is imported
+- [ ] Navigation shows Settings link for admin users
+- [ ] No console errors when clicking settings tabs
+
+### 5. Expected File Changes
+
+**Files to Create/Update:**
+
+1. `/client/src/pages/settings.tsx`
+   - Add all tabs for admin role
+   - Import all tab components
+   - Conditional rendering based on role
+
+2. `/client/src/components/settings/profile-tab.tsx`
+   - Add Tenant ID display section
+   - Add copy-to-clipboard functionality
+
+3. `/client/src/components/settings/branding-tab.tsx`
+   - Should exist and be accessible to admins
+
+4. `/client/src/components/settings/integrations-tab.tsx`
+   - Should exist and be accessible to admins
+
+5. `/client/src/components/settings/team-tab.tsx`
+   - Should exist and be accessible to admins
+
+6. (Other settings tab components as needed)
+
+7. `/server/middleware/authContext.ts`
+   - Ensure `requireTenantAdmin` allows admin role
+
+### 6. Visual Design
+
+**Tenant ID Display should look like:**
+```
+┌─────────────────────────────────────────┐
+│ Organization ID                         │
+├─────────────────────────────────────────┤
+│ ┌─────────────────────────┬─────────┐  │
+│ │ abc123-def456-789...    │ [Copy]  │  │
+│ └─────────────────────────┴─────────┘  │
+│ Use this ID when contacting support    │
+└─────────────────────────────────────────┘
+```
+
+**Settings Tabs Layout:**
+```
+Settings
+─────────────────────────────────────────
+[ Profile ] [ Workspaces ] [ Team ] [ Branding ] [ Integrations ] [ Billing ] ...
+
+┌─────────────────────────────────────────┐
+│                                         │
+│  Tab Content Here                       │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### 7. Testing Checklist
+
+After implementation:
+- [ ] Login as tenant admin
+- [ ] Navigate to Settings
+- [ ] See all expected tabs (Branding, Integrations, Team, etc.)
+- [ ] Click each tab and verify it loads
+- [ ] See Tenant ID in Profile/Overview tab
+- [ ] Click Copy button and verify Tenant ID is copied
+- [ ] Update a setting (like company name) and verify it saves
+- [ ] Test integration configuration
+- [ ] Verify backend accepts admin role for all operations
+
+## Success Criteria
+
+✅ Tenant admins see complete Settings navigation  
+✅ All settings tabs are accessible (Branding, Integrations, Team, etc.)  
+✅ Tenant ID is displayed in Overview/Profile with copy button  
+✅ Tenant admins can configure branding  
+✅ Tenant admins can configure integrations  
+✅ Tenant admins can manage team members  
+✅ Backend endpoints accept 'admin' role  
+✅ No 403 Forbidden errors for admin users  
+
+## Additional Context
+
+**User Roles:**
+- `super_user` - Platform admin (access to ALL tenants)
+- `admin` - Tenant admin (access to THEIR tenant settings) ← This is the role having issues
+- `employee` - Regular user (no settings access)
+- `client` - Client portal user (limited access)
+
+**Current Problem:**
+Tenant admins (role: 'admin') should have nearly identical settings access as their own tenant's settings, but tabs are missing or not rendering.
+
+Please provide:
+1. Updated settings page with all tabs visible to admin role
+2. Tenant ID display component with copy functionality
+3. Verification that backend allows admin role for all tenant settings endpoints
+4. Clear role-based conditional rendering for settings tabs

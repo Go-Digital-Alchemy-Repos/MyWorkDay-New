@@ -7,7 +7,69 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Save, Loader2, Mail, Calendar, CheckCircle2 } from "lucide-react";
+import { Building2, Save, Loader2, Calendar, CheckCircle2, Copy, Check } from "lucide-react";
+
+function TenantIdCopy({ tenantId }: { tenantId?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = async () => {
+    if (!tenantId) return;
+    try {
+      await navigator.clipboard.writeText(tenantId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers or non-secure contexts
+      const textArea = document.createElement("textarea");
+      textArea.value = tenantId;
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        console.error("Failed to copy tenant ID");
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  if (!tenantId) {
+    return <div className="text-sm text-muted-foreground">-</div>;
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <code 
+          className="flex-1 px-3 py-2 bg-muted rounded-md text-sm font-mono truncate"
+          data-testid="text-tenant-id"
+        >
+          {tenantId}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={copyToClipboard}
+          data-testid="button-copy-tenant-id"
+        >
+          {copied ? (
+            <><Check className="h-4 w-4 mr-1" /> Copied</>
+          ) : (
+            <><Copy className="h-4 w-4 mr-1" /> Copy</>
+          )}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Use this ID when contacting support or integrating with external services.
+      </p>
+    </div>
+  );
+}
 
 interface TenantInfo {
   tenant: {
@@ -156,11 +218,9 @@ export function ProfileTab() {
                 </Badge>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">Tenant ID</Label>
-              <div className="text-sm font-mono text-muted-foreground">
-                {tenant?.id?.slice(0, 8)}...
-              </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label className="text-muted-foreground">Organization ID</Label>
+              <TenantIdCopy tenantId={tenant?.id} />
             </div>
             <div className="space-y-2">
               <Label className="text-muted-foreground">Slug</Label>
