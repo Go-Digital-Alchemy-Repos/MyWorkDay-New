@@ -30,9 +30,10 @@ interface TenantContextGateProps {
   children: React.ReactNode;
 }
 
-interface TenantSettings {
+interface TenantContext {
   tenantId: string;
   displayName: string;
+  status: string;
 }
 
 export function TenantContextGate({ children }: TenantContextGateProps) {
@@ -54,14 +55,15 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
   }
   
   // Fetch tenant context to validate tenant access
+  // Uses /context endpoint which works for all tenant users (not just admins)
   const { 
     data: tenantContext, 
     isLoading, 
     isError, 
     error,
     refetch 
-  } = useQuery<TenantSettings>({
-    queryKey: ["/api/v1/tenant/settings"],
+  } = useQuery<TenantContext>({
+    queryKey: ["/api/v1/tenant/context", effectiveTenantId],
     enabled: !!effectiveTenantId,
     retry: 2,
     staleTime: 30000,
@@ -131,23 +133,47 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
     }
   };
   
-  // No tenant ID - shouldn't happen but handle gracefully
+  // No tenant ID - could be super user without selection OR regular user without tenant assignment
   if (!effectiveTenantId) {
+    // For super users, show tenant selector option
+    if (isSuper) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+          <div className="text-center">
+            <h2 className="text-lg font-semibold">No Tenant Selected</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Please select a tenant to access this page.
+            </p>
+          </div>
+          <Button 
+            variant="outline" 
+            onClick={() => setLocation("/super-admin")}
+            data-testid="button-go-to-tenant-selector"
+          >
+            Go to Tenant Selector
+          </Button>
+        </div>
+      );
+    }
+    
+    // For regular users without tenant - this indicates a configuration issue
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-        <AlertCircle className="h-12 w-12 text-muted-foreground" />
+        <AlertCircle className="h-12 w-12 text-destructive" />
         <div className="text-center">
-          <h2 className="text-lg font-semibold">No Tenant Selected</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Please select a tenant to access this page.
+          <h2 className="text-lg font-semibold">Account Not Configured</h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            Your account is not associated with an organization. 
+            Please contact your administrator to complete your account setup.
           </p>
         </div>
         <Button 
           variant="outline" 
-          onClick={() => setLocation("/super-admin")}
-          data-testid="button-go-to-tenant-selector"
+          onClick={() => setLocation("/login")}
+          data-testid="button-go-to-login"
         >
-          Go to Tenant Selector
+          Return to Login
         </Button>
       </div>
     );

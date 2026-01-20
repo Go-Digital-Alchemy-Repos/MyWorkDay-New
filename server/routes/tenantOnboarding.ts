@@ -42,20 +42,12 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-// Helper to get effective tenant ID (supports super_user X-Tenant-Id header)
+// Helper to get effective tenant ID - uses central tenant context from middleware
+// The tenantContextMiddleware in server/middleware/tenantContext.ts validates X-Tenant-Id
+// for super users, ensuring tenant existence before setting req.tenant.effectiveTenantId
 function getEffectiveTenantId(req: any): string | null {
-  const user = req.user as any;
-  if (!user) return null;
-  
-  // Super users can use X-Tenant-Id header to access other tenants
-  if (user.role === UserRole.SUPER_USER) {
-    const headerTenantId = req.headers["x-tenant-id"] as string | undefined;
-    if (headerTenantId) {
-      return headerTenantId;
-    }
-  }
-  
-  return user.tenantId || null;
+  // Use the validated tenant context from middleware (set by tenantContextMiddleware)
+  return req.tenant?.effectiveTenantId || null;
 }
 
 // Middleware to ensure user is tenant admin (supports super_user with X-Tenant-Id)
@@ -74,6 +66,80 @@ function requireTenantAdmin(req: any, res: any, next: any) {
   req.effectiveTenantId = effectiveTenantId;
   next();
 }
+
+// =============================================================================
+// Middleware to require tenant context (works for all tenant users)
+// =============================================================================
+function requireTenantContext(req: any, res: any, next: any) {
+  const user = req.user as any;
+  const effectiveTenantId = getEffectiveTenantId(req);
+  
+  if (!effectiveTenantId) {
+    // Debug logging for tenant context issues
+    if (process.env.DEBUG_TENANT_CONTEXT === "true") {
+      console.log("[requireTenantContext] No tenant context:", {
+        userId: user?.id,
+        email: user?.email,
+        role: user?.role,
+        userTenantId: user?.tenantId,
+        headerTenantId: req.headers["x-tenant-id"],
+      });
+    }
+    return res.status(403).json({ error: "No tenant context" });
+  }
+  
+  // Attach effective tenant ID to request for use in route handlers
+  req.effectiveTenantId = effectiveTenantId;
+  next();
+}
+
+// =============================================================================
+// GET /api/v1/tenant/context - Get basic tenant context for any tenant user
+// This endpoint is used by the frontend to validate tenant access
+// Works for all users including employees, not just admins
+// =============================================================================
+
+router.get("/context", requireAuth, async (req, res) => {
+  try {
+    const user = req.user as any;
+    
+    // Use the central tenant context from middleware (already validated)
+    // req.tenant is set by tenantContextMiddleware in server/index.ts
+    const effectiveTenantId = req.tenant?.effectiveTenantId;
+    
+    // Debug logging for tenant context issues
+    if (process.env.DEBUG_TENANT_CONTEXT === "true") {
+      console.log("[tenant/context] Checking context:", {
+        userId: user?.id,
+        email: user?.email,
+        role: user?.role,
+        userTenantId: user?.tenantId,
+        effectiveTenantId,
+        tenantContextFromMiddleware: req.tenant,
+      });
+    }
+    
+    if (!effectiveTenantId) {
+      return res.status(403).json({ error: "No tenant context" });
+    }
+
+    const tenant = await storage.getTenant(effectiveTenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const tenantSettings = await storage.getTenantSettings(effectiveTenantId);
+
+    res.json({
+      tenantId: tenant.id,
+      displayName: tenantSettings?.displayName || tenant.name,
+      status: tenant.status,
+    });
+  } catch (error) {
+    console.error("Error fetching tenant context:", error);
+    res.status(500).json({ error: "Failed to fetch tenant context" });
+  }
+});
 
 // =============================================================================
 // GET /api/v1/tenant/me - Get current tenant info with settings
