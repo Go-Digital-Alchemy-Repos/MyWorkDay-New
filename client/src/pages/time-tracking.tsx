@@ -1604,15 +1604,51 @@ function ReportsSummary() {
   );
 }
 
+const BROADCAST_CHANNEL_NAME = "active-timer-sync";
+
 export default function TimeTrackingPage() {
   const [startTimerDrawerOpen, setStartTimerDrawerOpen] = useState(false);
   const [manualEntryDrawerOpen, setManualEntryDrawerOpen] = useState(false);
 
-  const { data: timer } = useQuery<ActiveTimer | null>({
+  const { data: timer, refetch: refetchTimer } = useQuery<ActiveTimer | null>({
     queryKey: ["/api/timer/current"],
+    staleTime: 10000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const hasActiveTimer = !!timer;
+
+  // Cross-tab sync: listen for timer updates from other tabs
+  useEffect(() => {
+    let broadcastChannel: BroadcastChannel | null = null;
+    
+    try {
+      broadcastChannel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      broadcastChannel.onmessage = (event) => {
+        if (event.data?.type === "timer-updated") {
+          refetchTimer();
+          queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+        }
+      };
+    } catch {
+      // BroadcastChannel not supported
+    }
+
+    // Fallback: localStorage events
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key === "timer-sync") {
+        refetchTimer();
+        queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+      }
+    };
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+      broadcastChannel?.close();
+      window.removeEventListener("storage", handleStorageEvent);
+    };
+  }, [refetchTimer]);
 
   // Note: Timer queries are user-scoped on the server side via userId filter
 

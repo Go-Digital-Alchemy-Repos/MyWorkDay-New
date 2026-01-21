@@ -2333,9 +2333,10 @@ export async function registerRoutes(
         if (isSoftMode() && !existingTimer.tenantId) {
           addTenancyWarningHeader(res, "Existing timer has legacy null tenantId");
         }
-        return res.status(400).json({
-          error: "You already have an active timer. Stop it before starting a new one.",
-          activeTimer: existingTimer,
+        return res.status(409).json({
+          error: "TIMER_ALREADY_RUNNING",
+          message: "You already have an active timer. Stop it before starting a new one.",
+          timer: existingTimer,
         });
       }
 

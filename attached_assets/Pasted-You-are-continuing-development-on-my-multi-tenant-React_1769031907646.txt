@@ -1,0 +1,208 @@
+You are continuing development on my multi-tenant React + Express + Postgres app (cookie auth) deployed on Railway.
+FOCUS: Timer reliability hardening for the Time Tracking stopwatch system.
+
+We recently fixed the stop/save workflow. Now we must harden the ACTIVE TIMER system so it is reliable across:
+- page refreshes
+- navigation
+- multiple tabs/windows
+- temporary network disconnects
+- server restarts (Railway) and client reconnects
+
+This prompt must be SAFE and narrowly scoped to timer reliability. Do NOT refactor unrelated areas.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes (add-only fields OK if optional).
+- Do NOT weaken auth/tenancy; all timer reads/writes must be tenant-scoped.
+- Do NOT create destructive migrations. Additive schema changes only if necessary.
+- Do NOT allow more than one active timer per user (enforce reliably).
+- Add tests so these fixes don’t regress.
+
+===============================================================================
+CURRENT PROBLEM SET (WHAT MUST BE TRUE WHEN DONE)
+===============================================================================
+1) If a user starts a timer, refreshes the page, or navigates elsewhere:
+   - the timer resumes correctly (same start time, same context, same description/title)
+2) If a user opens a second tab while a timer is running:
+   - the second tab immediately shows the same running timer state (not “no timer”)
+   - user cannot start a second timer; they get a clear message “Timer already running”
+3) If a network blip occurs:
+   - UI stays stable; once reconnected it re-syncs from server
+4) If the server has an active timer for the user:
+   - the UI shows a “Recovered running timer” state rather than losing it
+5) When the timer is stopped and entry saved:
+   - active timer record is removed/cleared server-side
+   - client caches are invalidated so UI updates instantly
+
+===============================================================================
+STEP 1 — AUDIT CURRENT TIMER MODEL + ENDPOINTS (REQUIRED)
+===============================================================================
+1) Identify current tables/fields used for active timers:
+- activeTimers table (or equivalent)
+- fields: userId, tenantId, clientId/projectId/taskId/subtaskId, startedAt, title, description, pausedAt?, accumulatedMs?, updatedAt?
+
+2) Identify endpoints used today:
+- GET active timer
+- POST start timer
+- POST pause/resume (if any)
+- DELETE/POST stop timer
+- POST save time entry (finalize)
+
+3) Confirm whether timer state is currently only client-side or partially server-side.
+Goal: server is source of truth for “is a timer active”.
+
+===============================================================================
+STEP 2 — ENFORCE “ONE ACTIVE TIMER PER USER” (SERVER-SIDE)
+===============================================================================
+Server must enforce single active timer per (tenantId, userId) (or userId globally if user belongs to one tenant at a time).
+
+Implement BOTH:
+A) Application-level guard:
+- On “start timer”, first check if an active timer exists for the user in that tenant.
+- If exists, return 409 JSON with { error: "TIMER_ALREADY_RUNNING", timer: { ... } }
+
+B) DB-level safety (preferred, additive):
+- Add a unique partial index if Postgres supports it in your schema:
+  UNIQUE (tenant_id, user_id) WHERE is_active = true
+OR if you don’t have is_active:
+  Use a nullable stoppedAt and index WHERE stopped_at IS NULL
+Do NOT break existing data; include migration + backfill if needed.
+
+===============================================================================
+STEP 3 — ADD PAUSE/RESUME RELIABILITY (IF NOT ALREADY)
+===============================================================================
+Even if Pause button exists, it must persist properly.
+
+If your timer model lacks pause tracking:
+- Add additive fields to active timer:
+  - status: 'running'|'paused' (default running)
+  - started_at timestamp
+  - last_resumed_at timestamp (nullable)
+  - accumulated_ms integer default 0
+  - paused_at timestamp nullable
+  - updated_at timestamp
+This allows accurate elapsed time:
+- if running: elapsed = accumulated_ms + (now - last_resumed_at)
+- if paused: elapsed = accumulated_ms
+
+Endpoints (add-only if missing):
+- POST /api/v1/timers/active/start
+- POST /api/v1/timers/active/pause
+- POST /api/v1/timers/active/resume
+- POST /api/v1/timers/active/stop  (or existing)
+- GET  /api/v1/timers/active
+
+Do NOT change existing endpoint shapes; if endpoints already exist, adapt logic inside them.
+
+===============================================================================
+STEP 4 — “RECOVER TIMER” ON APP LOAD (CLIENT + SERVER SYNC)
+===============================================================================
+Frontend:
+1) On app boot (after auth/me and tenant context loaded), always query:
+   GET /api/v1/timers/active
+2) If a timer exists:
+   - hydrate global timer state from server response
+   - show running/paused state correctly
+   - show “Recovered running timer” toast once per session (optional)
+3) If no timer:
+   - clear local timer state
+
+Critical:
+- Do NOT depend on localStorage as the source of truth.
+- localStorage may be used only for UI convenience (e.g., “dismissed recovered toast”).
+
+TanStack Query:
+- Create a dedicated query key: ["activeTimer", effectiveTenantId, userId]
+- Invalidate this query on any timer mutation (start/pause/resume/stop/finalize).
+
+===============================================================================
+STEP 5 — MULTI-TAB SYNC (CLIENT-SIDE) WITHOUT WEBSOCKETS REQUIREMENT
+===============================================================================
+We want immediate-ish cross-tab sync without relying on sockets (safe MVP).
+
+Implement:
+- Use BroadcastChannel("active-timer") if available, fallback to localStorage event.
+- When any tab performs timer mutation successfully:
+  - broadcast { type: "timer-updated" }
+- Other tabs receive the event and invalidate ["activeTimer", ...] query (refetch).
+
+Also add a periodic light refetch:
+- While timer running, refetch active timer every 15–30 seconds (low load).
+- While paused, refetch every 60 seconds.
+This ensures tabs converge even if events fail.
+
+===============================================================================
+STEP 6 — NETWORK DISCONNECT RESILIENCE
+===============================================================================
+1) All timer mutations must be optimistic but safe:
+- If start fails, revert UI and show error with requestId.
+- If pause/resume fails, revert toggle.
+- If stop/save fails, do NOT clear the timer locally; keep it and prompt retry.
+
+2) If fetch returns non-JSON/HTML (Railway routing issues):
+- detect via content-type before json parse
+- show “API returned HTML instead of JSON” + requestId
+- do not crash the app
+
+===============================================================================
+STEP 7 — FINALIZE FLOW MUST CLEAR ACTIVE TIMER RELIABLY
+===============================================================================
+When user saves time entry (finalize):
+- The server must:
+  - create time entry
+  - clear active timer (delete row or set stoppedAt/is_active=false)
+  - do it in a transaction (atomic)
+- The client must:
+  - invalidate activeTimer query
+  - refresh time entry list
+  - show success toast
+- If finalize fails mid-way:
+  - ensure timer is still present and recoverable
+  - return explicit error codes
+
+===============================================================================
+STEP 8 — TENANCY SAFETY + VALIDATION
+===============================================================================
+All active timer endpoints must:
+- require auth
+- infer tenantId from session effectiveTenantId (do not accept from client payload)
+- verify any provided client/project/task/subtask belong to this tenant
+
+Add “Tenant Health” metric (optional):
+- activeTimers rows missing tenantId
+- activeTimers referencing entities in other tenants
+This should be visible to Super Admin debugging.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) start_timer_creates_single_active_timer_per_user.test.ts
+2) start_timer_when_exists_returns_409_and_existing_timer.test.ts
+3) pause_resume_updates_accumulated_time_correctly.test.ts
+4) get_active_timer_after_refresh_returns_same_start_time.test.ts
+5) finalize_time_entry_clears_active_timer_atomically.test.ts
+
+Frontend (if test infra exists):
+6) boot_recovers_timer_from_server.test.tsx
+7) second_tab_receives_broadcast_and_refetches_timer.test.tsx
+8) stop_failure_does_not_clear_timer_locally.test.tsx
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Refreshing during an active timer reliably restores timer state.
+- Second tab shows same active timer; cannot start a second timer.
+- Pause/resume persists and elapsed time remains correct.
+- Finalize saves entry and clears timer; if finalize fails, timer remains recoverable.
+- Works on Railway; no HTML-as-JSON crashes.
+- All changes tenant-scoped; tests pass.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Current timer model summary and what fields were added (if any)
+- How single-active enforcement is implemented (app guard + index)
+- Files changed (server + client)
+- Manual verification checklist for Railway (two tabs + refresh + disconnect simulation)

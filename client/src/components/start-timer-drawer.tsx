@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { FullScreenDrawer, FullScreenDrawerFooter } from "@/components/ui/full-screen-drawer";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -13,9 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TaskSelectorWithCreate } from "@/components/task-selector-with-create";
-import { Button } from "@/components/ui/button";
-import { Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+const BROADCAST_CHANNEL_NAME = "active-timer-sync";
 
 interface StartTimerDrawerProps {
   open: boolean;
@@ -24,11 +23,42 @@ interface StartTimerDrawerProps {
 
 export function StartTimerDrawer({ open, onOpenChange }: StartTimerDrawerProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [hasChanges, setHasChanges] = useState(false);
   const [description, setDescription] = useState("");
   const [clientId, setClientId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  const broadcastTimerUpdate = useCallback(() => {
+    if (broadcastChannelRef.current) {
+      try {
+        broadcastChannelRef.current.postMessage({ type: "timer-updated" });
+      } catch {
+        // BroadcastChannel may fail in some environments
+      }
+    }
+    try {
+      localStorage.setItem("timer-sync", Date.now().toString());
+      localStorage.removeItem("timer-sync");
+    } catch {
+      // localStorage may be unavailable
+    }
+  }, []);
+
+  // Setup BroadcastChannel
+  useEffect(() => {
+    try {
+      broadcastChannelRef.current = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+    } catch {
+      // BroadcastChannel not supported
+    }
+    return () => {
+      broadcastChannelRef.current?.close();
+      broadcastChannelRef.current = null;
+    };
+  }, []);
 
   const { data: clients = [] } = useQuery<Array<{ id: string; companyName: string; displayName: string | null }>>({
     queryKey: ["/api/clients"],
@@ -45,16 +75,36 @@ export function StartTimerDrawer({ open, onOpenChange }: StartTimerDrawerProps) 
     : allProjects;
 
   const startMutation = useMutation({
-    mutationFn: (data: { clientId?: string | null; projectId?: string | null; taskId?: string | null; description?: string }) =>
-      apiRequest("POST", "/api/timer/start", data),
+    mutationFn: async (data: { clientId?: string | null; projectId?: string | null; taskId?: string | null; description?: string }) => {
+      const response = await apiRequest("POST", "/api/timer/start", data);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 409 && errorData.error === "TIMER_ALREADY_RUNNING") {
+          throw new Error("TIMER_ALREADY_RUNNING");
+        }
+        throw new Error(errorData.message || errorData.error || "Failed to start timer");
+      }
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/timer/current"] });
+      broadcastTimerUpdate();
       toast({ title: "Timer started" });
       onOpenChange(false);
       resetForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to start timer", description: error.message, variant: "destructive" });
+      if (error.message === "TIMER_ALREADY_RUNNING") {
+        toast({ 
+          title: "Timer already running", 
+          description: "You already have an active timer. Stop it before starting a new one.", 
+          variant: "destructive" 
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/timer/current"] });
+        onOpenChange(false);
+      } else {
+        toast({ title: "Failed to start timer", description: error.message, variant: "destructive" });
+      }
     },
   });
 

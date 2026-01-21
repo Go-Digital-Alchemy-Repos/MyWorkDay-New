@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Play, Pause, Square, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -42,6 +42,11 @@ type ActiveTimer = {
   task?: { id: string; title: string };
 };
 
+const TIMER_QUERY_KEY = "/api/timer/current";
+const BROADCAST_CHANNEL_NAME = "active-timer-sync";
+const RUNNING_REFETCH_INTERVAL = 30000;
+const PAUSED_REFETCH_INTERVAL = 60000;
+
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -52,6 +57,7 @@ function formatDuration(seconds: number): string {
 export function GlobalActiveTimer() {
   const { isAuthenticated, user } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [displaySeconds, setDisplaySeconds] = useState(0);
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
   const [stopScope, setStopScope] = useState<"in_scope" | "out_of_scope">("in_scope");
@@ -59,36 +65,157 @@ export function GlobalActiveTimer() {
   const [stopDescription, setStopDescription] = useState("");
   const [stopTaskId, setStopTaskId] = useState<string | null>(null);
   const [stopClientId, setStopClientId] = useState<string | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const hasShownRecoveryToast = useRef(false);
 
-  const { data: timer } = useQuery<ActiveTimer | null>({
-    queryKey: ["/api/timer/current"],
-    enabled: isAuthenticated && user?.role !== "super_user",
-    refetchInterval: 30000,
+  const isEligible = isAuthenticated && user?.role !== "super_user";
+
+  const { data: timer, isLoading: timerLoading, refetch: refetchTimer } = useQuery<ActiveTimer | null>({
+    queryKey: [TIMER_QUERY_KEY],
+    enabled: isEligible,
+    staleTime: 10000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   });
 
   const { data: clients = [] } = useQuery<Array<{ id: string; companyName: string; displayName: string | null }>>({
     queryKey: ["/api/clients"],
-    enabled: isAuthenticated && user?.role !== "super_user",
+    enabled: isEligible,
   });
 
-  const { data: projects = [] } = useQuery<Array<{ id: string; name: string }>>({
-    queryKey: ["/api/projects"],
-    enabled: isAuthenticated && user?.role !== "super_user",
-  });
+  const invalidateTimer = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: [TIMER_QUERY_KEY] });
+  }, [queryClient]);
+
+  const broadcastTimerUpdate = useCallback(() => {
+    if (broadcastChannelRef.current) {
+      try {
+        broadcastChannelRef.current.postMessage({ type: "timer-updated" });
+      } catch {
+        // BroadcastChannel may fail in some environments
+      }
+    }
+    try {
+      localStorage.setItem("timer-sync", Date.now().toString());
+      localStorage.removeItem("timer-sync");
+    } catch {
+      // localStorage may be unavailable
+    }
+  }, []);
+
+  // Setup BroadcastChannel for cross-tab sync
+  useEffect(() => {
+    if (!isEligible) return;
+
+    try {
+      broadcastChannelRef.current = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      broadcastChannelRef.current.onmessage = (event) => {
+        if (event.data?.type === "timer-updated") {
+          invalidateTimer();
+        }
+      };
+    } catch {
+      // BroadcastChannel not supported
+    }
+
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key === "timer-sync") {
+        invalidateTimer();
+      }
+    };
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+      broadcastChannelRef.current?.close();
+      broadcastChannelRef.current = null;
+      window.removeEventListener("storage", handleStorageEvent);
+    };
+  }, [isEligible, invalidateTimer]);
+
+  // Periodic refetch based on timer status
+  useEffect(() => {
+    if (!isEligible || !timer) return;
+
+    const interval = timer.status === "running" 
+      ? RUNNING_REFETCH_INTERVAL 
+      : PAUSED_REFETCH_INTERVAL;
+
+    const intervalId = setInterval(() => {
+      refetchTimer();
+    }, interval);
+
+    return () => clearInterval(intervalId);
+  }, [isEligible, timer?.status, refetchTimer]);
+
+  // Show recovery toast on app boot if timer exists
+  useEffect(() => {
+    if (timer && !hasShownRecoveryToast.current && !timerLoading) {
+      const sessionKey = `timer-recovered-${timer.id}`;
+      const alreadyShown = sessionStorage.getItem(sessionKey);
+      
+      if (!alreadyShown) {
+        toast({
+          title: "Timer recovered",
+          description: `Your ${timer.status === "running" ? "running" : "paused"} timer has been restored.`,
+        });
+        sessionStorage.setItem(sessionKey, "true");
+      }
+      hasShownRecoveryToast.current = true;
+    }
+  }, [timer, timerLoading, toast]);
 
   const pauseMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/timer/pause"),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: [TIMER_QUERY_KEY] });
+      const previousTimer = queryClient.getQueryData<ActiveTimer | null>([TIMER_QUERY_KEY]);
+      if (previousTimer) {
+        queryClient.setQueryData<ActiveTimer | null>([TIMER_QUERY_KEY], {
+          ...previousTimer,
+          status: "paused",
+        });
+      }
+      return { previousTimer };
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/timer/current"] });
+      invalidateTimer();
+      broadcastTimerUpdate();
       toast({ title: "Timer paused" });
+    },
+    onError: (error, _, context) => {
+      if (context?.previousTimer) {
+        queryClient.setQueryData([TIMER_QUERY_KEY], context.previousTimer);
+      }
+      toast({ title: "Failed to pause timer", description: String(error), variant: "destructive" });
     },
   });
 
   const resumeMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/timer/resume"),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: [TIMER_QUERY_KEY] });
+      const previousTimer = queryClient.getQueryData<ActiveTimer | null>([TIMER_QUERY_KEY]);
+      if (previousTimer) {
+        queryClient.setQueryData<ActiveTimer | null>([TIMER_QUERY_KEY], {
+          ...previousTimer,
+          status: "running",
+          lastStartedAt: new Date().toISOString(),
+        });
+      }
+      return { previousTimer };
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/timer/current"] });
+      invalidateTimer();
+      broadcastTimerUpdate();
       toast({ title: "Timer resumed" });
+    },
+    onError: (error, _, context) => {
+      if (context?.previousTimer) {
+        queryClient.setQueryData([TIMER_QUERY_KEY], context.previousTimer);
+      }
+      toast({ title: "Failed to resume timer", description: String(error), variant: "destructive" });
     },
   });
 
@@ -96,7 +223,8 @@ export function GlobalActiveTimer() {
     mutationFn: (data: { discard?: boolean; scope?: string; description?: string; taskId?: string | null; clientId?: string | null }) =>
       apiRequest("POST", "/api/timer/stop", data),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/timer/current"] });
+      invalidateTimer();
+      broadcastTimerUpdate();
       queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
       if (variables.discard) {
         toast({ title: "Timer discarded" });
@@ -107,7 +235,13 @@ export function GlobalActiveTimer() {
       resetStopForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to save entry", description: error.message, variant: "destructive" });
+      // Do NOT clear timer on failure - keep it recoverable
+      toast({ 
+        title: "Failed to save entry", 
+        description: error.message || "Please try again. Your timer is still active.", 
+        variant: "destructive" 
+      });
+      invalidateTimer();
     },
   });
 

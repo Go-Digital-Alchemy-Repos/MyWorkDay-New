@@ -79,6 +79,15 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Cache isolation utilities (`clearTenantScopedCaches`, `validateTenantExists`)
   - Tenant-scoped query prefix constants for selective invalidation
   - Route guards (SuperRouteGuard, TenantRouteGuard) for access control
+- **Time Tracking Reliability**: Timer hardening for cross-session/tab reliability:
+  - GlobalActiveTimer component in header with persistent timer display
+  - BroadcastChannel cross-tab sync with localStorage fallback
+  - Periodic refetch (30s running, 60s paused) for convergence
+  - Recovery toast on app boot when timer exists
+  - Optimistic mutations with rollback on failure
+  - 409 TIMER_ALREADY_RUNNING error handling prevents duplicate timers
+  - Unique index on userId enforces single active timer per user
+  - Server is source of truth; localStorage not used for timer state
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
