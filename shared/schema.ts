@@ -675,6 +675,19 @@ export const taskAssignees = pgTable("task_assignees", {
   index("task_assignees_tenant_idx").on(table.tenantId),
 ]);
 
+// Task Watchers table (users who want to be notified about task changes but aren't assigned)
+export const taskWatchers = pgTable("task_watchers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id),
+  taskId: varchar("task_id").references(() => tasks.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("task_watchers_unique").on(table.taskId, table.userId),
+  index("task_watchers_user").on(table.userId),
+  index("task_watchers_tenant_idx").on(table.tenantId),
+]);
+
 // Personal Task Sections table - user-defined sections for organizing personal tasks in My Tasks view
 export const personalTaskSections = pgTable("personal_task_sections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1119,6 +1132,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
     relationName: "parentChild",
   }),
   assignees: many(taskAssignees),
+  watchers: many(taskWatchers),
   subtasks: many(subtasks),
   tags: many(taskTags),
   comments: many(comments),
@@ -1151,6 +1165,21 @@ export const taskAssigneesRelations = relations(taskAssignees, ({ one }) => ({
   }),
   tenant: one(tenants, {
     fields: [taskAssignees.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const taskWatchersRelations = relations(taskWatchers, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskWatchers.taskId],
+    references: [tasks.id],
+  }),
+  user: one(users, {
+    fields: [taskWatchers.userId],
+    references: [users.id],
+  }),
+  tenant: one(tenants, {
+    fields: [taskWatchers.tenantId],
     references: [tenants.id],
   }),
 }));
@@ -1442,6 +1471,11 @@ export const insertTaskAssigneeSchema = createInsertSchema(taskAssignees).omit({
   createdAt: true,
 });
 
+export const insertTaskWatcherSchema = createInsertSchema(taskWatchers).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertPersonalTaskSectionSchema = createInsertSchema(personalTaskSections).omit({
   id: true,
   createdAt: true,
@@ -1631,6 +1665,9 @@ export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type TaskAssignee = typeof taskAssignees.$inferSelect;
 export type InsertTaskAssignee = z.infer<typeof insertTaskAssigneeSchema>;
 
+export type TaskWatcher = typeof taskWatchers.$inferSelect;
+export type InsertTaskWatcher = z.infer<typeof insertTaskWatcherSchema>;
+
 export type PersonalTaskSection = typeof personalTaskSections.$inferSelect;
 export type InsertPersonalTaskSection = z.infer<typeof insertPersonalTaskSectionSchema>;
 
@@ -1679,6 +1716,7 @@ export type TaskAttachmentWithUser = TaskAttachment & {
 
 export type TaskWithRelations = Task & {
   assignees?: (TaskAssignee & { user?: User })[];
+  watchers?: (TaskWatcher & { user?: User })[];
   tags?: (TaskTag & { tag?: Tag })[];
   subtasks?: Subtask[];
   childTasks?: TaskWithRelations[];
