@@ -1,6 +1,45 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useCreatePersonalTask, useCreateSubtask } from "@/hooks/use-create-task";
+
+const MY_TASKS_FILTERS_KEY = "my-tasks-filters";
+const MY_TASKS_ORDERS_KEY = "my-tasks-section-orders";
+
+function loadSavedFilters(): { statusFilter: string; priorityFilter: string } {
+  try {
+    const saved = localStorage.getItem(MY_TASKS_FILTERS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        statusFilter: parsed.statusFilter || "all",
+        priorityFilter: parsed.priorityFilter || "all",
+      };
+    }
+  } catch {}
+  return { statusFilter: "all", priorityFilter: "all" };
+}
+
+function saveFilters(filters: { statusFilter: string; priorityFilter: string }) {
+  try {
+    localStorage.setItem(MY_TASKS_FILTERS_KEY, JSON.stringify(filters));
+  } catch {}
+}
+
+function loadSavedOrders(): Record<string, string[]> {
+  try {
+    const saved = localStorage.getItem(MY_TASKS_ORDERS_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {}
+  return {};
+}
+
+function saveOrders(orders: Record<string, string[]>) {
+  try {
+    localStorage.setItem(MY_TASKS_ORDERS_KEY, JSON.stringify(orders));
+  } catch {}
+}
 import {
   DndContext,
   closestCenter,
@@ -190,12 +229,22 @@ function TaskSectionList({ section, onTaskSelect, onStatusChange, localOrder, on
 
 export default function MyTasks() {
   const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [showNewTaskInput, setShowNewTaskInput] = useState(false);
-  const [sectionOrders, setSectionOrders] = useState<Record<string, string[]>>({});
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const savedFilters = useMemo(() => loadSavedFilters(), []);
+  const [statusFilter, setStatusFilter] = useState<string>(savedFilters.statusFilter);
+  const [priorityFilter, setPriorityFilter] = useState<string>(savedFilters.priorityFilter);
+  const [sectionOrders, setSectionOrders] = useState<Record<string, string[]>>(() => loadSavedOrders());
+
+  useEffect(() => {
+    saveFilters({ statusFilter, priorityFilter });
+  }, [statusFilter, priorityFilter]);
+
+  useEffect(() => {
+    saveOrders(sectionOrders);
+  }, [sectionOrders]);
 
   const { data: tasks, isLoading } = useQuery<TaskWithRelations[]>({
     queryKey: ["/api/tasks/my"],
