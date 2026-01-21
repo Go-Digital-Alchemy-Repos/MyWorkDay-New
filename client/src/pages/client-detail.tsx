@@ -273,6 +273,7 @@ export default function ClientDetailPage() {
     onSuccess: (project: Project) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/projects"] });
       setAddProjectOpen(false);
       setProjectView("options");
       projectForm.reset();

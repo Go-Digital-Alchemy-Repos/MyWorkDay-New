@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -21,8 +23,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { FolderKanban, Search, Filter, Calendar, Users, CheckSquare, AlertTriangle, Clock, CircleOff, DollarSign } from "lucide-react";
+import { FolderKanban, Search, Filter, Calendar, Users, CheckSquare, AlertTriangle, Clock, CircleOff, DollarSign, Plus } from "lucide-react";
 import { ProjectDetailDrawer } from "@/components/project-detail-drawer";
+import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { useToast } from "@/hooks/use-toast";
 import type { Project, Client, Team } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -68,6 +72,8 @@ export default function ProjectsDashboard() {
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const [selectedProject, setSelectedProject] = useState<ProjectWithCounts | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const { toast } = useToast();
 
   const { data: projects, isLoading: projectsLoading } = useQuery<ProjectWithCounts[]>({
     queryKey: ["/api/v1/projects", { includeCounts: true }],
@@ -90,6 +96,25 @@ export default function ProjectsDashboard() {
     queryKey: ["/api/v1/projects/forecast/summary"],
     staleTime: 30000,
   });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest("POST", "/api/projects", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/projects"] });
+      setCreateProjectOpen(false);
+      toast({ title: "Project created successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to create project", variant: "destructive" });
+    },
+  });
+
+  const handleCreateProject = (data: any) => {
+    createProjectMutation.mutate(data);
+  };
 
   const getProjectStats = (projectId: string) => {
     if (!analytics?.perProject) return null;
@@ -142,14 +167,20 @@ export default function ProjectsDashboard() {
   return (
     <div className="h-full overflow-auto">
       <div className="container max-w-7xl mx-auto py-6 px-4">
-        <div className="flex items-center gap-3 mb-6">
-          <FolderKanban className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Projects</h1>
-            <p className="text-muted-foreground text-sm">
-              View and manage all projects across your workspace
-            </p>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <FolderKanban className="h-8 w-8 text-primary" />
+            <div>
+              <h1 className="text-2xl font-bold">Projects</h1>
+              <p className="text-muted-foreground text-sm">
+                View and manage all projects across your workspace
+              </p>
+            </div>
           </div>
+          <Button onClick={() => setCreateProjectOpen(true)} data-testid="button-new-project">
+            <Plus className="h-4 w-4 mr-2" />
+            New Project
+          </Button>
         </div>
 
         {analytics?.totals && (
@@ -473,6 +504,14 @@ export default function ProjectsDashboard() {
         project={selectedProject}
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+      />
+
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onSubmit={handleCreateProject}
+        teams={teams}
+        isPending={createProjectMutation.isPending}
       />
     </div>
   );

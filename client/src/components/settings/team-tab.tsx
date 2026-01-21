@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { 
   Plus, UserPlus, Users, Mail, MoreHorizontal, Copy, Trash2, 
-  Edit, Link as LinkIcon, RefreshCw, X, Check
+  Edit, RefreshCw, X, ChevronDown, ChevronRight, UserMinus
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -27,11 +27,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { User, Team, Invitation, Client } from "@shared/schema";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import type { User, Team, Invitation, Client, TeamMember } from "@shared/schema";
 
-interface TeamMember {
-  teamId: string;
-  userId: string;
+interface TeamMemberWithUser extends TeamMember {
   user?: User;
 }
 
@@ -46,6 +64,11 @@ export function TeamTab() {
   const [editingUserTeamIds, setEditingUserTeamIds] = useState<string[]>([]);
   const [editingUserClientIds, setEditingUserClientIds] = useState<string[]>([]);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
+  
+  const [addMemberDialogOpen, setAddMemberDialogOpen] = useState(false);
+  const [selectedTeamForMember, setSelectedTeamForMember] = useState<Team | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
 
   const { toast } = useToast();
 
@@ -127,6 +150,36 @@ export function TeamTab() {
     },
     onError: () => {
       toast({ title: "Failed to delete team", variant: "destructive" });
+    },
+  });
+
+  const addTeamMemberMutation = useMutation({
+    mutationFn: async ({ teamId, userId }: { teamId: string; userId: string }) => {
+      return apiRequest("POST", `/api/teams/${teamId}/members`, { userId });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/teams/${variables.teamId}/members`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+      toast({ title: "Member added to team" });
+      setAddMemberDialogOpen(false);
+      setSelectedUserId("");
+    },
+    onError: () => {
+      toast({ title: "Failed to add member", variant: "destructive" });
+    },
+  });
+
+  const removeTeamMemberMutation = useMutation({
+    mutationFn: async ({ teamId, userId }: { teamId: string; userId: string }) => {
+      return apiRequest("DELETE", `/api/teams/${teamId}/members/${userId}`);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/teams/${variables.teamId}/members`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+      toast({ title: "Member removed from team" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove member", variant: "destructive" });
     },
   });
 
@@ -259,10 +312,42 @@ export function TeamTab() {
     deleteInvitationMutation.mutate(invitationId);
   };
 
+  const openAddMemberDialog = (team: Team) => {
+    setSelectedTeamForMember(team);
+    setSelectedUserId("");
+    setAddMemberDialogOpen(true);
+    queryClient.invalidateQueries({ queryKey: [`/api/teams/${team.id}/members`] });
+  };
+
+  const handleAddMember = () => {
+    if (selectedTeamForMember && selectedUserId) {
+      addTeamMemberMutation.mutate({
+        teamId: selectedTeamForMember.id,
+        userId: selectedUserId,
+      });
+    }
+  };
+
+  const handleRemoveMember = (teamId: string, userId: string) => {
+    removeTeamMemberMutation.mutate({ teamId, userId });
+  };
+
+  const toggleTeamExpanded = (teamId: string) => {
+    setExpandedTeams(prev => {
+      const next = new Set(prev);
+      if (next.has(teamId)) {
+        next.delete(teamId);
+      } else {
+        next.add(teamId);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <div>
               <CardTitle className="text-lg">Team Members</CardTitle>
@@ -386,7 +471,7 @@ export function TeamTab() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="lg:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <div>
               <CardTitle className="text-lg">Teams</CardTitle>
@@ -398,43 +483,19 @@ export function TeamTab() {
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {teams?.map((team) => (
-                <div
+                <TeamWithMembers
                   key={team.id}
-                  className="flex items-center justify-between p-3 rounded-lg border"
-                  data-testid={`card-team-${team.id}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Users className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <div className="font-medium">{team.name}</div>
-                    </div>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEditTeam(team)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Team
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem 
-                        onClick={() => handleDeleteTeam(team.id)}
-                        className="text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Team
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                  team={team}
+                  isExpanded={expandedTeams.has(team.id)}
+                  onToggleExpand={() => toggleTeamExpanded(team.id)}
+                  onEditTeam={() => openEditTeam(team)}
+                  onDeleteTeam={() => handleDeleteTeam(team.id)}
+                  onAddMember={() => openAddMemberDialog(team)}
+                  onRemoveMember={(userId) => handleRemoveMember(team.id, userId)}
+                  users={users}
+                />
               ))}
               {(!teams || teams.length === 0) && (
                 <div className="text-center text-muted-foreground py-8">
@@ -554,6 +615,249 @@ export function TeamTab() {
         isLoading={updateTeamMutation.isPending}
         mode="edit"
       />
+
+      <AddMemberDialog
+        open={addMemberDialogOpen}
+        onOpenChange={setAddMemberDialogOpen}
+        team={selectedTeamForMember}
+        users={users}
+        selectedUserId={selectedUserId}
+        onSelectUser={setSelectedUserId}
+        onConfirm={handleAddMember}
+        isPending={addTeamMemberMutation.isPending}
+      />
     </div>
+  );
+}
+
+function TeamWithMembers({
+  team,
+  isExpanded,
+  onToggleExpand,
+  onEditTeam,
+  onDeleteTeam,
+  onAddMember,
+  onRemoveMember,
+  users,
+}: {
+  team: Team;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onEditTeam: () => void;
+  onDeleteTeam: () => void;
+  onAddMember: () => void;
+  onRemoveMember: (userId: string) => void;
+  users?: User[];
+}) {
+  const { data: members, isLoading } = useQuery<TeamMemberWithUser[]>({
+    queryKey: [`/api/teams/${team.id}/members`],
+    enabled: isExpanded,
+  });
+
+  const getInitials = (user: User) => {
+    const first = user.firstName || user.name?.split(" ")[0] || "";
+    const last = user.lastName || user.name?.split(" ")[1] || "";
+    return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase() || user.email?.charAt(0).toUpperCase() || "U";
+  };
+
+  const getFullName = (user: User) => {
+    if (user.firstName || user.lastName) {
+      return `${user.firstName || ""} ${user.lastName || ""}`.trim();
+    }
+    return user.name || user.email || "Unknown";
+  };
+
+  return (
+    <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
+      <div
+        className="rounded-lg border"
+        data-testid={`card-team-${team.id}`}
+      >
+        <div className="flex items-center justify-between p-3">
+          <CollapsibleTrigger asChild>
+            <button 
+              className="flex items-center gap-3 flex-1 text-left hover-elevate rounded-md p-1 -m-1"
+              data-testid={`button-expand-team-${team.id}`}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              )}
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <div className="font-medium text-sm">{team.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {isExpanded && members ? `${members.length} members` : "Click to expand"}
+                </div>
+              </div>
+            </button>
+          </CollapsibleTrigger>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onAddMember} data-testid={`menu-add-member-${team.id}`}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Add Member
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onEditTeam} data-testid={`menu-edit-team-${team.id}`}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Team
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={onDeleteTeam}
+                className="text-destructive"
+                data-testid={`menu-delete-team-${team.id}`}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Team
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        
+        <CollapsibleContent>
+          <div className="border-t px-3 py-2 space-y-1">
+            {isLoading && (
+              <div className="text-xs text-muted-foreground py-2">Loading members...</div>
+            )}
+            {members && members.length === 0 && (
+              <div className="text-xs text-muted-foreground py-2">No members yet</div>
+            )}
+            {members?.map((member) => (
+              <div 
+                key={member.id} 
+                className="flex items-center justify-between py-1"
+                data-testid={`team-member-${member.userId}`}
+              >
+                <div className="flex items-center gap-2">
+                  <Avatar className="h-6 w-6">
+                    <AvatarFallback className="text-xs">
+                      {member.user ? getInitials(member.user) : "?"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm">
+                    {member.user ? getFullName(member.user) : "Unknown"}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => onRemoveMember(member.userId)}
+                  data-testid={`button-remove-member-${member.userId}`}
+                >
+                  <UserMinus className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full mt-2 text-xs"
+              onClick={onAddMember}
+              data-testid={`button-add-member-${team.id}`}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add Member
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function AddMemberDialog({
+  open,
+  onOpenChange,
+  team,
+  users,
+  selectedUserId,
+  onSelectUser,
+  onConfirm,
+  isPending,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  team: Team | null;
+  users?: User[];
+  selectedUserId: string;
+  onSelectUser: (userId: string) => void;
+  onConfirm: () => void;
+  isPending: boolean;
+}) {
+  const { data: existingMembers } = useQuery<TeamMemberWithUser[]>({
+    queryKey: [`/api/teams/${team?.id}/members`],
+    enabled: open && !!team,
+  });
+
+  const existingMemberIds = new Set(existingMembers?.map(m => m.userId) || []);
+  
+  const availableUsers = users?.filter(u => 
+    u.role !== "client" && !existingMemberIds.has(u.id)
+  ) || [];
+
+  const getFullName = (user: User) => {
+    if (user.firstName || user.lastName) {
+      return `${user.firstName || ""} ${user.lastName || ""}`.trim();
+    }
+    return user.name || user.email || "Unknown";
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add Team Member</DialogTitle>
+          <DialogDescription>
+            Add a user to {team?.name}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          {availableUsers.length === 0 ? (
+            <div className="text-center text-muted-foreground py-4">
+              All users are already members of this team
+            </div>
+          ) : (
+            <Select value={selectedUserId} onValueChange={onSelectUser}>
+              <SelectTrigger data-testid="select-team-member">
+                <SelectValue placeholder="Select a user" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableUsers.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {getFullName(user)} ({user.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <DialogFooter>
+          <Button 
+            variant="outline" 
+            onClick={() => onOpenChange(false)}
+            data-testid="button-cancel-add-member"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={onConfirm} 
+            disabled={!selectedUserId || isPending || availableUsers.length === 0}
+            data-testid="button-confirm-add-member"
+          >
+            {isPending ? "Adding..." : "Add Member"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
