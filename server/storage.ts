@@ -154,7 +154,7 @@ export interface IStorage {
   
   createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
   getActivityLogByEntity(entityType: string, entityId: string): Promise<ActivityLog[]>;
-  getProjectActivity(projectId: string, limit?: number): Promise<ProjectActivityItem[]>;
+  getProjectActivity(projectId: string, tenantId: string | null, limit?: number): Promise<ProjectActivityItem[]>;
   
   getTaskAttachment(id: string): Promise<TaskAttachment | undefined>;
   getTaskAttachmentsByTask(taskId: string): Promise<TaskAttachmentWithUser[]>;
@@ -869,24 +869,45 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(activityLog.createdAt));
   }
 
-  async getProjectActivity(projectId: string, limit: number = 50): Promise<ProjectActivityItem[]> {
+  async getProjectActivity(projectId: string, tenantId: string | null, limit: number = 50): Promise<ProjectActivityItem[]> {
     const activityItems: ProjectActivityItem[] = [];
+    const userIds = new Set<string>();
+    const taskCache = new Map<string, { id: string; title: string }>();
 
-    // 1. Get recently created tasks in this project
+    // Build tenant filter conditions
+    const taskFilters = tenantId 
+      ? and(eq(tasks.projectId, projectId), eq(tasks.tenantId, tenantId))
+      : eq(tasks.projectId, projectId);
+
+    const timeEntryFilters = tenantId
+      ? and(eq(timeEntries.projectId, projectId), eq(timeEntries.tenantId, tenantId))
+      : eq(timeEntries.projectId, projectId);
+
+    // 1. Get ALL task IDs in this project (for comment lookup)
+    const allProjectTasks = await db.select({ id: tasks.id, title: tasks.title })
+      .from(tasks)
+      .where(taskFilters);
+    
+    const allTaskIds = allProjectTasks.map(t => t.id);
+    for (const t of allProjectTasks) {
+      taskCache.set(t.id, t);
+    }
+
+    // 2. Get recently created/updated tasks
     const recentTasks = await db.select().from(tasks)
-      .where(eq(tasks.projectId, projectId))
+      .where(taskFilters)
       .orderBy(desc(tasks.createdAt))
       .limit(limit);
 
     for (const task of recentTasks) {
-      const actor = task.createdBy ? await this.getUser(task.createdBy) : null;
+      if (task.createdBy) userIds.add(task.createdBy);
       activityItems.push({
         id: `task-created-${task.id}`,
         type: "task_created",
         timestamp: task.createdAt,
-        actorId: actor?.id || "system",
-        actorName: actor?.name || "System",
-        actorEmail: actor?.email || "",
+        actorId: task.createdBy || "system",
+        actorName: "",
+        actorEmail: "",
         entityId: task.id,
         entityTitle: task.title,
       });
@@ -898,33 +919,32 @@ export class DatabaseStorage implements IStorage {
           id: `task-updated-${task.id}-${task.updatedAt.getTime()}`,
           type: "task_updated",
           timestamp: task.updatedAt,
-          actorId: actor?.id || "system",
-          actorName: actor?.name || "System",
-          actorEmail: actor?.email || "",
+          actorId: task.createdBy || "system",
+          actorName: "",
+          actorEmail: "",
           entityId: task.id,
           entityTitle: task.title,
         });
       }
     }
 
-    // 2. Get comments on tasks in this project
-    const projectTaskIds = recentTasks.map(t => t.id);
-    if (projectTaskIds.length > 0) {
+    // 3. Get recent comments on ALL tasks in this project (not just recentTasks)
+    if (allTaskIds.length > 0) {
       const recentComments = await db.select().from(comments)
-        .where(inArray(comments.taskId, projectTaskIds))
+        .where(inArray(comments.taskId, allTaskIds))
         .orderBy(desc(comments.createdAt))
         .limit(limit);
 
       for (const comment of recentComments) {
-        const actor = await this.getUser(comment.userId);
-        const task = recentTasks.find(t => t.id === comment.taskId);
+        userIds.add(comment.userId);
+        const task = taskCache.get(comment.taskId);
         activityItems.push({
           id: `comment-${comment.id}`,
           type: "comment_added",
           timestamp: comment.createdAt,
-          actorId: actor?.id || "unknown",
-          actorName: actor?.name || "Unknown",
-          actorEmail: actor?.email || "",
+          actorId: comment.userId,
+          actorName: "",
+          actorEmail: "",
           entityId: comment.taskId,
           entityTitle: task?.title || "Task",
           metadata: { commentBody: comment.body.substring(0, 100) },
@@ -932,26 +952,49 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // 3. Get time entries for this project
+    // 4. Get time entries for this project
     const recentTimeEntries = await db.select().from(timeEntries)
-      .where(eq(timeEntries.projectId, projectId))
+      .where(timeEntryFilters)
       .orderBy(desc(timeEntries.startTime))
       .limit(limit);
 
     for (const entry of recentTimeEntries) {
-      const actor = await this.getUser(entry.userId);
-      const task = entry.taskId ? recentTasks.find(t => t.id === entry.taskId) : null;
+      userIds.add(entry.userId);
+      const task = entry.taskId ? taskCache.get(entry.taskId) : null;
       activityItems.push({
         id: `time-entry-${entry.id}`,
         type: "time_logged",
         timestamp: entry.createdAt,
-        actorId: actor?.id || "unknown",
-        actorName: actor?.name || "Unknown",
-        actorEmail: actor?.email || "",
+        actorId: entry.userId,
+        actorName: "",
+        actorEmail: "",
         entityId: entry.taskId || projectId,
         entityTitle: task?.title || entry.description || "Time logged",
         metadata: { durationSeconds: entry.durationSeconds },
       });
+    }
+
+    // 5. Batch fetch all users
+    const userMap = new Map<string, { id: string; name: string; email: string }>();
+    if (userIds.size > 0) {
+      const userList = await db.select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(inArray(users.id, Array.from(userIds)));
+      for (const u of userList) {
+        userMap.set(u.id, u);
+      }
+    }
+
+    // 6. Fill in actor details
+    for (const item of activityItems) {
+      if (item.actorId === "system") {
+        item.actorName = "System";
+        item.actorEmail = "";
+      } else {
+        const user = userMap.get(item.actorId);
+        item.actorName = user?.name || "Unknown";
+        item.actorEmail = user?.email || "";
+      }
     }
 
     // Sort all items by timestamp descending and limit

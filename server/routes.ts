@@ -963,8 +963,8 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Project not found" });
       }
 
-      // Get project activity from storage
-      const activity = await storage.getProjectActivity(projectId, limit);
+      // Get project activity from storage (pass tenantId for isolation)
+      const activity = await storage.getProjectActivity(projectId, tenantId, limit);
       res.json(activity);
     } catch (error) {
       console.error("Error fetching project activity:", error);
