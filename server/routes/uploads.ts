@@ -21,6 +21,7 @@ import { users, tasks, projects, UserRole } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import {
   isS3Configured,
+  isS3ConfiguredForTenant,
   validateCategory,
   validateFile,
   createPresignedUpload,
@@ -28,6 +29,7 @@ import {
   type UploadCategory,
   type AssetType,
 } from "../services/uploads/s3UploadService";
+import { StorageNotConfiguredError, getStorageStatus } from "../storage/getStorageProvider";
 
 const router = Router();
 
@@ -216,6 +218,15 @@ router.post("/presign", requireAuth, async (req: Request, res: Response) => {
     res.json(result);
   } catch (error: any) {
     console.error("[uploads] Presign error:", error);
+    
+    if (error instanceof StorageNotConfiguredError) {
+      return res.status(400).json({
+        error: { code: "STORAGE_NOT_CONFIGURED", message: error.message },
+        code: "STORAGE_NOT_CONFIGURED",
+        message: error.message,
+      });
+    }
+    
     res.status(500).json({
       error: { code: "PRESIGN_FAILED", message: error.message || "Failed to generate upload URL" },
       code: "PRESIGN_FAILED",
@@ -228,11 +239,29 @@ router.post("/presign", requireAuth, async (req: Request, res: Response) => {
  * GET /api/v1/uploads/status
  * 
  * Check if S3 uploads are configured and available.
+ * Supports hierarchical storage resolution when tenantId is provided.
  */
-router.get("/status", (req: Request, res: Response) => {
-  res.json({
-    configured: isS3Configured(),
-  });
+router.get("/status", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    const tenantId = (req as any).tenantId || user.tenantId || null;
+    
+    const status = await getStorageStatus(tenantId);
+    
+    res.json({
+      configured: status.configured,
+      source: status.source,
+      tenantHasOverride: status.tenantHasOverride,
+      systemHasDefault: status.systemHasDefault,
+    });
+  } catch (error: any) {
+    console.error("[uploads] Status check error:", error);
+    res.status(500).json({
+      configured: false,
+      source: "none",
+      error: error.message,
+    });
+  }
 });
 
 export default router;

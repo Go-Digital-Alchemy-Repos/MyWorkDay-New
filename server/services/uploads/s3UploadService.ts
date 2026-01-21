@@ -17,6 +17,7 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
+import { getStorageProvider, getStorageStatus, createS3ClientFromConfig, StorageNotConfiguredError, type S3Config } from "../../storage/getStorageProvider";
 
 export type UploadCategory =
   | "global-branding-logo"
@@ -151,7 +152,7 @@ interface ValidationResult {
   code?: string;
 }
 
-function getS3Client(): S3Client | null {
+function getLegacyS3Client(): S3Client | null {
   const region = process.env.AWS_REGION;
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
@@ -169,12 +170,8 @@ function getS3Client(): S3Client | null {
   });
 }
 
-function getBucketName(): string {
-  const bucket = process.env.AWS_S3_BUCKET_NAME;
-  if (!bucket) {
-    throw new Error("AWS_S3_BUCKET_NAME environment variable is required");
-  }
-  return bucket;
+function getLegacyBucketName(): string | null {
+  return process.env.AWS_S3_BUCKET_NAME || null;
 }
 
 function sanitizeFilename(filename: string): string {
@@ -194,7 +191,12 @@ function getDatePrefix(): { year: string; month: string } {
 }
 
 export function isS3Configured(): boolean {
-  return getS3Client() !== null && !!process.env.AWS_S3_BUCKET_NAME;
+  return getLegacyS3Client() !== null && !!getLegacyBucketName();
+}
+
+export async function isS3ConfiguredForTenant(tenantId: string | null): Promise<boolean> {
+  const status = await getStorageStatus(tenantId);
+  return status.configured;
 }
 
 export function getCategoryConfig(category: UploadCategory): CategoryConfig | undefined {
@@ -280,9 +282,12 @@ export function generateS3Key(
   }
 }
 
-export function getFileUrl(key: string): string {
-  const bucket = getBucketName();
-  const region = process.env.AWS_REGION;
+export function getFileUrl(key: string, config?: S3Config): string {
+  const bucket = config?.bucketName || getLegacyBucketName();
+  const region = config?.region || process.env.AWS_REGION;
+  if (!bucket) {
+    throw new StorageNotConfiguredError("S3 bucket name not configured");
+  }
   return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
 }
 
@@ -293,18 +298,16 @@ export async function createPresignedUpload(
   size: number,
   context: PresignContext
 ): Promise<PresignResult> {
-  const client = getS3Client();
-  if (!client) {
-    throw new Error("S3 is not configured. Please set AWS environment variables.");
-  }
-
   const validation = validateFile(category, contentType, size);
   if (!validation.valid) {
     throw new Error(validation.error);
   }
 
+  const storageProvider = await getStorageProvider(context.tenantId || null);
+  const client = createS3ClientFromConfig(storageProvider.config);
+  const bucket = storageProvider.config.bucketName;
+
   const key = generateS3Key(category, filename, context);
-  const bucket = getBucketName();
 
   const command = new PutObjectCommand({
     Bucket: bucket,
@@ -313,7 +316,7 @@ export async function createPresignedUpload(
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: PRESIGN_EXPIRES_SECONDS });
-  const fileUrl = getFileUrl(key);
+  const fileUrl = getFileUrl(key, storageProvider.config);
 
   return {
     uploadUrl,
