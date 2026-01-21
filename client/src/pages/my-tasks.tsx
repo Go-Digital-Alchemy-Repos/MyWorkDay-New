@@ -5,7 +5,7 @@ import { useCreatePersonalTask, useCreateSubtask } from "@/hooks/use-create-task
 const MY_TASKS_FILTERS_KEY = "my-tasks-filters";
 const MY_TASKS_ORDERS_KEY = "my-tasks-section-orders";
 
-function loadSavedFilters(): { statusFilter: string; priorityFilter: string } {
+function loadSavedFilters(): { statusFilter: string; priorityFilter: string; showCompleted: boolean } {
   try {
     const saved = localStorage.getItem(MY_TASKS_FILTERS_KEY);
     if (saved) {
@@ -13,13 +13,14 @@ function loadSavedFilters(): { statusFilter: string; priorityFilter: string } {
       return {
         statusFilter: parsed.statusFilter || "all",
         priorityFilter: parsed.priorityFilter || "all",
+        showCompleted: parsed.showCompleted ?? false,
       };
     }
   } catch {}
-  return { statusFilter: "all", priorityFilter: "all" };
+  return { statusFilter: "all", priorityFilter: "all", showCompleted: false };
 }
 
-function saveFilters(filters: { statusFilter: string; priorityFilter: string }) {
+function saveFilters(filters: { statusFilter: string; priorityFilter: string; showCompleted: boolean }) {
   try {
     localStorage.setItem(MY_TASKS_FILTERS_KEY, JSON.stringify(filters));
   } catch {}
@@ -66,6 +67,8 @@ import {
   Plus,
   User,
   CalendarX,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -236,11 +239,12 @@ export default function MyTasks() {
   const savedFilters = useMemo(() => loadSavedFilters(), []);
   const [statusFilter, setStatusFilter] = useState<string>(savedFilters.statusFilter);
   const [priorityFilter, setPriorityFilter] = useState<string>(savedFilters.priorityFilter);
+  const [showCompleted, setShowCompleted] = useState<boolean>(savedFilters.showCompleted);
   const [sectionOrders, setSectionOrders] = useState<Record<string, string[]>>(() => loadSavedOrders());
 
   useEffect(() => {
-    saveFilters({ statusFilter, priorityFilter });
-  }, [statusFilter, priorityFilter]);
+    saveFilters({ statusFilter, priorityFilter, showCompleted });
+  }, [statusFilter, priorityFilter, showCompleted]);
 
   useEffect(() => {
     saveOrders(sectionOrders);
@@ -359,7 +363,7 @@ export default function MyTasks() {
   };
 
   const filteredTasks = tasks?.filter((task) => {
-    if (task.status === "done" && statusFilter === "all") return false;
+    if (task.status === "done" && !showCompleted) return false;
     if (statusFilter !== "all" && task.status !== statusFilter) return false;
     if (priorityFilter !== "all" && task.priority !== priorityFilter) return false;
     return true;
@@ -417,6 +421,25 @@ export default function MyTasks() {
                 <SelectItem value="low">Low</SelectItem>
               </SelectContent>
             </Select>
+            <Button
+              variant={showCompleted ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setShowCompleted(!showCompleted)}
+              className="gap-2 min-w-[130px]"
+              data-testid="button-toggle-completed"
+            >
+              {showCompleted ? (
+                <>
+                  <Eye className="h-4 w-4" />
+                  Show done
+                </>
+              ) : (
+                <>
+                  <EyeOff className="h-4 w-4" />
+                  Hide done
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
