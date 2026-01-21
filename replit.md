@@ -60,6 +60,12 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - ProvisionUserDrawer: 4-step wizard (User Info → Access Method → Review → Success)
   - Handles user creation, update, activation, password setting, and optional email notifications
   - Diagnostic logging via `SUPER_USER_PROVISION_DEBUG` environment flag
+- **Platform Admin Provisioning (Super Admin)**: Password management for other platform administrators:
+  - POST `/api/v1/super/admins/:id/provision` with two methods: SET_PASSWORD (set initial password) and RESET_LINK (generate password reset URL)
+  - Password management drawer in Super Admin Settings for setting or resetting passwords
+  - Invalidates existing reset tokens and pending invitations when setting passwords
+  - Optionally sends reset email via Mailgun when generating reset links
+  - Audit logging for all password management actions
 - **User Impersonation (Super Admin)**: Allows super admins to view the app as a tenant user:
   - POST `/api/v1/super/tenants/:tenantId/users/:userId/impersonate-login` to start
   - POST `/api/v1/super/impersonation/exit` to return to super admin view
