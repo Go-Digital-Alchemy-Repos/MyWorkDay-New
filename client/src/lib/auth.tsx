@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { type User, UserRole } from "@shared/schema";
-import { clearActingAsState, setSuperUserFlag } from "./queryClient";
+import { clearActingAsState, setSuperUserFlag, queryClient } from "./queryClient";
 
 interface UserImpersonationData {
   isImpersonating: boolean;
@@ -132,6 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       // Clear acting tenant state to prevent it from being used by next user
       clearActingAsState();
+      // Clear all cached query data to prevent data leakage between users
+      queryClient.clear();
       setUser(null);
       setUserImpersonation(null);
       setLocation("/login");
