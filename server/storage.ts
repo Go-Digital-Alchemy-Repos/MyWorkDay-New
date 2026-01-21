@@ -2204,8 +2204,16 @@ export class DatabaseStorage implements IStorage {
 
   /**
    * Get all tasks for multiple projects in a single query.
-   * Used to avoid N+1 in analytics/forecast summary endpoints.
-   * Returns a lightweight task structure (not full TaskWithRelations).
+   * 
+   * Performance: Avoids N+1 queries by fetching all tasks in one DB query,
+   * then batching assignee lookups. Used by analytics/forecast and command palette search.
+   * 
+   * Security Note: This method does NOT validate tenantId directly. Caller must ensure
+   * projectIds are from the correct tenant context. When used for search, projects are
+   * pre-filtered by tenant via getProjectsByTenant, making tasks inherently tenant-scoped.
+   * 
+   * @param projectIds - Array of project IDs to fetch tasks for
+   * @returns Map of projectId -> array of lightweight task objects
    */
   async getTasksByProjectIds(projectIds: string[]): Promise<Map<string, Array<{
     id: string;

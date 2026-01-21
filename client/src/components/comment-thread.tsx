@@ -62,6 +62,17 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+/**
+ * Renders @mentions as styled spans within comment text.
+ * 
+ * Parses mention format: @[DisplayName](userId)
+ * - DisplayName is shown to user (e.g., "@John Smith")
+ * - userId is captured but not displayed (for future linking)
+ * - User emails are never stored in mentions for privacy
+ * 
+ * @param body - Comment body text containing mentions
+ * @returns JSX with plain text and styled @mention spans
+ */
 function renderMentions(body: string): JSX.Element {
   const mentionRegex = /@\[([^\]]+)\]\(([a-f0-9-]+)\)/g;
   const parts: (string | JSX.Element)[] = [];
