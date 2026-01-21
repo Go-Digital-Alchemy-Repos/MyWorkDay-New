@@ -24,6 +24,7 @@ import {
   Users,
   Settings,
   Play,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +36,13 @@ import { TaskCreateDrawer } from "@/components/task-create-drawer";
 import { ProjectCalendar } from "@/components/project-calendar";
 import { ProjectSettingsSheet } from "@/components/project-settings-sheet";
 import { StartTimerDrawer } from "@/components/start-timer-drawer";
+import { ProjectActivityFeed } from "@/components/project-activity-feed";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useProjectSocket } from "@/lib/realtime";
@@ -56,6 +64,7 @@ export default function ProjectPage() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [timerDrawerOpen, setTimerDrawerOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<string | undefined>();
   const [localSections, setLocalSections] = useState<SectionWithTasks[] | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -403,6 +412,14 @@ export default function ProjectPage() {
             <Button variant="ghost" size="icon" data-testid="button-project-members">
               <Users className="h-4 w-4" />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setActivityOpen(true)}
+              data-testid="button-project-activity"
+            >
+              <Activity className="h-4 w-4" />
+            </Button>
             <Button 
               variant="ghost" 
               size="icon" 
@@ -580,6 +597,30 @@ export default function ProjectPage() {
         initialProjectId={projectId}
         initialClientId={project?.clientId}
       />
+
+      <Sheet open={activityOpen} onOpenChange={setActivityOpen}>
+        <SheetContent className="w-[380px] sm:w-[440px]">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Activity
+            </SheetTitle>
+          </SheetHeader>
+          {projectId && (
+            <div className="h-[calc(100vh-120px)] mt-4">
+              <ProjectActivityFeed
+                projectId={projectId}
+                limit={30}
+                onTaskClick={(taskId) => {
+                  setActivityOpen(false);
+                  const task = tasks?.find((t) => t.id === taskId);
+                  if (task) setSelectedTask(task);
+                }}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
