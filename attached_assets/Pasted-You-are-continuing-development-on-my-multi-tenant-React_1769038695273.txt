@@ -1,0 +1,215 @@
+You are continuing development on my multi-tenant React + Express + Postgres app (cookie auth) deployed on Railway.
+FOLLOW-UP FEATURE: Add Super Admin System Settings → Integrations UI for Google + GitHub SSO configuration.
+
+This prompt is UI + SETTINGS PERSISTENCE for SSO ONLY.
+Do NOT change the SSO auth flow endpoints or logic except to read config from the saved settings.
+Do NOT refactor unrelated settings tabs.
+
+IMPORTANT CONTEXT:
+- There has been an existing issue where System Settings integrations fields sometimes do not persist due to an “encryption not established” error.
+- This prompt MUST fix SSO settings persistence safely (for Google/GitHub only) by using the existing encryption utilities correctly.
+- If the encryption prerequisite truly isn’t initialized, add a safe initialization path that does NOT expose secrets and works on Railway.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT expose any secrets to the client after saving (never return stored secrets in plaintext).
+- Do NOT change existing integration endpoint paths/response shapes (extend existing ones only).
+- Additive-only schema changes if needed.
+- Maintain tenant isolation (this is SYSTEM-LEVEL config only).
+- Do not break other Integrations (Mailgun/S3/etc). Only fix persistence patterns in a shared, backwards-compatible way.
+
+===============================================================================
+GOALS
+===============================================================================
+1) In Super Admin → System Settings → Integrations:
+   - Add a new section: “SSO Providers”
+     - Google (OIDC)
+     - GitHub (OAuth)
+2) Admins can:
+   - Enable/disable provider
+   - Enter Client ID
+   - Enter Client Secret
+   - Enter Redirect URI (read-only auto-generated preferred; editable optional)
+   - Save settings
+   - See status “Configured / Not Configured”
+3) Secrets must be:
+   - encrypted at rest
+   - masked in UI after save (display “••••••••”)
+   - never re-rendered from server as plaintext
+4) The SSO auth layer must read from these saved settings at runtime.
+5) Provide a “Test Configuration” button for each provider that:
+   - validates required fields exist
+   - optionally performs a non-sensitive validation (format check + known issuer endpoints check for Google)
+   - DOES NOT send secrets back to the UI
+6) Works on Railway:
+   - Uses a stable encryption key configured via env var
+   - Avoids “encryption not established” runtime errors
+
+===============================================================================
+SCOPE BOUNDARIES
+===============================================================================
+DO:
+- Add/extend Integrations UI for Google/GitHub
+- Fix encryption persistence for these fields using existing crypto/encryption utilities
+- Add server-side validation + masked responses
+- Update docs with setup steps + required env vars (encryption key)
+
+DO NOT:
+- Rebuild the entire System Settings section
+- Change unrelated integrations
+- Change tenancy logic
+- Change login UI (already handled elsewhere)
+
+===============================================================================
+STEP 1 — DEFINE STORAGE FORMAT (SYSTEM-LEVEL)
+===============================================================================
+Use the existing Integrations storage pattern you already have (encrypted config blob).
+Store one record per provider at SYSTEM scope, for example:
+- integration.type = 'sso_google'
+- integration.type = 'sso_github'
+- tenantId = NULL (system-level)
+
+Encrypted config payload per provider:
+Google:
+{
+  "enabled": true,
+  "clientId": "...",
+  "clientSecret": "...",
+  "redirectUri": "https://.../api/v1/auth/sso/google/callback"
+}
+
+GitHub:
+{
+  "enabled": true,
+  "clientId": "...",
+  "clientSecret": "...",
+  "redirectUri": "https://.../api/v1/auth/sso/github/callback"
+}
+
+IMPORTANT:
+- On GET, return:
+  - enabled
+  - clientId (ok to return)
+  - redirectUri
+  - clientSecretPresent: boolean (true if stored)
+  - NEVER return clientSecret plaintext
+
+===============================================================================
+STEP 2 — FIX ENCRYPTION PERSISTENCE SAFELY (TARGETED)
+===============================================================================
+1) Identify the current “encryption not established” failure point.
+Common causes:
+- encryption key env var missing on Railway
+- encryption init not called before settings save
+- a singleton encryption provider not initialized in server bootstrap
+
+2) Add a safe, explicit requirement:
+- ENV var required (example): APP_ENCRYPTION_KEY
+- On server boot:
+  - verify APP_ENCRYPTION_KEY exists and meets minimum length
+  - initialize encryption provider once
+  - if missing, log a clear error and:
+    - block saving secrets with JSON 400 error: ENCRYPTION_NOT_CONFIGURED
+    - allow saving non-secret fields if safe (enabled/clientId/redirectUri), but keep secrets blocked
+
+3) Ensure save endpoint:
+- encrypts secrets before writing
+- writes atomically
+- returns masked response
+
+4) Ensure read endpoint:
+- does not decrypt secrets for UI
+- only indicates presence
+
+===============================================================================
+STEP 3 — API ENDPOINTS (EXTEND EXISTING INTEGRATIONS API)
+===============================================================================
+If you already have:
+- GET /api/v1/super/system-settings/integrations
+- PATCH /api/v1/super/system-settings/integrations
+
+Extend them to include:
+- ssoGoogle config object
+- ssoGitHub config object
+
+OR add minimal new endpoints if needed, but prefer extending existing, preserving response shape:
+- GET /api/v1/super/integrations/sso
+- PATCH /api/v1/super/integrations/sso
+
+Response shape must be stable and not break existing UI.
+
+Validation:
+- enabled can be true only if required fields exist:
+  - clientId and clientSecret present (redirectUri optional if auto-generated)
+- If enable is toggled on but secrets missing -> return 400: SSO_CONFIG_INCOMPLETE
+
+===============================================================================
+STEP 4 — UI IMPLEMENTATION (SUPER ADMIN)
+===============================================================================
+In Super Admin → System Settings → Integrations tab:
+
+Add a section card: “SSO Providers”
+Inside, two collapsible panels:
+A) Google
+- Toggle: Enabled
+- Input: Client ID
+- Input: Client Secret (password input; after save show placeholder “Saved”)
+- Read-only display: Redirect URI (auto-computed from APP_BASE_URL if possible)
+- Button: Save Google
+- Button: Test Configuration
+
+B) GitHub
+- Toggle: Enabled
+- Input: Client ID
+- Input: Client Secret (password input; after save show placeholder “Saved”)
+- Read-only display: Redirect URI (auto-computed)
+- Button: Save GitHub
+- Button: Test Configuration
+
+UX rules:
+- If clientSecretPresent is true, do NOT prefill secret; show “•••••••• (saved)”
+- If user enters a new secret, overwrite existing secret on save
+- Show success and error toasts consistently
+
+===============================================================================
+STEP 5 — CONNECT SSO AUTH LAYER TO SETTINGS
+===============================================================================
+Update the SSO implementation to read provider config from:
+- getSsoConfig(provider) which loads these system-level integrations
+- caching allowed (short TTL), but must reflect changes without redeploy
+
+If provider disabled or missing config:
+- /start endpoint returns JSON error SSO_DISABLED (or redirects to /auth/sso-error?code=SSO_DISABLED)
+
+===============================================================================
+STEP 6 — TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) saving_google_sso_encrypts_secret_and_returns_masked.test.ts
+2) reading_google_sso_does_not_return_secret.test.ts
+3) enabling_without_secret_returns_config_incomplete.test.ts
+4) encryption_missing_blocks_secret_save_returns_encryption_not_configured.test.ts
+5) sso_start_fails_when_provider_disabled.test.ts
+
+Frontend (if infra exists):
+6) integrations_ui_masks_secret_after_save.test.tsx
+7) toggling_enabled_requires_required_fields.test.tsx
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Super Admin can save Google/GitHub SSO credentials and they persist across refresh (Railway).
+- UI never displays stored secrets.
+- Secrets are encrypted at rest.
+- If encryption key missing, UI shows a clear error and secrets cannot be saved.
+- SSO login uses saved settings and fails gracefully when disabled/misconfigured.
+- No regressions to other Integrations.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Where encryption was failing and what fixed it
+- Env vars required for Railway (APP_ENCRYPTION_KEY, APP_BASE_URL)
+- Files changed (UI + server)
+- Manual verification checklist for Railway
