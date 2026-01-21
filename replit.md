@@ -88,6 +88,12 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - 409 TIMER_ALREADY_RUNNING error handling prevents duplicate timers
   - Unique index on userId enforces single active timer per user
   - Server is source of truth; localStorage not used for timer state
+- **Hierarchical S3 Storage**: 3-tier storage configuration with automatic fallback:
+  - Resolution order: tenant-specific S3 (priority) → system-level S3 (fallback) → env vars (legacy)
+  - System-level integrations stored in `tenant_integrations` table with NULL tenantId
+  - Centralized storage provider resolver in `server/storage/getStorageProvider.ts`
+  - Storage status API endpoints show active configuration source
+  - All credentials encrypted using APP_ENCRYPTION_KEY
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.

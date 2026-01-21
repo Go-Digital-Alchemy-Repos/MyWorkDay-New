@@ -26,6 +26,7 @@ import { eq } from "drizzle-orm";
 import { tenantIntegrationService, IntegrationProvider } from "../services/tenantIntegrations";
 import multer from "multer";
 import { validateBrandAsset, generateBrandAssetKey, uploadToS3, isS3Configured, getMimeType } from "../s3";
+import { getStorageStatus } from "../storage/getStorageProvider";
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -594,6 +595,22 @@ router.post("/integrations/mailgun/send-test-email", requireAuth, requireTenantA
         requestId,
       },
     });
+  }
+});
+
+// =============================================================================
+// STORAGE STATUS ENDPOINT
+// =============================================================================
+
+// GET /api/v1/tenant/storage/status - Get storage configuration status
+router.get("/storage/status", requireAuth, requireTenantAdmin, async (req, res) => {
+  try {
+    const tenantId = req.effectiveTenantId;
+    const status = await getStorageStatus(tenantId);
+    res.json(status);
+  } catch (error) {
+    console.error("Error fetching storage status:", error);
+    res.status(500).json({ error: "Failed to fetch storage status" });
   }
 });
 
