@@ -1401,6 +1401,41 @@ export async function registerRoutes(
     }
   });
 
+  // Task Watchers endpoints
+  app.get("/api/tasks/:taskId/watchers", async (req, res) => {
+    try {
+      const watchers = await storage.getTaskWatchers(req.params.taskId);
+      res.json(watchers);
+    } catch (error) {
+      console.error("Error fetching watchers:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/watchers", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const watcher = await storage.addTaskWatcher({
+        taskId: req.params.taskId,
+        userId,
+      });
+      res.status(201).json(watcher);
+    } catch (error) {
+      console.error("Error adding watcher:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/tasks/:taskId/watchers/:userId", async (req, res) => {
+    try {
+      await storage.removeTaskWatcher(req.params.taskId, req.params.userId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing watcher:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/tasks/:taskId/subtasks", async (req, res) => {
     try {
       const subtasks = await storage.getSubtasksByTask(req.params.taskId);
