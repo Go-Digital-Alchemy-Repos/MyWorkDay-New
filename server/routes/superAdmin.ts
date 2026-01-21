@@ -36,7 +36,7 @@ import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invita
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, sql, desc, and, ilike, count, gte, lt, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, sql, desc, and, ilike, count, gte, lt, isNull, isNotNull, ne, inArray } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import { tenantIntegrationService } from "../services/tenantIntegrations";
 import multer from "multer";
@@ -1212,6 +1212,152 @@ async function sendProvisionResetEmail(tenantId: string, email: string, resetUrl
     return false;
   }
 }
+
+// =============================================================================
+// FIX TENANT USERS - Backfill missing tenantId for existing tenant users
+// =============================================================================
+router.post("/tenants/:tenantId/users/fix-tenant-ids", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const superUser = req.user as any;
+    
+    // Verify tenant exists
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    // Get all users associated with workspaces in this tenant (but missing tenantId)
+    const tenantWorkspaces = await db.select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.tenantId, tenantId));
+    
+    if (tenantWorkspaces.length === 0) {
+      return res.json({ message: "No workspaces found for this tenant", fixed: 0 });
+    }
+    
+    const workspaceIds = tenantWorkspaces.map(w => w.id);
+    
+    // Find all users that are members of these workspaces but have null tenantId
+    const usersToFix = await db.select({
+      userId: workspaceMembers.userId,
+      user: users,
+    })
+      .from(workspaceMembers)
+      .innerJoin(users, eq(users.id, workspaceMembers.userId))
+      .where(and(
+        inArray(workspaceMembers.workspaceId, workspaceIds),
+        isNull(users.tenantId),
+        ne(users.role, UserRole.SUPER_USER), // Don't update super users
+      ));
+    
+    // Update each user with the tenant ID
+    let fixedCount = 0;
+    for (const row of usersToFix) {
+      await db.update(users)
+        .set({ tenantId, updatedAt: new Date() })
+        .where(eq(users.id, row.userId));
+      fixedCount++;
+      
+      console.log(`[fix-tenant-ids] Fixed user ${row.user.email} -> tenantId: ${tenantId}`);
+    }
+    
+    // Also check invitations table for users who accepted invitations but have no tenantId
+    const inviteUsers = await db.select({
+      userId: invitations.userId,
+      userEmail: users.email,
+    })
+      .from(invitations)
+      .innerJoin(users, eq(users.id, invitations.userId))
+      .where(and(
+        eq(invitations.tenantId, tenantId),
+        isNull(users.tenantId),
+        ne(users.role, UserRole.SUPER_USER),
+      ));
+    
+    for (const row of inviteUsers) {
+      if (row.userId) {
+        await db.update(users)
+          .set({ tenantId, updatedAt: new Date() })
+          .where(eq(users.id, row.userId));
+        fixedCount++;
+        
+        console.log(`[fix-tenant-ids] Fixed invited user ${row.userEmail} -> tenantId: ${tenantId}`);
+      }
+    }
+    
+    // Audit log
+    await recordTenantAuditEvent(
+      tenantId,
+      "super_fix_tenant_ids",
+      `Fixed ${fixedCount} users with missing tenantId`,
+      superUser?.id,
+      { fixedCount }
+    );
+    
+    res.json({
+      message: `Fixed ${fixedCount} users with missing tenantId`,
+      fixed: fixedCount,
+      tenantId,
+      tenantName: tenant.name,
+    });
+  } catch (error) {
+    console.error("[fix-tenant-ids] Error:", error);
+    res.status(500).json({ error: "Failed to fix tenant IDs" });
+  }
+});
+
+// =============================================================================
+// GET ORPHANED USERS - Find users with missing tenantId across all tenants
+// =============================================================================
+router.get("/users/orphaned", requireSuperUser, async (req, res) => {
+  try {
+    // Find all non-super users without a tenantId
+    const orphanedUsers = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      role: users.role,
+      isActive: users.isActive,
+      createdAt: users.createdAt,
+    })
+      .from(users)
+      .where(and(
+        isNull(users.tenantId),
+        ne(users.role, UserRole.SUPER_USER),
+      ))
+      .orderBy(desc(users.createdAt));
+    
+    // For each orphaned user, try to find their tenant via workspace membership
+    const usersWithWorkspaces = await Promise.all(
+      orphanedUsers.map(async (user) => {
+        const memberships = await db.select({
+          workspaceId: workspaceMembers.workspaceId,
+          workspaceName: workspaces.name,
+          tenantId: workspaces.tenantId,
+        })
+          .from(workspaceMembers)
+          .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+          .where(eq(workspaceMembers.userId, user.id))
+          .limit(5);
+        
+        return {
+          ...user,
+          workspaceMemberships: memberships,
+          suggestedTenantId: memberships[0]?.tenantId || null,
+        };
+      })
+    );
+    
+    res.json({
+      orphanedCount: orphanedUsers.length,
+      users: usersWithWorkspaces,
+    });
+  } catch (error) {
+    console.error("[orphaned-users] Error:", error);
+    res.status(500).json({ error: "Failed to fetch orphaned users" });
+  }
+});
 
 // Update a user
 const updateUserSchema = z.object({

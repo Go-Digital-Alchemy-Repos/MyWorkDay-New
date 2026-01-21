@@ -3131,7 +3131,20 @@ export async function registerRoutes(
           .json({ error: "User with this email already exists" });
       }
 
-      const user = await storage.createUser({
+      // Get tenant context from the authenticated user
+      const currentUser = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
+      
+      if (!tenantId) {
+        console.error("[routes] User creation failed - no tenant context", {
+          userId: currentUser?.id,
+          email: currentUser?.email,
+          role: currentUser?.role,
+        });
+        return res.status(400).json({ error: "Tenant context required to create users" });
+      }
+
+      const user = await storage.createUserWithTenant({
         email,
         firstName,
         lastName,
@@ -3139,6 +3152,7 @@ export async function registerRoutes(
         role: role || "employee",
         isActive: true,
         passwordHash: null,
+        tenantId,
       });
 
       await storage.addWorkspaceMember({
