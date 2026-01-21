@@ -671,17 +671,20 @@ router.post("/tenants/:tenantId/invite-admin", requireSuperUser, async (req, res
     }
 
     // Get or create a default workspace for the tenant
-    // For now, we'll create a new one if none exists
     let workspaceId: string;
-    const allWorkspaces = await db.select().from(workspaces);
-    const tenantWorkspace = allWorkspaces.find(w => w.name === `${tenant.name} Workspace`);
+    const tenantWorkspaces = await db.select().from(workspaces)
+      .where(eq(workspaces.tenantId, tenantId));
     
-    if (tenantWorkspace) {
-      workspaceId = tenantWorkspace.id;
+    if (tenantWorkspaces.length > 0) {
+      // Prefer primary workspace, otherwise use first one
+      const primaryWorkspace = tenantWorkspaces.find(w => w.isPrimary);
+      workspaceId = primaryWorkspace?.id || tenantWorkspaces[0].id;
     } else {
-      // Create a default workspace for the tenant
+      // Create a default workspace for the tenant with proper tenantId
       const [newWorkspace] = await db.insert(workspaces).values({
         name: `${tenant.name} Workspace`,
+        tenantId,
+        isPrimary: true,
       }).returning();
       workspaceId = newWorkspace.id;
     }
