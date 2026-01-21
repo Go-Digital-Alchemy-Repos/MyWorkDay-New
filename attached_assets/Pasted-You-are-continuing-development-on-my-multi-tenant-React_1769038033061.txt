@@ -1,0 +1,247 @@
+You are continuing development on my multi-tenant React + Node/Express + Postgres app deployed on Railway.
+Auth is COOKIE-BASED (HTTP-only cookies), and must remain cookie-based.
+
+FEATURE: Add “Login with Google” (OIDC) and “Login with GitHub” (OAuth) as ADDITIVE login options.
+Do NOT remove or replace existing email/password auth. This must be safe and backward compatible.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing auth endpoint paths/response shapes (add new endpoints only).
+- Do NOT break cookie-based sessions (HTTP-only, Secure in prod, SameSite appropriate).
+- Do NOT weaken multi-tenant isolation.
+- Do NOT auto-create users by default (unless valid invite token OR user already exists in tenant).
+- Never expose provider secrets to client. Never store access tokens in plaintext.
+- DB changes must be additive + migrated safely.
+- Must work on Railway behind proxy (trust proxy + secure cookies).
+
+===============================================================================
+REQUIREMENTS (WHAT MUST BE TRUE WHEN DONE)
+===============================================================================
+1) Login page shows “Continue with Google” and “Continue with GitHub” when enabled.
+2) OAuth completes and logs the user in by issuing our existing session cookie.
+3) Existing user resolution:
+   - If oauth account already linked -> log in
+   - Else if a user exists in this tenant matching email -> link + log in
+4) If user does NOT exist:
+   - Allow registration ONLY when invite token is present and valid for that tenant
+   - Otherwise show error: ACCOUNT_NOT_PROVISIONED (no silent account creation)
+5) Multi-tenant correctness:
+   - SSO must resolve tenant via invite token OR explicit tenant slug hint OR existing membership
+   - Never allow cross-tenant login
+6) Add account linking controls in “My Account”:
+   - Link Google/GitHub
+   - Unlink with lockout protection (cannot unlink if it would lock the user out)
+7) Error handling must be JSON (no HTML) and provide a clean UX page for errors.
+
+===============================================================================
+CONFIG / ENABLE TOGGLES
+===============================================================================
+Use existing Integrations storage (encrypted-at-rest) for provider config.
+Implement SYSTEM-LEVEL config first (Super Admin System Settings → Integrations).
+Structure retrieval so tenant-level override can be added later, but DO NOT implement tenant-level override now unless it is already present.
+
+Provider configs:
+GOOGLE:
+- enabled
+- clientId
+- clientSecret
+- redirectUri
+
+GITHUB:
+- enabled
+- clientId
+- clientSecret
+- redirectUri
+
+Implement helper:
+- getSsoConfig(provider) -> { enabled, clientId, clientSecret, redirectUri }
+If integration encryption is currently blocking saving, do not solve it here—just read from current storage pattern.
+
+===============================================================================
+DATABASE (ADDITIVE ONLY)
+===============================================================================
+Add oauth_accounts table for linked identities:
+
+oauth_accounts:
+- id UUID PK default gen_random_uuid()
+- tenant_id UUID NOT NULL (FK -> tenants.id)
+- user_id UUID NOT NULL (FK -> users.id)
+- provider TEXT NOT NULL ('google' | 'github')
+- provider_user_id TEXT NOT NULL   (google: sub, github: id)
+- provider_email TEXT NULL
+- created_at TIMESTAMP NOT NULL DEFAULT now()
+- updated_at TIMESTAMP NOT NULL DEFAULT now()
+
+Constraints:
+- UNIQUE(tenant_id, provider, provider_user_id)
+
+Optional if safe:
+- users.email_verified_at TIMESTAMP NULL
+
+===============================================================================
+SERVER IMPLEMENTATION
+===============================================================================
+Create a provider-agnostic SSO module:
+- server/auth/sso/index.ts
+- server/auth/sso/stateStore.ts
+- server/auth/sso/providers/google.ts
+- server/auth/sso/providers/github.ts
+
+State storage:
+- Store short-lived state server-side (DB table or in-memory + signed cookie fallback)
+- Must include: provider, tenantHint, inviteTokenHash(optional), returnTo(optional), createdAt, expiresAt
+- For Google OIDC, include nonce + PKCE verifier/challenge
+- For GitHub OAuth, include CSRF state
+
+Google (OIDC + PKCE):
+- Auth URL: https://accounts.google.com/o/oauth2/v2/auth
+- Token URL: https://oauth2.googleapis.com/token
+- Use openid email profile scopes
+- Verify ID token signature/claims (issuer, audience, exp, nonce)
+- Extract: sub, email, email_verified
+
+GitHub (OAuth):
+- Auth URL: https://github.com/login/oauth/authorize
+- Token URL: https://github.com/login/oauth/access_token
+- Scope: user:email
+- After token exchange, fetch:
+  - GET https://api.github.com/user   -> id
+  - GET https://api.github.com/user/emails -> primary verified email
+- Use verified primary email if available; otherwise fail with EMAIL_REQUIRED
+
+Tenant resolution (shared logic for both providers):
+- Primary: invite token (if present) -> determines tenantId and intended role
+- Else: tenantSlug hint (from login page) -> maps to tenantId
+- Else: if user exists and belongs to exactly one tenant -> use it
+- Else: return TENANT_REQUIRED
+
+User resolution:
+1) Find oauth_accounts record by (tenantId, provider, provider_user_id) -> log in user
+2) Else try match by email within tenant:
+   - find user by normalized email + tenant membership
+   - if found -> create oauth_accounts link -> log in
+3) Else if invite token valid:
+   - create user in that tenant with role from invite
+   - mark as active
+   - create oauth_accounts link
+   - log in
+4) Else:
+   - error ACCOUNT_NOT_PROVISIONED
+
+Session:
+- Reuse existing session issuance method (same cookie as password login)
+- Ensure cookies are Secure on Railway and trust proxy is enabled in Express.
+
+===============================================================================
+ROUTES (ADD NEW ONLY; DO NOT CHANGE EXISTING)
+===============================================================================
+Public:
+- GET /api/v1/auth/sso/:provider/start
+  Query: tenantSlug?, inviteToken?, returnTo?
+  - provider in (google|github)
+  - validate enabled
+  - create state record with TTL (10 minutes)
+  - redirect to provider authorize URL
+
+- GET /api/v1/auth/sso/:provider/callback
+  - validate state
+  - exchange code
+  - resolve tenant + user
+  - issue session cookie
+  - redirect to returnTo or default app landing
+
+Authenticated linking:
+- GET /api/v1/auth/sso/:provider/link/start
+- GET /api/v1/auth/sso/:provider/link/callback
+  - attach provider identity to currently logged-in user
+  - prevent linking if identity already linked to another user in same tenant
+
+- DELETE /api/v1/auth/sso/:provider/unlink
+  - unlink provider from current user
+  - lockout protection: user must have at least one remaining auth method
+
+Error UX:
+- Add frontend route /auth/sso-error?code=...
+- Server callback may redirect here for clean UX on failure
+
+===============================================================================
+FRONTEND (REACT) CHANGES
+===============================================================================
+Login page:
+- Add buttons:
+  - Continue with Google
+  - Continue with GitHub
+- If app uses tenant slug selection, include it in query:
+  /api/v1/auth/sso/google/start?tenantSlug=...&returnTo=...
+- If invite token flow exists, pass inviteToken.
+
+My Account page:
+- “Connected Accounts” section:
+  - Google: Connect/Disconnect
+  - GitHub: Connect/Disconnect
+- Show connected state (no secrets)
+
+SSO error page:
+- Display friendly messages for:
+  - ACCOUNT_NOT_PROVISIONED
+  - TENANT_REQUIRED
+  - SSO_DISABLED
+  - STATE_INVALID
+  - EMAIL_REQUIRED
+  - OAUTH_FAILED
+- Include requestId if present
+
+===============================================================================
+SECURITY (MANDATORY)
+===============================================================================
+- Google: PKCE + nonce + state
+- GitHub: state anti-CSRF
+- Never log tokens
+- Normalize emails to lowercase
+- If provider email not verified (GitHub/Google), require verified email or block
+- All errors from API are JSON; no HTML responses
+
+===============================================================================
+RAILWAY / DEPLOYMENT NOTES (DOCS REQUIRED)
+===============================================================================
+Document env vars (system-level):
+- GOOGLE_CLIENT_ID
+- GOOGLE_CLIENT_SECRET
+- GOOGLE_REDIRECT_URI (https://YOURDOMAIN/api/v1/auth/sso/google/callback)
+- GITHUB_CLIENT_ID
+- GITHUB_CLIENT_SECRET
+- GITHUB_REDIRECT_URI (https://YOURDOMAIN/api/v1/auth/sso/github/callback)
+- APP_BASE_URL
+Also ensure:
+- app.set('trust proxy', 1)
+- cookie Secure in production
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend integration tests (mock external calls):
+1) google_sso_existing_user_sets_session_cookie.test.ts
+2) github_sso_existing_user_sets_session_cookie.test.ts
+3) sso_rejects_without_invite_or_existing_user.test.ts
+4) sso_state_tamper_fails.test.ts
+5) linking_prevents_cross-user_link.test.ts
+6) unlink_prevents_lockout.test.ts
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Google and GitHub SSO work end-to-end, setting session cookie.
+- Existing password login works unchanged.
+- No auto-provisioning without invite.
+- Tenant scoping is enforced.
+- Account linking/unlinking works safely.
+- Works on Railway with secure cookies and proxy.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- New files/routes added
+- Migration summary
+- Setup instructions for Google + GitHub app configuration (redirect URIs)
+- Manual verification checklist (local + Railway)

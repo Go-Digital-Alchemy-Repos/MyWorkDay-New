@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play } from "lucide-react";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import { AttachmentUploader } from "@/components/attachment-uploader";
 import { StatusBadge } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
 import { MultiSelectAssignees } from "@/components/multi-select-assignees";
+import { MultiSelectWatchers } from "@/components/multi-select-watchers";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { StartTimerDrawer } from "@/components/start-timer-drawer";
@@ -143,6 +144,7 @@ export function TaskDetailDrawer({
   if (!task) return null;
 
   const assigneeUsers: Partial<User>[] = task.assignees?.map((a) => a.user).filter(Boolean) as Partial<User>[] || [];
+  const watcherUsers: Partial<User>[] = task.watchers?.map((w) => w.user).filter(Boolean) as Partial<User>[] || [];
   const taskTags: TagType[] = task.tags?.map((tt) => tt.tag).filter(Boolean) as TagType[] || [];
   const comments: (Comment & { user?: User })[] = [];
   
@@ -349,6 +351,21 @@ export function TaskDetailDrawer({
                   className="w-[140px] h-8"
                   data-testid="input-estimate-minutes"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Eye className="h-3.5 w-3.5" />
+                  Watchers
+                </label>
+                <div className="flex items-center">
+                  <MultiSelectWatchers
+                    taskId={task.id}
+                    watchers={watcherUsers}
+                    workspaceId={workspaceId}
+                    onWatcherChange={onRefresh}
+                  />
+                </div>
               </div>
             </div>
           </div>
