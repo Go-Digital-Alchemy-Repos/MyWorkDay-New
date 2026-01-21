@@ -1,0 +1,134 @@
+You are continuing development on my multi-tenant React + Express + Postgres app (cookie auth) deployed on Railway.
+FOCUS: Project creation UX + consistency + tenant-wide visibility.
+
+BUGS / REQUIREMENTS:
+1) When logged in as a TENANT EMPLOYEE, the Projects page has no way to create a new project.
+   Both Tenant Employees and Tenant Admins must be able to create projects:
+   - from the Projects page (primary “New Project” button)
+   - from a “+” button next to “Projects” in the left nav
+
+2) When logged in as TENANT ADMIN, creating a new project from within a Client profile adds the project
+   to the tenant’s data but it does NOT appear in the Projects list/menu on the left nav.
+   Projects created from ANY entry point (Projects page, Client profile, onboarding, super admin provisioning)
+   must be visible and accessible to ALL employees/admins in the same tenant.
+
+This prompt must fix the UI + underlying data association/caching issue safely.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes.
+- Do NOT weaken tenancy/auth.
+- Do NOT introduce user-scoped filtering for projects.
+- Keep changes scoped to project creation, project list queries, nav rendering, and cache invalidation.
+- Add tests to prevent regression.
+
+===============================================================================
+STEP 1 — CONFIRM PERMISSION RULES (DO NOT CHANGE)
+===============================================================================
+- Tenant Employees CAN create Projects.
+- Tenant Admins CAN create Projects.
+- All tenant employees/admins can view ALL tenant projects.
+- Projects must always be saved with tenantId (and workspaceId if applicable) server-side.
+
+===============================================================================
+STEP 2 — FIX PROJECT CREATION ENTRY POINTS (UI)
+===============================================================================
+A) Projects Page
+- Add a visible primary CTA button: “New Project”
+- Clicking opens the standard project create UI (use the app’s current pattern: full-width drawer preferred; avoid small modals)
+- Fields:
+  - Project Name (required)
+  - Client (optional if your model supports project->client; if required by schema, enforce it)
+  - Workspace (optional/required depending on schema; default to primary workspace)
+  - Description (optional)
+  - Status (optional)
+- On success:
+  - toast success
+  - close drawer
+  - immediately show in Projects page list AND left nav Projects list (without refresh)
+
+B) Left Nav “+” Button
+- Add a “+” icon button next to “Projects” label in the sidebar nav.
+- It opens the same “New Project” drawer.
+- Hide nothing for employees/admins; both should see this.
+
+===============================================================================
+STEP 3 — FIX “PROJECT CREATED FROM CLIENT PROFILE NOT SHOWING IN LEFT NAV”
+===============================================================================
+This is usually one of:
+- Project create endpoint not returning expected data (but user says project exists)
+- Left nav projects list is cached and not invalidated
+- Left nav projects list query is incorrectly filtered (workspaceId mismatch, clientId mismatch, userId filter, or missing tenantId)
+
+Actions:
+1) Identify the source for the left nav Projects list:
+- Which endpoint does the nav call? e.g. GET /api/v1/projects or a workspace-scoped variant
+- What filters are applied? (tenantId, workspaceId, isActive, etc.)
+
+2) Ensure projects created anywhere meet the nav filters:
+- Always set tenantId correctly
+- If nav filters by workspaceId, ensure project.workspaceId is set consistently:
+  - If created from client profile, it must be assigned to a workspace (default to tenant primary workspace)
+- If nav filters by isArchived/isActive, ensure defaults match
+
+3) Fix cache invalidation:
+- If using TanStack Query:
+  - ensure project create mutation calls invalidateQueries(["projects", effectiveTenantId, ...])
+  - also invalidate any client profile queries that list projects
+  - ensure left nav uses the same canonical projects query key
+- If using custom state store:
+  - ensure project creation updates central store or triggers refetch
+
+4) Make project lists tenant-wide (not user-scoped):
+- Confirm neither endpoint nor UI filters projects by createdBy or assignedTo.
+- Both employees/admins should see the same list for a tenant.
+
+===============================================================================
+STEP 4 — NORMALIZE PROJECT CREATION LOGIC (SERVER)
+===============================================================================
+Ensure project creation endpoint (existing) does:
+- Derive tenantId from session effectiveTenantId (never accept from tenant users)
+- Validate clientId belongs to tenant if provided
+- Ensure workspaceId is set:
+  - If omitted, default to tenant primary workspace (server-side)
+- Return the created project as usual (no breaking response changes)
+
+If there are multiple creation endpoints (projects create vs client-project create):
+- Ensure both call the same service-layer function createProject(ctx, input)
+- ctx contains tenantId + workspaceId fallback logic
+- This prevents mismatch between entry points.
+
+===============================================================================
+STEP 5 — ADD TESTS (MANDATORY)
+===============================================================================
+Backend:
+1) employee_can_create_project_and_it_has_tenantId_and_workspaceId.test.ts
+2) creating_project_from_client_profile_assigns_workspace_and_is_listed_in_projects.test.ts
+3) list_projects_returns_all_tenant_projects_not_user_scoped.test.ts
+
+Frontend (if test infra exists):
+4) projects_page_shows_new_project_button_for_employee.test.tsx
+5) sidebar_plus_opens_project_drawer.test.tsx
+6) creating_project_invalidates_projects_query_and_updates_sidebar.test.tsx
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Tenant Employee can create a project from Projects page.
+- Tenant Employee can create a project from sidebar “+” next to Projects.
+- Projects created from Client profile appear in:
+  - Projects page list
+  - Left nav Projects list
+  - Client profile Projects tab
+  immediately (no refresh).
+- All tenant employees/admins can access all tenant projects (tenant-wide visibility).
+- Works on Railway with cookie auth; no HTML/JSON parsing errors.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Root cause of why client-created projects weren’t appearing in left nav (filter vs cache vs workspace assignment)
+- Files changed (UI + server)
+- Query keys invalidated or store updates implemented
+- Manual verification checklist (employee + admin)
