@@ -1,0 +1,646 @@
+# MyWorkDay - Complete Documentation Audit & Reorganization
+
+I'm working on MyWorkDay, a multi-tenant SaaS project management application. I need to perform a comprehensive documentation audit and reorganize the documentation structure for better developer experience.
+
+## Tech Stack Context
+- Frontend: React 18 + TypeScript + Tailwind CSS + shadcn/ui + TanStack Query
+- Backend: Express.js + TypeScript + Drizzle ORM
+- Database: PostgreSQL
+- Real-time: Socket.IO
+- Deployment: Railway
+
+## Project Structure
+```
+myworkday-app/
+├── client/src/          # React frontend
+├── server/              # Express backend
+├── shared/              # Shared types/schema
+└── docs/                # Documentation (NEEDS AUDIT & REORGANIZATION)
+```
+
+---
+
+## TASK 1: COMPREHENSIVE DOCUMENTATION AUDIT
+
+### Step 1: Inventory All Code Features
+
+Please scan the following directories and create a complete inventory:
+
+**Backend Routes:**
+- `/server/routes.ts` - Main routes file (~3.7K lines)
+- `/server/routes/` - Modular route files
+  - `superAdmin.ts`
+  - `tenantOnboarding.ts`
+  - `timeTracking.ts`
+  - `projectsDashboard.ts`
+  - `workloadReports.ts`
+  - `tenancyHealth.ts`
+  - `uploads.ts`
+  - `webhooks.ts`
+  - `tenantBilling.ts`
+  - `emailOutbox.ts`
+  - `systemStatus.ts`
+  - Any others...
+
+**Frontend Pages:**
+- `/client/src/pages/` - All page components
+
+**Frontend Components:**
+- `/client/src/components/` - All reusable components
+- `/client/src/components/ui/` - shadcn components
+- `/client/src/components/settings/` - Settings tabs
+- `/client/src/components/super-admin/` - Super admin components
+
+**Database Schema:**
+- `/shared/schema.ts` - All tables, relations, enums
+
+**Middleware:**
+- `/server/middleware/` - All middleware files
+
+**Services:**
+- `/server/services/` - Business logic services
+
+**Scripts:**
+- `/server/scripts/` - Maintenance scripts
+
+### Step 2: Audit Existing Documentation
+
+Check all files in `/docs/` and create a gap analysis:
+
+**Current Documentation Files:**
+- ENDPOINTS.md
+- FEATURE_INVENTORY.md
+- ARCHITECTURE_OVERVIEW.md
+- SECURITY_TENANCY.md
+- TESTING.md
+- DEPLOYMENT_RAILWAY.md
+- ENVIRONMENT_VARIABLES.md
+- REGRESSION_CHECKLIST.md
+- AUDIT_FINDINGS.md
+- BOOTSTRAP_SUPER_ADMIN.md
+- AUTHENTICATION.md
+- PLATFORM_ADMINS.md
+- UPLOADS_S3.md
+- INTEGRATIONS.md
+- INTEGRATIONS_STRIPE.md
+- EMAIL_OBSERVABILITY.md
+- SUPER_TENANT_HEALTH.md
+- SUPER_SYSTEM_STATUS.md
+- AGREEMENTS.md
+- RECOVERY.md
+- KNOWN_ISSUES.md
+- TODO.md
+- (List any others found)
+
+### Step 3: Identify Documentation Gaps
+
+For each feature/component/endpoint found in Step 1, verify:
+
+- [ ] Is it documented in FEATURE_INVENTORY.md?
+- [ ] Are its endpoints documented in ENDPOINTS.md?
+- [ ] Is its purpose and architecture explained?
+- [ ] Are there code examples or usage patterns?
+- [ ] Are environment variables documented?
+- [ ] Are database schema changes documented?
+- [ ] Are there any special considerations or gotchas?
+
+**Create a Gap Report:**
+```
+MISSING DOCUMENTATION:
+- Feature X: Not in FEATURE_INVENTORY.md
+- Endpoint POST /api/v1/Y: Not in ENDPOINTS.md
+- Component Z: No usage documentation
+- etc.
+```
+
+---
+
+## TASK 2: CREATE NEW DOCUMENTATION STRUCTURE
+
+### Proposed Organization
+
+Reorganize `/docs/` into the following structure:
+```
+docs/
+├── README.md                           # Documentation hub & navigation
+│
+├── 01-GETTING-STARTED/
+│   ├── README.md                       # Overview of getting started
+│   ├── QUICK_START.md                  # 5-minute setup guide
+│   ├── INSTALLATION.md                 # Detailed installation
+│   ├── ENVIRONMENT_VARIABLES.md        # All env vars reference
+│   └── FIRST_DEPLOY.md                 # First Railway deployment
+│
+├── 02-ARCHITECTURE/
+│   ├── README.md                       # Architecture overview
+│   ├── SYSTEM_OVERVIEW.md              # High-level system design
+│   ├── TECH_STACK.md                   # Technology choices & rationale
+│   ├── PROJECT_STRUCTURE.md            # File organization
+│   ├── DATABASE_SCHEMA.md              # Complete schema documentation
+│   ├── DATA_FLOW.md                    # How data flows through system
+│   ├── MULTI_TENANCY.md                # Tenancy architecture
+│   └── REAL_TIME.md                    # Socket.IO architecture
+│
+├── 03-FEATURES/
+│   ├── README.md                       # Feature index
+│   ├── AUTHENTICATION.md               # Auth flows & implementation
+│   ├── PROJECT_MANAGEMENT.md           # Projects, tasks, workspaces
+│   ├── TIME_TRACKING.md                # Time tracking & reports
+│   ├── CLIENT_MANAGEMENT.md            # CRM functionality
+│   ├── SUPER_ADMIN.md                  # Super admin capabilities
+│   ├── TENANT_ADMIN.md                 # Tenant admin features
+│   ├── WHITE_LABEL.md                  # Branding & customization
+│   ├── INTEGRATIONS.md                 # Third-party integrations
+│   ├── FILE_UPLOADS.md                 # S3 upload system
+│   ├── EMAIL_SYSTEM.md                 # Email delivery & templates
+│   └── WORKLOAD_REPORTS.md             # Analytics & reporting
+│
+├── 04-API/
+│   ├── README.md                       # API overview & conventions
+│   ├── AUTHENTICATION_ENDPOINTS.md     # /api/auth/*
+│   ├── TENANT_ENDPOINTS.md             # /api/v1/* (tenant-scoped)
+│   ├── SUPER_ADMIN_ENDPOINTS.md        # /api/v1/super/*
+│   ├── WEBHOOKS.md                     # Webhook endpoints
+│   ├── ERROR_CODES.md                  # Standard error codes
+│   ├── REQUEST_VALIDATION.md           # Zod schemas & validation
+│   └── RATE_LIMITING.md                # Rate limit policies
+│
+├── 05-FRONTEND/
+│   ├── README.md                       # Frontend overview
+│   ├── COMPONENT_LIBRARY.md            # shadcn/ui components
+│   ├── STATE_MANAGEMENT.md             # React Query patterns
+│   ├── ROUTING.md                      # Wouter routing setup
+│   ├── FORMS.md                        # Form handling patterns
+│   ├── REAL_TIME_CLIENT.md             # Socket.IO client
+│   ├── THEME_SYSTEM.md                 # Dark mode & theming
+│   └── UI_PATTERNS.md                  # Common UI patterns
+│
+├── 06-BACKEND/
+│   ├── README.md                       # Backend overview
+│   ├── MIDDLEWARE.md                   # All middleware explained
+│   ├── SERVICES.md                     # Business logic services
+│   ├── DATABASE.md                     # Drizzle ORM usage
+│   ├── SESSIONS.md                     # Session management
+│   ├── ENCRYPTION.md                   # Secrets encryption
+│   └── ERROR_HANDLING.md               # Error handling patterns
+│
+├── 07-SECURITY/
+│   ├── README.md                       # Security overview
+│   ├── TENANT_ISOLATION.md             # Multi-tenant security
+│   ├── AUTHENTICATION.md               # Auth security
+│   ├── AUTHORIZATION.md                # RBAC & permissions
+│   ├── DATA_ENCRYPTION.md              # Encryption at rest
+│   ├── RATE_LIMITING.md                # Brute force protection
+│   ├── SECURITY_CHECKLIST.md           # Pre-deployment security
+│   └── INCIDENT_RESPONSE.md            # Security incident handling
+│
+├── 08-DATABASE/
+│   ├── README.md                       # Database overview
+│   ├── SCHEMA_REFERENCE.md             # Complete schema docs
+│   ├── MIGRATIONS.md                   # Migration workflow
+│   ├── RELATIONSHIPS.md                # Table relationships
+│   ├── INDEXES.md                      # Index strategy
+│   ├── BACKUPS.md                      # Backup procedures
+│   └── QUERIES.md                      # Common query patterns
+│
+├── 09-TESTING/
+│   ├── README.md                       # Testing overview
+│   ├── UNIT_TESTS.md                   # Unit testing guide
+│   ├── INTEGRATION_TESTS.md            # API testing with Vitest
+│   ├── E2E_TESTS.md                    # End-to-end testing
+│   ├── TEST_FIXTURES.md                # Test data & fixtures
+│   └── REGRESSION_CHECKLIST.md         # Manual testing checklist
+│
+├── 10-DEPLOYMENT/
+│   ├── README.md                       # Deployment overview
+│   ├── RAILWAY.md                      # Railway deployment guide
+│   ├── ENVIRONMENT_SETUP.md            # Production env setup
+│   ├── DATABASE_SETUP.md               # Production database
+│   ├── MONITORING.md                   # Logging & monitoring
+│   ├── TROUBLESHOOTING.md              # Common issues & fixes
+│   └── ROLLBACK.md                     # Rollback procedures
+│
+├── 11-DEVELOPMENT/
+│   ├── README.md                       # Development guide
+│   ├── CODING_STANDARDS.md             # Code style & conventions
+│   ├── GIT_WORKFLOW.md                 # Branching & commits
+│   ├── PULL_REQUESTS.md                # PR guidelines
+│   ├── DEBUGGING.md                    # Debugging techniques
+│   ├── PERFORMANCE.md                  # Performance optimization
+│   └── ADDING_FEATURES.md              # How to add new features
+│
+├── 12-OPERATIONS/
+│   ├── README.md                       # Operations overview
+│   ├── MONITORING.md                   # System monitoring
+│   ├── BACKUPS.md                      # Backup strategies
+│   ├── DISASTER_RECOVERY.md            # DR procedures
+│   ├── SCALING.md                      # Scaling considerations
+│   └── MAINTENANCE.md                  # Maintenance tasks
+│
+├── 13-INTEGRATIONS/
+│   ├── README.md                       # Integrations overview
+│   ├── MAILGUN.md                      # Email integration
+│   ├── S3.md                           # File storage
+│   ├── STRIPE.md                       # Payment integration
+│   ├── GOOGLE_OAUTH.md                 # Google authentication
+│   └── CUSTOM_INTEGRATIONS.md          # Adding new integrations
+│
+├── 14-TROUBLESHOOTING/
+│   ├── README.md                       # Troubleshooting index
+│   ├── COMMON_ERRORS.md                # Common errors & solutions
+│   ├── TENANT_ISSUES.md                # Tenant-specific issues
+│   ├── AUTH_ISSUES.md                  # Authentication problems
+│   ├── DATABASE_ISSUES.md              # Database problems
+│   ├── DEPLOYMENT_ISSUES.md            # Deployment problems
+│   └── KNOWN_ISSUES.md                 # Known bugs & limitations
+│
+├── 15-REFERENCE/
+│   ├── README.md                       # Reference overview
+│   ├── GLOSSARY.md                     # Terms & definitions
+│   ├── API_REFERENCE.md                # Complete API reference
+│   ├── COMPONENT_REFERENCE.md          # React component catalog
+│   ├── SCHEMA_REFERENCE.md             # Database schema reference
+│   ├── ENV_VARS_REFERENCE.md           # All environment variables
+│   └── CLI_COMMANDS.md                 # Useful commands
+│
+└── 16-CHANGELOG/
+    ├── README.md                       # Changelog overview
+    ├── CHANGELOG.md                    # Version history
+    ├── MIGRATION_GUIDES.md             # Version migration guides
+    └── ROADMAP.md                      # Future plans
+```
+
+---
+
+## TASK 3: GENERATE DOCUMENTATION
+
+For each category above, please:
+
+### 3.1: Create README.md Files
+
+Each category folder should have a README.md that:
+- Explains what this category covers
+- Lists all documents in the category
+- Provides quick links to key information
+- Shows common use cases
+
+**Example Template:**
+```markdown
+# [Category Name]
+
+## Overview
+[Brief description of what this category covers]
+
+## Documents in This Section
+
+- **[DOCUMENT_NAME.md]** - [Brief description]
+- **[DOCUMENT_NAME.md]** - [Brief description]
+
+## Quick Start
+
+[Most common use case or entry point for this category]
+
+## Related Sections
+
+- [Link to related category]
+- [Link to related category]
+```
+
+### 3.2: Create/Update Individual Documents
+
+For each document, ensure it includes:
+
+**Document Header:**
+```markdown
+# [Document Title]
+
+**Status:** [Current/Outdated/Draft]
+**Last Updated:** [Date]
+**Related Docs:** [Links to related documents]
+
+## Table of Contents
+- [Section 1](#section-1)
+- [Section 2](#section-2)
+
+## Overview
+[What this document covers]
+```
+
+**Document Structure:**
+- Clear sections with headers
+- Code examples with syntax highlighting
+- Step-by-step instructions where applicable
+- Screenshots or diagrams (describe where needed)
+- Links to related documentation
+- Common pitfalls & gotchas
+- FAQ section if applicable
+
+### 3.3: Create Master Documentation Hub
+
+Create `/docs/README.md` as the main entry point:
+```markdown
+# MyWorkDay Documentation
+
+Welcome to the MyWorkDay documentation. This comprehensive guide covers all aspects of the application.
+
+## Documentation Structure
+
+### 🚀 [Getting Started](01-GETTING-STARTED/)
+Quick start guides, installation, and initial setup.
+
+### 🏗️ [Architecture](02-ARCHITECTURE/)
+System design, tech stack, and architectural decisions.
+
+### ✨ [Features](03-FEATURES/)
+Detailed feature documentation and user guides.
+
+### 🔌 [API](04-API/)
+Complete API reference and endpoint documentation.
+
+### 🎨 [Frontend](05-FRONTEND/)
+React components, state management, and UI patterns.
+
+### ⚙️ [Backend](06-BACKEND/)
+Server architecture, middleware, and business logic.
+
+### 🔒 [Security](07-SECURITY/)
+Security measures, best practices, and compliance.
+
+### 💾 [Database](08-DATABASE/)
+Schema, migrations, and database management.
+
+### 🧪 [Testing](09-TESTING/)
+Testing strategies, test suites, and quality assurance.
+
+### 🚢 [Deployment](10-DEPLOYMENT/)
+Deployment guides, environment setup, and operations.
+
+### 💻 [Development](11-DEVELOPMENT/)
+Development workflow, coding standards, and best practices.
+
+### 🔧 [Operations](12-OPERATIONS/)
+Monitoring, backups, and system maintenance.
+
+### 🔗 [Integrations](13-INTEGRATIONS/)
+Third-party integrations and API connections.
+
+### 🐛 [Troubleshooting](14-TROUBLESHOOTING/)
+Common issues, solutions, and debugging guides.
+
+### 📚 [Reference](15-REFERENCE/)
+Quick reference guides, glossaries, and catalogs.
+
+### 📝 [Changelog](16-CHANGELOG/)
+Version history, migration guides, and roadmap.
+
+## Quick Navigation
+
+### Most Common Tasks
+- [Setting up development environment](01-GETTING-STARTED/INSTALLATION.md)
+- [Creating your first tenant](03-FEATURES/SUPER_ADMIN.md)
+- [Adding a new feature](11-DEVELOPMENT/ADDING_FEATURES.md)
+- [Deploying to Railway](10-DEPLOYMENT/RAILWAY.md)
+- [Troubleshooting tenant issues](14-TROUBLESHOOTING/TENANT_ISSUES.md)
+
+### Key Concepts
+- [Multi-Tenancy Architecture](02-ARCHITECTURE/MULTI_TENANCY.md)
+- [Authentication & Authorization](07-SECURITY/AUTHENTICATION.md)
+- [Database Schema](08-DATABASE/SCHEMA_REFERENCE.md)
+- [API Conventions](04-API/README.md)
+
+### For New Developers
+1. Start with [Quick Start Guide](01-GETTING-STARTED/QUICK_START.md)
+2. Read [System Overview](02-ARCHITECTURE/SYSTEM_OVERVIEW.md)
+3. Understand [Project Structure](02-ARCHITECTURE/PROJECT_STRUCTURE.md)
+4. Review [Coding Standards](11-DEVELOPMENT/CODING_STANDARDS.md)
+
+### For Operators
+1. [Deployment Guide](10-DEPLOYMENT/RAILWAY.md)
+2. [Monitoring](12-OPERATIONS/MONITORING.md)
+3. [Troubleshooting](14-TROUBLESHOOTING/COMMON_ERRORS.md)
+4. [Backups](12-OPERATIONS/BACKUPS.md)
+
+## Contributing to Documentation
+
+See [Documentation Standards](11-DEVELOPMENT/CODING_STANDARDS.md#documentation-standards)
+
+## Need Help?
+
+- Check [Troubleshooting](14-TROUBLESHOOTING/)
+- Search the [Knowledge Base](15-REFERENCE/)
+- Review [Known Issues](14-TROUBLESHOOTING/KNOWN_ISSUES.md)
+
+---
+
+**Last Updated:** [Date]
+**Version:** [App Version]
+```
+
+---
+
+## TASK 4: SPECIFIC DOCUMENTATION TO CREATE/UPDATE
+
+Please create or update these critical documents:
+
+### High Priority
+
+1. **02-ARCHITECTURE/MULTI_TENANCY.md**
+   - Explain tenant isolation strategy
+   - Document tenantId enforcement
+   - Show how X-Tenant-Id header works for super admins
+   - Include middleware flow diagrams
+   - Document common pitfalls
+
+2. **04-API/SUPER_ADMIN_ENDPOINTS.md**
+   - Document ALL super admin endpoints
+   - Include request/response examples
+   - Show authentication requirements
+   - Document X-Tenant-Id header usage
+
+3. **04-API/TENANT_ENDPOINTS.md**
+   - Document ALL tenant-scoped endpoints
+   - Show how tenant context is established
+   - Include filtering examples
+   - Document common errors
+
+4. **14-TROUBLESHOOTING/TENANT_ISSUES.md**
+   - "Unable to Load Tenant" error
+   - "No Tenant Context" error
+   - Users not associated with tenants
+   - Clients not showing for tenant users
+   - Session/cookie issues on Railway
+
+5. **10-DEPLOYMENT/RAILWAY.md**
+   - Complete Railway deployment guide
+   - Trust proxy configuration
+   - Environment variables setup
+   - Database connection
+   - Common Railway-specific issues
+
+6. **03-FEATURES/SUPER_ADMIN.md**
+   - Complete super admin feature documentation
+   - Tenant provisioning workflow
+   - User provisioning workflow
+   - Impersonation feature
+   - System health monitoring
+
+7. **08-DATABASE/SCHEMA_REFERENCE.md**
+   - Complete schema documentation
+   - All tables with descriptions
+   - All fields with types and constraints
+   - All relationships and foreign keys
+   - Indexes and their purposes
+
+### Medium Priority
+
+8. **05-FRONTEND/UI_PATTERNS.md**
+   - FullScreenDrawer pattern
+   - React Query patterns
+   - Form handling with react-hook-form
+   - Real-time updates pattern
+   - Table/list patterns
+
+9. **06-BACKEND/MIDDLEWARE.md**
+   - Document all middleware
+   - Execution order
+   - When to use each middleware
+   - Custom middleware creation
+
+10. **13-INTEGRATIONS/MAILGUN.md**
+    - Setup instructions
+    - Per-tenant configuration
+    - Email templates
+    - Testing emails
+    - Troubleshooting
+
+### Lower Priority
+
+11. **11-DEVELOPMENT/ADDING_FEATURES.md**
+    - Step-by-step guide to add features
+    - Backend endpoint creation
+    - Frontend component creation
+    - Database schema changes
+    - Testing requirements
+    - Documentation requirements
+
+12. **15-REFERENCE/GLOSSARY.md**
+    - Define all technical terms
+    - Tenant, workspace, project, task hierarchy
+    - Role definitions
+    - Status definitions
+
+---
+
+## OUTPUT REQUIREMENTS
+
+### Phase 1: Audit Report
+
+Provide a comprehensive report with:
+```markdown
+# MyWorkDay Documentation Audit Report
+
+## Current State
+- Total documentation files: [number]
+- Total file size: [size]
+- Last major update: [date]
+
+## Coverage Analysis
+
+### Fully Documented
+- Feature X (FEATURE_INVENTORY.md, ENDPOINTS.md)
+- Feature Y (FEATURE_INVENTORY.md, ARCHITECTURE.md)
+
+### Partially Documented
+- Feature Z (mentioned in FEATURE_INVENTORY.md but no detailed docs)
+
+### Not Documented
+- Feature/Component/Endpoint A
+- Feature/Component/Endpoint B
+
+## Gap Analysis
+Total features found: [X]
+Total features documented: [Y]
+Coverage: [Y/X * 100]%
+
+### Critical Gaps
+1. [Most important missing documentation]
+2. [Second most important]
+
+### Documentation Quality Issues
+- Outdated: [list files with old information]
+- Incomplete: [list files missing sections]
+- Unclear: [list files needing rewrite]
+
+## Recommendations
+[Prioritized list of what to fix first]
+```
+
+### Phase 2: New Documentation Structure
+
+1. Create the new folder structure in `/docs/`
+2. Migrate existing content to appropriate locations
+3. Create all README.md files
+4. Update cross-references
+5. Create the master hub README.md
+
+### Phase 3: Generated Documents
+
+For each high-priority document:
+1. Generate complete content based on code analysis
+2. Include code examples from actual codebase
+3. Add cross-references to related docs
+4. Include troubleshooting sections
+
+---
+
+## QUALITY STANDARDS
+
+All documentation must:
+
+- ✅ Use clear, concise language
+- ✅ Include working code examples
+- ✅ Have up-to-date information
+- ✅ Include links to related docs
+- ✅ Have a table of contents for long docs
+- ✅ Use consistent formatting
+- ✅ Include "Last Updated" dates
+- ✅ Specify the document status
+- ✅ Include practical examples
+- ✅ Highlight common pitfalls
+- ✅ Use proper markdown syntax
+- ✅ Include diagrams where helpful (describe in text)
+
+---
+
+## MIGRATION PLAN
+
+When reorganizing existing docs:
+
+1. **Don't delete anything** - Move content, don't remove it
+2. **Create redirects** - Add notes in old locations pointing to new locations
+3. **Update all links** - Search and replace old paths
+4. **Keep git history** - Use git mv to preserve history
+5. **Test all links** - Verify no broken links
+
+---
+
+## SUCCESS CRITERIA
+
+The documentation reorganization is successful when:
+
+- [ ] All features are documented
+- [ ] All API endpoints are documented
+- [ ] All database tables are documented
+- [ ] Navigation is intuitive
+- [ ] Developers can find information quickly
+- [ ] Common issues have troubleshooting guides
+- [ ] New developers can onboard easily
+- [ ] Operators can deploy confidently
+- [ ] No broken links
+- [ ] All documents have current dates
+
+---
+
+Please execute this documentation audit and reorganization. Start with Phase 1 (Audit Report), then proceed to Phase 2 (Structure Creation), and finally Phase 3 (Document Generation). Focus on high-priority documents first.
+
+For each document you create, ensure it's based on actual code analysis and includes real examples from the codebase.

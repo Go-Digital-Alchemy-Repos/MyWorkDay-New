@@ -1,0 +1,127 @@
+You are continuing development on my multi-tenant React + Express + Postgres app (cookie auth) deployed on Railway.
+FOCUS: Refine and ENFORCE Tenant User Permissions (Tenant Employee vs Tenant Admin), with tenant-wide visibility.
+
+===============================================================================
+CLARIFICATION / REQUIREMENT (IMPORTANT)
+===============================================================================
+Tenant Employees and Tenant Admins MUST be able to see and interact with ANY:
+- Client account
+- Project
+- Workspace
+that belongs to their tenant, including those provisioned by a Super Admin.
+This is tenant-wide shared data visibility (not user-scoped for these entities).
+
+Only TIME ENTRIES + REPORTING + USER/WORKSPACE ADMIN actions are restricted by role.
+
+===============================================================================
+PERMISSION MODEL (SOURCE OF TRUTH)
+===============================================================================
+
+TENANT EMPLOYEE CAN:
+- View ALL clients, projects, workspaces for their tenant
+- Create Clients
+- Create Projects
+- Create Tasks/Subtasks (inside any tenant project/workspace)
+- Log Time Entries (start/stop/edit own entries)
+- Leave comments on tasks/subtasks
+- View dashboard stats ONLY for themselves (their entries/activity)
+
+TENANT EMPLOYEE CANNOT:
+- See other employees’ time entries
+- See org-wide employee stats
+- Access admin-level reports
+- Invite/manage users
+- Provision/manage workspaces (admin functions)
+
+TENANT ADMIN CAN:
+- Everything Tenant Employee can do
+- Manage users/invites/roles (tenant-scoped)
+- Manage and provision workspaces
+- View all time entries and org-wide stats/reports for tenant
+- Administer all tenant settings and data
+
+===============================================================================
+STEP 1 — BACKEND ENFORCEMENT: TENANT-WIDE VISIBILITY FOR CORE ENTITIES
+===============================================================================
+For Clients/Projects/Workspaces:
+- All list/get endpoints must filter by tenantId only (effectiveTenantId), NOT by userId.
+- Both Tenant Employee and Tenant Admin can access.
+- Any create/update/delete must enforce tenantId and permissions (admin may have additional powers for workspace provisioning).
+
+Specifically:
+A) Clients
+- GET /api/v1/clients -> returns all clients where client.tenantId == effectiveTenantId
+- GET /api/v1/clients/:id -> allowed if tenant match
+- POST /api/v1/clients -> allowed for employee/admin; tenantId set server-side
+
+B) Projects
+- GET /api/v1/projects -> all projects for tenant
+- GET /api/v1/projects/:id -> tenant match
+- POST /api/v1/projects -> allowed for employee/admin; tenantId set server-side
+
+C) Workspaces (visibility vs management)
+- Tenant Employees: can VIEW workspaces belonging to tenant (read-only)
+- Tenant Admins: can CREATE/EDIT/PROVISION workspaces
+Enforce:
+- GET /api/v1/workspaces -> allowed for employee/admin (tenant match)
+- POST/PATCH/DELETE /api/v1/workspaces -> tenant admin only
+
+Tasks:
+- Maintain existing rules, BUT ensure tasks for tenant projects are visible to employees/admins unless you explicitly want assignment-only views.
+- Do NOT change task visibility unless required for consistency; default: tenant-wide visibility.
+
+===============================================================================
+STEP 2 — BACKEND ENFORCEMENT: RESTRICT ONLY SENSITIVE AREAS
+===============================================================================
+Restrict by role:
+
+1) Time Entries
+- Tenant Employee: can view/edit/delete ONLY their own time entries
+- Tenant Admin: can view/edit/delete all tenant time entries
+(Enforce server-side; no front-end-only checks)
+
+2) Reports
+- Tenant Admin only
+
+3) Tenant Settings + User Management
+- Tenant Admin only
+
+4) Workspace provisioning (create/edit)
+- Tenant Admin only (employees can still browse/select workspaces)
+
+===============================================================================
+STEP 3 — FRONTEND UI GATING (CONSISTENT WITH BACKEND)
+===============================================================================
+Tenant Employee UI:
+- Shows Clients, Projects, Tasks, Time Tracking (their own), and any workspace selectors
+- Hides Tenant Settings, Reports, User Management, Workspace management actions (create/edit)
+
+Tenant Admin UI:
+- Shows everything
+
+===============================================================================
+STEP 4 — TESTS (MANDATORY)
+===============================================================================
+Backend:
+1) employee_can_list_all_clients_in_tenant.test.ts
+2) employee_can_access_project_provisioned_by_super_admin.test.ts
+3) employee_can_list_workspaces_but_cannot_create_workspace.test.ts
+4) employee_cannot_view_other_users_time_entries.test.ts
+5) admin_can_view_all_time_entries.test.ts
+6) admin_can_manage_users_and_workspaces.test.ts
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Tenant Employees/Admins can see and interact with any tenant clients/projects/workspaces created by Super Admin.
+- Employee restrictions apply ONLY to: other users’ time entries, reports, tenant settings, user/workspace admin.
+- All enforcement is server-side; UI matches permissions.
+- No cross-tenant access is possible.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Endpoints updated and what filters they use (tenantId vs userId)
+- Permission helper functions created/updated
+- Tests added and passing
+- Manual verification checklist (employee vs admin)
