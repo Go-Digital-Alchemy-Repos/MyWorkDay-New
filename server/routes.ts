@@ -50,6 +50,7 @@ import {
   tenantAgreements,
   tenantAgreementAcceptances,
   AgreementStatus,
+  workspaces,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -70,7 +71,75 @@ function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
 }
 
-function getCurrentWorkspaceId(_req: Request): string {
+// Cache for tenant primary workspaces to avoid repeated DB lookups
+const tenantWorkspaceCache = new Map<string, { workspaceId: string; expiry: number }>();
+const WORKSPACE_CACHE_TTL = 60000; // 1 minute
+
+async function getCurrentWorkspaceIdAsync(req: Request): Promise<string> {
+  // Get the effective tenant ID from middleware or user
+  const tenantId = (req as any).tenant?.effectiveTenantId || (req.user as any)?.tenantId;
+  
+  if (!tenantId) {
+    // No tenant context - fall back to demo workspace for super users
+    return "demo-workspace-id";
+  }
+  
+  // Check cache first
+  const cached = tenantWorkspaceCache.get(tenantId);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.workspaceId;
+  }
+  
+  // Look up tenant's primary workspace
+  const [primaryWorkspace] = await db.select()
+    .from(workspaces)
+    .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)))
+    .limit(1);
+  
+  if (primaryWorkspace) {
+    // Cache the result
+    tenantWorkspaceCache.set(tenantId, {
+      workspaceId: primaryWorkspace.id,
+      expiry: Date.now() + WORKSPACE_CACHE_TTL
+    });
+    return primaryWorkspace.id;
+  }
+  
+  // Fallback: get any workspace for this tenant
+  const [anyWorkspace] = await db.select()
+    .from(workspaces)
+    .where(eq(workspaces.tenantId, tenantId))
+    .limit(1);
+  
+  if (anyWorkspace) {
+    tenantWorkspaceCache.set(tenantId, {
+      workspaceId: anyWorkspace.id,
+      expiry: Date.now() + WORKSPACE_CACHE_TTL
+    });
+    return anyWorkspace.id;
+  }
+  
+  // No workspace found for tenant - return demo as last resort
+  console.warn(`[getCurrentWorkspaceIdAsync] No workspace found for tenant ${tenantId}`);
+  return "demo-workspace-id";
+}
+
+// Sync version for backward compatibility - uses cached value or falls back to demo
+function getCurrentWorkspaceId(req: Request): string {
+  const tenantId = (req as any).tenant?.effectiveTenantId || (req.user as any)?.tenantId;
+  
+  if (!tenantId) {
+    return "demo-workspace-id";
+  }
+  
+  // Check cache for sync access
+  const cached = tenantWorkspaceCache.get(tenantId);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.workspaceId;
+  }
+  
+  // If not cached, trigger async lookup (for next request) and return demo temporarily
+  getCurrentWorkspaceIdAsync(req).catch(() => {});
   return "demo-workspace-id";
 }
 
@@ -179,7 +248,7 @@ export async function registerRoutes(
 
   app.get("/api/workspaces/current", async (req, res) => {
     try {
-      const workspaceId = getCurrentWorkspaceId(req);
+      const workspaceId = await getCurrentWorkspaceIdAsync(req);
       const workspace = await storage.getWorkspace(workspaceId);
       if (!workspace) {
         return res.status(404).json({ error: "Workspace not found" });
