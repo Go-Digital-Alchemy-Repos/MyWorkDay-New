@@ -1,0 +1,211 @@
+You are continuing development on my multi-tenant React + Express + Postgres app (cookie auth) deployed on Railway.
+FOCUS AREA: Time Tracking stopwatch flow + entry saving + scope toggle + task/subtask selection + visibility in task details.
+
+We must fix the current stopwatch UX bugs without breaking other modules. Keep changes scoped to the Time Tracking feature,
+its API endpoints, and related UI components. Do NOT do unrelated refactors.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes (add-only fields OK if optional).
+- Do NOT change database schema unless absolutely required; additive-only if needed.
+- Do NOT weaken tenant scoping, auth, or role permissions.
+- All writes must include tenantId and be scoped to effectiveTenantId.
+- Add tests for the broken flows so they don’t regress.
+
+===============================================================================
+PRIMARY BUGS TO FIX
+===============================================================================
+1) Stopwatch “Description” input truncates/does not allow full text (likely single-line input / width/maxlength).
+2) Clicking Stop -> fill details -> “Save Entry” does NOT stop timer or save entry (backend call not firing or failing).
+3) Scope selection must be a TOGGLE, not dropdown:
+   - In Scope = Unbillable (label: “In Scope (Unbillable)”)
+   - Out of Scope = Billable (label: “Out of Scope (Billable)”)
+   - Ensure stored value mapping matches existing DB fields (do not break billing reports).
+4) Improve overall clunkiness: reduce steps, keep timer state consistent, clear success feedback.
+5) Task assignment hierarchy improvements:
+   - On new entry: user selects Client (required), then Project (optional), then Task (optional), then Sub-task (optional, only if selected task has subtasks)
+   - If Project/Task/Sub-task not selected, entry can still be saved against Client only.
+   - If a selected Task has subtasks, show Sub-task dropdown.
+   - Time tracked must be visible inside Task/Sub-task detail views (tab/section “Time Entries”).
+
+===============================================================================
+STEP 1 — DIAGNOSE CURRENT STOPWATCH SAVE FAILURE (REQUIRED)
+===============================================================================
+1) Identify components involved:
+- Header timer display
+- “Stop timer” modal/drawer
+- “Save Entry” button handler
+- API calls used (active timer endpoints vs time entries endpoints)
+
+2) Add safe debugging (dev + optional prod via flag):
+- Log requestId + endpoint + status codes for:
+  - stopping active timer
+  - creating time entry
+- In the UI, if API returns non-JSON/HTML, show clear error with requestId.
+
+3) Confirm correct tenant context is sent:
+- ensure API uses cookie session and effectiveTenantId
+- ensure fetch includes credentials: "include" in the shared API client
+
+Likely causes to check:
+- Save button calls endpoint but request fails (401/HTML/redirect)
+- Timer stop endpoint is not called before saving
+- Duration calculation returns NaN or missing fields => validation fails silently
+- State cleared before API call resolves
+- Server rejects because project/task ids don’t belong to tenant
+
+===============================================================================
+STEP 2 — FIX DESCRIPTION FIELD TRUNCATION
+===============================================================================
+Wherever “description” is entered for an active timer / time entry:
+- Replace single-line input with multiline textarea
+- Remove or increase any maxLength that is too small
+- Ensure the value persists in state and is sent in API request
+- In UI, show character counter if max is enforced (prefer no low limit)
+- Ensure DB column type supports longer text (TEXT). If not, migrate additively.
+
+Acceptance:
+- user can enter a full paragraph and it saves correctly.
+
+===============================================================================
+STEP 3 — MAKE SCOPE A TOGGLE + CORRECT BILLABLE MAPPING
+===============================================================================
+Replace dropdown with a two-state toggle UI:
+- Left: “In Scope (Unbillable)”
+- Right: “Out of Scope (Billable)”
+
+IMPORTANT: confirm your DB field:
+- If existing field is billable:boolean:
+  - In Scope => billable = false
+  - Out of Scope => billable = true
+- If existing field is scope enum:
+  - Map accordingly but do not change API response shape.
+
+Update all labels where currently “In Scope (Billable)” appears.
+
+Add a server-side validation test ensuring mapping is correct.
+
+===============================================================================
+STEP 4 — FIX STOP → SAVE ENTRY FLOW (MUST WORK END-TO-END)
+===============================================================================
+Required behavior:
+- When user hits Stop:
+  - timer is stopped immediately (UI + server)
+  - stop modal opens prefilled with:
+    - title (required; if missing, add Title input)
+    - description (textarea)
+    - client (required)
+    - project/task/subtask selection (optional as described)
+    - scope toggle default to In Scope (Unbillable)
+    - computed duration
+- When user clicks “Save Entry”:
+  - POST time entry succeeds
+  - active timer is cleared (server + local cache)
+  - UI shows success toast
+  - modal closes
+  - time entry list refreshes instantly
+
+Implementation guidance:
+- Use a single “finalize timer” mutation that:
+  1) calls stop timer endpoint (or confirms stopped)
+  2) posts time entry
+  3) deletes/clears active timer record
+- Ensure errors are shown with requestId; do not fail silently.
+
+If backend currently expects separate calls:
+- keep endpoints unchanged but orchestrate correctly in the UI layer.
+
+===============================================================================
+STEP 5 — IMPROVE TASK SELECTION HIERARCHY (CLIENT REQUIRED)
+===============================================================================
+In “New Time Entry” modal/drawer and “Stop Timer → Save Entry” modal:
+Inputs:
+1) Client (required)
+2) Project dropdown (optional, filtered to projects for client if that relationship exists; otherwise all projects in tenant)
+3) Task dropdown (optional; populated after Project is selected; show open tasks only)
+4) Sub-task dropdown (optional; appears only if selected Task has subtasks)
+
+Rules:
+- Allow saving with only Client selected.
+- If Project selected but Task empty, still allow save (client+project association only).
+- If Task selected and subtasks exist:
+  - subtask dropdown appears
+  - if user selects subtask, store subtaskId (or taskId pointing to subtask model as per existing schema)
+- If user can’t find a task:
+  - Provide “Create Task” inline action that creates a task under selected Project (and tenant-scoped)
+  - After creation, auto-select it
+  - Do NOT force project/task creation; keep optional.
+
+Backend validation:
+- If IDs provided, verify they belong to the same tenant and correct parent chain (client->project->task->subtask).
+- If chain mismatch, return JSON 400 with clear message.
+
+===============================================================================
+STEP 6 — SHOW TIME ENTRIES INSIDE TASK + SUBTASK DETAILS
+===============================================================================
+In Task Detail drawer/page (and Sub-task detail):
+- Add a “Time” tab or “Time Entries” panel that lists time entries linked to this Task/Subtask.
+- Show:
+  - date
+  - user
+  - duration
+  - scope badge (Billable/Unbillable)
+  - title + description (expand)
+- Respect permissions:
+  - tenant admin: see all entries
+  - employee: see their own entries (unless current permissions allow more)
+  - later clients: not included now (just structure for future)
+
+Backend:
+- If existing timeEntries has taskId/subtaskId fields, use them.
+- If only one field exists, decide consistent mapping:
+  - For subtask tracking, store subtaskId separately if schema supports it; otherwise store taskId as the selected task entity.
+Do NOT change schema unless required; if required, add optional subtaskId column additively.
+
+===============================================================================
+STEP 7 — WORKFLOW / UX POLISH (CLUNKINESS)
+===============================================================================
+Make the flow smoother:
+- Keep active timer visible globally (already)
+- On Stop, show compact finalize drawer (not tiny modal)
+- Prefill last-used Client/Project/Task if still valid in tenant (optional)
+- Add clear validation:
+  - Client required
+  - Title required
+- Provide “Save & Continue” option (optional) if users do many entries
+- Ensure keyboard-friendly: Enter saves when form valid
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) stop_timer_then_save_entry_creates_time_entry_and_clears_active_timer.test.ts
+2) scope_toggle_maps_billable_correctly.test.ts
+3) time_entry_with_client_only_is_allowed.test.ts
+4) time_entry_with_task_and_subtask_chain_validated.test.ts
+5) list_time_entries_by_task_returns_expected_rows.test.ts
+
+Frontend (if test infra exists):
+6) description_is_textarea_and_persists.test.tsx
+7) save_entry_calls_api_and_closes_on_success.test.tsx
+8) scope_toggle_labels_and_mapping.test.tsx
+9) subtask_dropdown_appears_when_task_has_subtasks.test.tsx
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Description field allows full paragraph and saves correctly.
+- Stop → Save Entry reliably saves time entry and clears active timer (no silent failures).
+- Scope is a toggle with correct labels and correct billable mapping.
+- Client required; project/task/subtask optional with correct dependent dropdown behavior.
+- Time entries are visible in Task/Sub-task detail views (Time Entries panel).
+- Tenant scoping enforced; no cross-tenant leakage; works on Railway with cookie auth.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Root cause of Save Entry failure (exact component + endpoint failure)
+- Files changed
+- Any schema changes (if any) with migrations
+- Manual test checklist for Railway

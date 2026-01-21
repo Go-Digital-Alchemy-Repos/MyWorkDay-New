@@ -129,8 +129,10 @@ function ActiveTimerPanel() {
   const [displaySeconds, setDisplaySeconds] = useState(0);
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
   const [stopScope, setStopScope] = useState<"in_scope" | "out_of_scope">("in_scope");
+  const [stopTitle, setStopTitle] = useState("");
   const [stopDescription, setStopDescription] = useState("");
   const [stopTaskId, setStopTaskId] = useState<string | null>(null);
+  const [stopClientId, setStopClientId] = useState<string | null>(null);
 
   const { data: timer, isLoading } = useQuery<ActiveTimer | null>({
     queryKey: ["/api/timer/current"],
@@ -173,7 +175,7 @@ function ActiveTimerPanel() {
   });
 
   const stopMutation = useMutation({
-    mutationFn: (data: { discard?: boolean; scope?: string; description?: string; taskId?: string | null }) =>
+    mutationFn: (data: { discard?: boolean; scope?: string; description?: string; taskId?: string | null; clientId?: string | null }) =>
       apiRequest("POST", "/api/timer/stop", data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/timer/current"] });
@@ -181,10 +183,17 @@ function ActiveTimerPanel() {
       if (variables.discard) {
         toast({ title: "Timer discarded" });
       } else {
-        toast({ title: "Time entry saved" });
+        toast({ title: "Time entry saved", description: "Your time entry has been recorded successfully" });
       }
       setStopDialogOpen(false);
       setStopTaskId(null);
+      setStopTitle("");
+      setStopDescription("");
+      setStopClientId(null);
+      setStopScope("in_scope");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save entry", description: error.message, variant: "destructive" });
     },
   });
 
@@ -231,6 +240,10 @@ function ActiveTimerPanel() {
   useEffect(() => {
     setStopTaskId(timer?.taskId || null);
   }, [timer?.taskId, timer?.projectId]);
+
+  useEffect(() => {
+    setStopClientId(timer?.clientId || null);
+  }, [timer?.clientId]);
 
   const handleStartTimer = useCallback(() => {
     startMutation.mutate({});
@@ -381,10 +394,11 @@ function ActiveTimerPanel() {
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Description</Label>
-              <Input
+              <Textarea
                 value={timer.description || ""}
                 onChange={(e) => updateMutation.mutate({ description: e.target.value })}
                 placeholder="What are you working on?"
+                className="min-h-[60px] resize-none"
                 data-testid="input-timer-description"
               />
             </div>
@@ -403,25 +417,70 @@ function ActiveTimerPanel() {
               <p className="text-sm text-muted-foreground mt-1">Total time tracked</p>
             </div>
             <div className="space-y-2">
+              <Label>Title <span className="text-destructive">*</span></Label>
+              <Input
+                value={stopTitle}
+                onChange={(e) => setStopTitle(e.target.value)}
+                placeholder="Brief summary of work"
+                data-testid="input-stop-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Client <span className="text-destructive">*</span></Label>
+              <Select
+                value={stopClientId || ""}
+                onValueChange={(value) => setStopClientId(value || null)}
+              >
+                <SelectTrigger data-testid="select-stop-client" className={!stopClientId ? "border-destructive/50" : ""}>
+                  <SelectValue placeholder="Select client (required)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.displayName || client.companyName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label>Description</Label>
               <Textarea
                 value={stopDescription}
                 onChange={(e) => setStopDescription(e.target.value)}
                 placeholder="What did you work on?"
+                className="min-h-[80px]"
                 data-testid="input-stop-description"
               />
             </div>
             <div className="space-y-2">
               <Label>Scope</Label>
-              <Select value={stopScope} onValueChange={(v) => setStopScope(v as "in_scope" | "out_of_scope")}>
-                <SelectTrigger data-testid="select-stop-scope">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="in_scope">In Scope (Billable)</SelectItem>
-                  <SelectItem value="out_of_scope">Out of Scope</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex rounded-lg border overflow-hidden" data-testid="toggle-stop-scope">
+                <button
+                  type="button"
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    stopScope === "in_scope"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted hover:bg-muted/80"
+                  }`}
+                  onClick={() => setStopScope("in_scope")}
+                  data-testid="button-scope-in"
+                >
+                  In Scope (Unbillable)
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    stopScope === "out_of_scope"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted hover:bg-muted/80"
+                  }`}
+                  onClick={() => setStopScope("out_of_scope")}
+                  data-testid="button-scope-out"
+                >
+                  Out of Scope (Billable)
+                </button>
+              </div>
             </div>
             {timer?.projectId && (
               <TaskSelectorWithCreate
@@ -442,8 +501,23 @@ function ActiveTimerPanel() {
               Discard
             </Button>
             <Button
-              onClick={() => stopMutation.mutate({ scope: stopScope, description: stopDescription, taskId: stopTaskId })}
-              disabled={stopMutation.isPending}
+              onClick={() => {
+                if (!stopTitle.trim()) {
+                  toast({ title: "Title required", description: "Please enter a title for this time entry", variant: "destructive" });
+                  return;
+                }
+                if (!stopClientId) {
+                  toast({ title: "Client required", description: "Please select a client for this time entry", variant: "destructive" });
+                  return;
+                }
+                stopMutation.mutate({ 
+                  scope: stopScope, 
+                  description: `${stopTitle}${stopDescription ? '\n\n' + stopDescription : ''}`,
+                  taskId: stopTaskId,
+                  clientId: stopClientId
+                });
+              }}
+              disabled={stopMutation.isPending || !stopTitle.trim() || !stopClientId}
               data-testid="button-save-timer"
             >
               Save Entry
@@ -555,6 +629,10 @@ function ManualEntryDialog({
   });
 
   const handleSubmit = () => {
+    if (!clientId) {
+      toast({ title: "Client required", description: "Please select a client for this time entry", variant: "destructive" });
+      return;
+    }
     const durationSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60;
     if (durationSeconds === 0) {
       toast({ title: "Duration required", description: "Please enter a duration greater than 0", variant: "destructive" });
@@ -647,13 +725,12 @@ function ManualEntryDialog({
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <Label>Client</Label>
-            <Select value={clientId || "none"} onValueChange={(v) => handleClientChange(v === "none" ? null : v)}>
-              <SelectTrigger data-testid="select-manual-client">
-                <SelectValue placeholder="Select client (optional)" />
+            <Label>Client <span className="text-destructive">*</span></Label>
+            <Select value={clientId || ""} onValueChange={(v) => handleClientChange(v || null)}>
+              <SelectTrigger data-testid="select-manual-client" className={!clientId ? "border-destructive/50" : ""}>
+                <SelectValue placeholder="Select client (required)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">No client</SelectItem>
                 {clients.map((client) => (
                   <SelectItem key={client.id} value={client.id}>
                     {client.displayName || client.companyName}
@@ -728,15 +805,32 @@ function ManualEntryDialog({
         </div>
         <div className="space-y-2">
           <Label>Scope</Label>
-          <Select value={scope} onValueChange={(v) => setScope(v as "in_scope" | "out_of_scope")}>
-            <SelectTrigger data-testid="select-manual-scope">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="in_scope">In Scope (Billable)</SelectItem>
-              <SelectItem value="out_of_scope">Out of Scope</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex rounded-lg border overflow-hidden" data-testid="toggle-manual-scope">
+            <button
+              type="button"
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                scope === "in_scope"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80"
+              }`}
+              onClick={() => setScope("in_scope")}
+              data-testid="button-manual-scope-in"
+            >
+              In Scope (Unbillable)
+            </button>
+            <button
+              type="button"
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                scope === "out_of_scope"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80"
+              }`}
+              onClick={() => setScope("out_of_scope")}
+              data-testid="button-manual-scope-out"
+            >
+              Out of Scope (Billable)
+            </button>
+          </div>
         </div>
       </div>
     </FullScreenDrawer>

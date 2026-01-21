@@ -276,21 +276,38 @@ export function TimeEntryDrawer({
 
         <div>
           <Label>Scope</Label>
-          <Select
-            value={scope}
-            onValueChange={(v: "in_scope" | "out_of_scope") => {
-              setScope(v);
-              handleFieldChange();
-            }}
-          >
-            <SelectTrigger className="mt-2" data-testid="select-scope">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="in_scope">In Scope</SelectItem>
-              <SelectItem value="out_of_scope">Out of Scope</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex rounded-lg border overflow-hidden mt-2" data-testid="toggle-scope">
+            <button
+              type="button"
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                scope === "in_scope"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80"
+              }`}
+              onClick={() => {
+                setScope("in_scope");
+                handleFieldChange();
+              }}
+              data-testid="button-scope-in"
+            >
+              In Scope (Unbillable)
+            </button>
+            <button
+              type="button"
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                scope === "out_of_scope"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80"
+              }`}
+              onClick={() => {
+                setScope("out_of_scope");
+                handleFieldChange();
+              }}
+              data-testid="button-scope-out"
+            >
+              Out of Scope (Billable)
+            </button>
+          </div>
         </div>
 
         <div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,27 @@ import { StatusBadge } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
 import { MultiSelectAssignees } from "@/components/multi-select-assignees";
 import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
 import type { TaskWithRelations, User, Tag as TagType, Comment } from "@shared/schema";
+
+type TimeEntry = {
+  id: string;
+  userId: string;
+  description: string | null;
+  startTime: string;
+  durationSeconds: number;
+  scope: "in_scope" | "out_of_scope";
+  user?: { id: string; firstName: string | null; lastName: string | null; email: string };
+};
+
+function formatDurationShort(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
 
 interface TaskDetailDrawerProps {
   task: TaskWithRelations | null;
@@ -103,6 +123,11 @@ export function TaskDetailDrawer({
       return apiRequest("DELETE", `/api/subtasks/${subtaskId}`);
     },
     onSuccess: invalidateTaskQueries,
+  });
+
+  const { data: timeEntries = [], isLoading: timeEntriesLoading } = useQuery<TimeEntry[]>({
+    queryKey: [`/api/time-entries?taskId=${task?.id}`],
+    enabled: !!task?.id && open,
   });
   
   useEffect(() => {
@@ -400,6 +425,60 @@ export function TaskDetailDrawer({
             comments={comments}
             onAdd={(body) => onAddComment?.(task.id, body)}
           />
+
+          <Separator />
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Timer className="h-3.5 w-3.5" />
+                Time Entries
+              </label>
+              {timeEntries.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  Total: {formatDurationShort(timeEntries.reduce((sum, e) => sum + e.durationSeconds, 0))}
+                </span>
+              )}
+            </div>
+            {timeEntriesLoading ? (
+              <p className="text-sm text-muted-foreground">Loading time entries...</p>
+            ) : timeEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No time entries for this task</p>
+            ) : (
+              <div className="space-y-2">
+                {timeEntries.map((entry) => (
+                  <div key={entry.id} className="flex items-start justify-between p-3 rounded-md border bg-muted/30">
+                    <div className="space-y-1 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">
+                          {formatDurationShort(entry.durationSeconds)}
+                        </span>
+                        <Badge variant={entry.scope === "out_of_scope" ? "default" : "secondary"} className="text-xs">
+                          {entry.scope === "out_of_scope" ? "Billable" : "Unbillable"}
+                        </Badge>
+                      </div>
+                      {entry.description && (
+                        <p className="text-sm text-muted-foreground truncate">{entry.description}</p>
+                      )}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{format(new Date(entry.startTime), "MMM d, yyyy")}</span>
+                        {entry.user && (
+                          <>
+                            <span>•</span>
+                            <span>
+                              {entry.user.firstName && entry.user.lastName 
+                                ? `${entry.user.firstName} ${entry.user.lastName}` 
+                                : entry.user.email}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </SheetContent>
       
