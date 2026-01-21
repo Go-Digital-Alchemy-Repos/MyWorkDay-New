@@ -19,7 +19,7 @@ import { useAppMode } from "@/hooks/useAppMode";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Loader2, AlertCircle, RefreshCw, LogOut } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { 
   getValidRestoreUrl, 
@@ -42,6 +42,7 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
   const { toast } = useToast();
   const hasRestoredUrl = useRef(false);
   const [isExiting, setIsExiting] = useState(false);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   
   // Debug logging for tenant context issues
   if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_AUTH === "true") {
@@ -56,6 +57,8 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
   
   // Fetch tenant context to validate tenant access
   // Uses /context endpoint which works for all tenant users (not just admins)
+  // NOTE: The endpoint gets tenant from session/headers, NOT from URL path
+  // The effectiveTenantId is only for cache keying to refetch when tenant changes
   const { 
     data: tenantContext, 
     isLoading, 
@@ -63,7 +66,7 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
     error,
     refetch 
   } = useQuery<TenantContext>({
-    queryKey: ["/api/v1/tenant/context", effectiveTenantId],
+    queryKey: [`/api/v1/tenant/context?_t=${effectiveTenantId}`],
     enabled: !!effectiveTenantId,
     retry: 2,
     staleTime: 30000,
@@ -192,21 +195,46 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
     );
   }
   
-  // Error state
+  // Error state with detailed diagnostics
   if (isError) {
-    const errorMessage = error instanceof Error ? error.message : "Failed to load tenant context";
+    // Extract detailed error information
+    let errorMessage = "Failed to load tenant context";
+    let errorStatus: number | null = null;
+    let requestId: string | null = null;
+    let rawBody: string | null = null;
+    
+    if (error instanceof ApiError) {
+      errorMessage = error.message;
+      errorStatus = error.status;
+      requestId = error.requestId;
+      rawBody = error.body;
+      
+      // Detect HTML response (404/routing issue)
+      if (rawBody?.includes("<!DOCTYPE") || rawBody?.includes("<html")) {
+        errorMessage = "Server returned HTML instead of JSON. This usually means the API endpoint doesn't exist or there's a routing issue.";
+      }
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
     return (
       <div 
         className="flex flex-col items-center justify-center h-full gap-4 p-8"
         data-testid="tenant-context-error"
       >
         <AlertCircle className="h-12 w-12 text-destructive" />
-        <div className="text-center">
+        <div className="text-center max-w-lg">
           <h2 className="text-lg font-semibold">Unable to Load Tenant</h2>
-          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+          <p className="text-sm text-muted-foreground mt-1">
             {errorMessage}
           </p>
+          {errorStatus && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Status: {errorStatus} {requestId && `| Request ID: ${requestId}`}
+            </p>
+          )}
         </div>
+        
         <div className="flex gap-3">
           <Button 
             variant="outline" 
@@ -232,6 +260,53 @@ export function TenantContextGate({ children }: TenantContextGateProps) {
             </Button>
           )}
         </div>
+        
+        {/* Expandable error details */}
+        {(rawBody || effectiveTenantId) && (
+          <div className="w-full max-w-lg">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowErrorDetails(!showErrorDetails)}
+              className="text-xs text-muted-foreground"
+              data-testid="button-toggle-error-details"
+            >
+              {showErrorDetails ? "Hide Details" : "Show Details"}
+            </Button>
+            
+            {showErrorDetails && (
+              <div className="mt-2 p-3 bg-muted rounded-md text-left space-y-1">
+                <p className="text-xs font-mono break-all">
+                  <strong>Effective Tenant ID:</strong> {effectiveTenantId || "none"}
+                </p>
+                <p className="text-xs font-mono break-all">
+                  <strong>App Mode:</strong> {appMode}
+                </p>
+                <p className="text-xs font-mono break-all">
+                  <strong>Is Impersonating:</strong> {String(isImpersonating)}
+                </p>
+                {errorStatus === 403 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                    A 403 error typically means your user account is not properly 
+                    associated with this tenant. Contact your administrator to 
+                    verify your account setup.
+                  </p>
+                )}
+                {rawBody && !rawBody.includes("<!DOCTYPE") && (
+                  <p className="text-xs font-mono break-all mt-1">
+                    <strong>Response:</strong> {rawBody.slice(0, 500)}
+                  </p>
+                )}
+                {rawBody?.includes("<!DOCTYPE") && (
+                  <p className="text-xs text-destructive mt-1">
+                    Server returned HTML page instead of JSON API response.
+                    Check server logs for the actual error.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
