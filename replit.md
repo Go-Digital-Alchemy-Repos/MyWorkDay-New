@@ -100,6 +100,21 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Centralized storage provider resolver in `server/storage/getStorageProvider.ts`
   - Storage status API endpoints show active configuration source
   - All credentials encrypted using APP_ENCRYPTION_KEY
+- **Global Command Palette**: Keyboard-driven search and quick actions:
+  - Keyboard shortcut: ⌘K (Mac) / Ctrl+K (Windows) to open
+  - Tenant-scoped search across clients, projects, and tasks
+  - Quick actions: New Task, New Project, Start Timer
+  - Debounced search (200ms) with 2-character minimum
+  - Strict tenant enforcement - returns 403 if tenant context missing
+  - Component: `client/src/components/command-palette.tsx`
+- **Enhanced Task Comments**: Full comment management with permissions:
+  - Edit/delete permissions: Only comment owner can modify their comments
+  - Resolve/unresolve functionality for discussion threads
+  - @mention support with autocomplete dropdown
+  - Server-side mention parsing and tenant-scoped validation
+  - Email notifications via Mailgun for mentioned users
+  - Mention format: `@[DisplayName](userId)` - emails never exposed publicly
+  - Component: `client/src/components/comment-thread.tsx`
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.

@@ -246,7 +246,27 @@ export async function registerRoutes(
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // Global search endpoint for command palette (requires tenant context)
+  /**
+   * Global Search Endpoint for Command Palette
+   * 
+   * Provides tenant-scoped search across clients, projects, and tasks.
+   * Used by the command palette (⌘K/Ctrl+K) for quick navigation.
+   * 
+   * Security:
+   * - REQUIRES tenant context (returns 403 if missing)
+   * - Uses only tenant-scoped storage methods (no fallbacks)
+   * - Tasks fetched via project ownership (inherently tenant-scoped)
+   * 
+   * Performance:
+   * - Parallel fetches for clients and projects
+   * - Single batch query for tasks (getTasksByProjectIds)
+   * - In-memory filtering with simple scoring (startsWith = 2, includes = 1)
+   * - Results limited to maxResults (default 10, max 50)
+   * 
+   * @query q - Search query string (min 2 chars for results)
+   * @query limit - Max results per category (default 10, max 50)
+   * @returns { clients, projects, tasks } - Matching items with id, name, type
+   */
   app.get("/api/search", async (req, res) => {
     try {
       const tenantId = getEffectiveTenantId(req);

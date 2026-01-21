@@ -1,3 +1,21 @@
+/**
+ * Global Command Palette Component
+ * 
+ * Provides keyboard-driven search and quick actions across the application.
+ * 
+ * Features:
+ * - Keyboard shortcut: ⌘K (Mac) / Ctrl+K (Windows) to toggle open/close
+ * - Tenant-scoped search: All searches are scoped to current tenant (403 if no tenant context)
+ * - Debounced search: 200ms debounce to reduce API calls
+ * - Quick actions: New Task, New Project, Start Timer (shown when search query < 2 chars)
+ * - Result navigation: Click or Enter to navigate to selected item
+ * 
+ * Security:
+ * - Search API enforces strict tenant boundaries server-side
+ * - No cross-tenant data leakage possible
+ * 
+ * @see /api/search endpoint in server/routes.ts for backend implementation
+ */
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -21,6 +39,7 @@ import {
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 
+/** Shape of search results from /api/search endpoint */
 interface SearchResult {
   clients: Array<{ id: string; name: string; type: string }>;
   projects: Array<{ id: string; name: string; type: string; status: string }>;

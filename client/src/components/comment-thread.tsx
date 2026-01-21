@@ -1,3 +1,27 @@
+/**
+ * Comment Thread Component
+ * 
+ * Provides full comment management for tasks with permission-based actions.
+ * 
+ * Features:
+ * - Add new comments with @mention support
+ * - Edit/delete comments (owner-only permission)
+ * - Resolve/unresolve comment threads for discussion tracking
+ * - Real-time @mention autocomplete from tenant users
+ * 
+ * Permissions Model:
+ * - Edit: Only the comment owner (userId matches currentUserId) can edit
+ * - Delete: Only the comment owner can delete their comments
+ * - Resolve/Unresolve: Any authenticated user can resolve/unresolve threads
+ * 
+ * @mention System:
+ * - Format: @[DisplayName](userId) - parsed client-side for display
+ * - User emails are never exposed in mentions (security)
+ * - Server validates mentioned users exist in same tenant
+ * - Email notifications sent via Mailgun for mentioned users
+ * 
+ * @see POST /api/tasks/:taskId/comments in server/routes.ts for mention parsing
+ */
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Send, Pencil, Trash2, Check, X, CheckCircle2, CircleDot } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -13,6 +37,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Comment, User } from "@shared/schema";
 
+/** Comment with optional user relation for display */
 interface CommentWithUser extends Comment {
   user?: User;
 }
