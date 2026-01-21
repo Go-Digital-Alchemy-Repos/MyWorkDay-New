@@ -246,6 +246,74 @@ export async function registerRoutes(
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Global search endpoint for command palette
+  app.get("/api/search", async (req, res) => {
+    try {
+      const { q, limit = "10" } = req.query;
+      const searchQuery = String(q || "").trim().toLowerCase();
+      const maxResults = Math.min(parseInt(String(limit), 10) || 10, 50);
+      
+      if (!searchQuery) {
+        return res.json({ clients: [], projects: [], tasks: [] });
+      }
+
+      const workspaceId = await getCurrentWorkspaceIdAsync(req);
+      const tenantId = getEffectiveTenantId(req);
+
+      // Parallel search across entities
+      const [clientsList, projectsList] = await Promise.all([
+        tenantId 
+          ? storage.getClientsByTenant(tenantId, workspaceId)
+          : storage.getClientsByWorkspace(workspaceId),
+        tenantId
+          ? storage.getProjectsByTenant(tenantId, workspaceId)
+          : storage.getProjectsByWorkspace(workspaceId),
+      ]);
+
+      // Get tasks for workspace projects
+      const projectIds = projectsList.map(p => p.id);
+      const taskPromises = projectIds.slice(0, 20).map(pid => storage.getTasksByProject(pid));
+      const taskArrays = await Promise.all(taskPromises);
+      const tasksList = taskArrays.flat();
+
+      // Filter and score results
+      const filterAndScore = <T extends { id: string }>(
+        items: T[],
+        getSearchText: (item: T) => string
+      ) => {
+        return items
+          .map(item => {
+            const text = getSearchText(item).toLowerCase();
+            if (!text.includes(searchQuery)) return null;
+            const score = text.startsWith(searchQuery) ? 2 : 1;
+            return { item, score };
+          })
+          .filter((r): r is { item: T; score: number } => r !== null)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, maxResults)
+          .map(r => r.item);
+      };
+
+      const clients = filterAndScore(clientsList, c => c.companyName);
+      const projects = filterAndScore(projectsList, p => p.name);
+      
+      // Filter tasks by tenant if needed
+      const tenantFilteredTasks = tenantId 
+        ? tasksList.filter(t => t.tenantId === tenantId)
+        : tasksList;
+      const filteredTasks = filterAndScore(tenantFilteredTasks, t => t.title);
+
+      res.json({ 
+        clients: clients.map(c => ({ id: c.id, name: c.companyName, type: "client" })),
+        projects: projects.map(p => ({ id: p.id, name: p.name, type: "project", status: p.status })),
+        tasks: filteredTasks.map(t => ({ id: t.id, name: t.title, type: "task", projectId: t.projectId, status: t.status })),
+      });
+    } catch (error) {
+      console.error("Error in global search:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/workspaces/current", async (req, res) => {
     try {
       const workspaceId = await getCurrentWorkspaceIdAsync(req);

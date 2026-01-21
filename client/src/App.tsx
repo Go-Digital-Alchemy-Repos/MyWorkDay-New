@@ -17,6 +17,7 @@ import { TenantThemeProvider } from "@/lib/tenant-theme-loader";
 import { useAppMode } from "@/hooks/useAppMode";
 import { useToast } from "@/hooks/use-toast";
 import { setLastAttemptedTenantUrl, isTenantRoute } from "@/lib/tenant-url-storage";
+import { CommandPalette } from "@/components/command-palette";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import MyTasks from "@/pages/my-tasks";
@@ -249,6 +250,7 @@ function SuperLayout() {
 
 function TenantLayout() {
   const { isImpersonating } = useAppMode();
+  const [, setLocation] = useLocation();
   
   const style = {
     "--sidebar-width": "16rem",
@@ -257,6 +259,11 @@ function TenantLayout() {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
+      <CommandPalette
+        onNewTask={() => setLocation("/my-tasks")}
+        onNewProject={() => setLocation("/projects")}
+        onStartTimer={() => setLocation("/time-tracking")}
+      />
       <div className={`flex flex-col h-screen w-full ${isImpersonating ? "ring-2 ring-amber-500 ring-inset" : ""}`}>
         {/* Tenant impersonation banner (Act as Tenant mode) */}
         <ImpersonationBanner />
