@@ -41,7 +41,15 @@ import {
   Pencil,
   Trash2,
   Check,
+  Search,
+  AtSign,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import { CHAT_EVENTS, CHAT_ROOM_EVENTS, ChatNewMessagePayload, ChatMessageUpdatedPayload, ChatMessageDeletedPayload } from "@shared/events";
 
 interface ChatChannel {
@@ -119,6 +127,31 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastMarkedReadRef = useRef<string | null>(null);
+  
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionCursorPos, setMentionCursorPos] = useState(0);
+  const messageInputRef = useRef<HTMLInputElement>(null);
+
+  interface MentionableUser {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    displayName: string;
+  }
+
+  interface SearchResult {
+    id: string;
+    body: string;
+    createdAt: Date;
+    channelId: string | null;
+    dmThreadId: string | null;
+    channelName: string | null;
+    author: { id: string; email: string; displayName: string };
+  }
 
   const { data: channels = [] } = useQuery<ChatChannel[]>({
     queryKey: ["/api/v1/chat/channels"],
@@ -137,6 +170,80 @@ export default function ChatPage() {
     queryKey: ["/api/v1/chat/dm", selectedDm?.id, "messages"],
     enabled: !!selectedDm,
   });
+
+  const searchResultsQuery = useQuery<{ messages: SearchResult[]; total: number }>({
+    queryKey: ["/api/v1/chat/search", { q: searchQuery }],
+    enabled: searchOpen && searchQuery.length >= 2,
+  });
+
+  const mentionableUsersQuery = useQuery<MentionableUser[]>({
+    queryKey: ["/api/v1/chat/users/mentionable", { 
+      channelId: selectedChannel?.id, 
+      dmThreadId: selectedDm?.id,
+      q: mentionQuery 
+    }],
+    enabled: mentionOpen && (!!selectedChannel || !!selectedDm),
+  });
+
+  const handleMessageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart || 0;
+    setMessageInput(value);
+    
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+    
+    if (mentionMatch) {
+      setMentionOpen(true);
+      setMentionQuery(mentionMatch[1]);
+      setMentionCursorPos(cursorPos);
+    } else {
+      setMentionOpen(false);
+      setMentionQuery("");
+    }
+  };
+
+  const insertMention = (user: MentionableUser) => {
+    const textBeforeMention = messageInput.slice(0, mentionCursorPos).replace(/@\w*$/, "");
+    const textAfterMention = messageInput.slice(mentionCursorPos);
+    const mentionText = `@[${user.displayName}](${user.id}) `;
+    setMessageInput(textBeforeMention + mentionText + textAfterMention);
+    setMentionOpen(false);
+    setMentionQuery("");
+    messageInputRef.current?.focus();
+  };
+
+  const renderMessageBody = (body: string) => {
+    const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = mentionRegex.exec(body)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(body.slice(lastIndex, match.index));
+      }
+      const displayName = match[1];
+      const userId = match[2];
+      parts.push(
+        <Badge 
+          key={`${userId}-${match.index}`} 
+          variant="secondary" 
+          className="cursor-pointer text-xs py-0 px-1"
+        >
+          <AtSign className="h-3 w-3 mr-0.5" />
+          {displayName}
+        </Badge>
+      );
+      lastIndex = mentionRegex.lastIndex;
+    }
+    
+    if (lastIndex < body.length) {
+      parts.push(body.slice(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : body;
+  };
 
   useEffect(() => {
     if (selectedChannel && channelMessagesQuery.data) {
@@ -566,23 +673,33 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col">
         {selectedChannel || selectedDm ? (
           <>
-            <div className="h-14 border-b flex items-center px-4 gap-2">
-              {selectedChannel && (
-                <>
-                  {selectedChannel.isPrivate ? (
-                    <Lock className="h-5 w-5" />
-                  ) : (
-                    <Hash className="h-5 w-5" />
-                  )}
-                  <span className="font-semibold">{selectedChannel.name}</span>
-                </>
-              )}
-              {selectedDm && (
-                <>
-                  <MessageCircle className="h-5 w-5" />
-                  <span className="font-semibold">{getDmDisplayName(selectedDm)}</span>
-                </>
-              )}
+            <div className="h-14 border-b flex items-center px-4 gap-2 justify-between">
+              <div className="flex items-center gap-2">
+                {selectedChannel && (
+                  <>
+                    {selectedChannel.isPrivate ? (
+                      <Lock className="h-5 w-5" />
+                    ) : (
+                      <Hash className="h-5 w-5" />
+                    )}
+                    <span className="font-semibold">{selectedChannel.name}</span>
+                  </>
+                )}
+                {selectedDm && (
+                  <>
+                    <MessageCircle className="h-5 w-5" />
+                    <span className="font-semibold">{getDmDisplayName(selectedDm)}</span>
+                  </>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSearchOpen(true)}
+                data-testid="button-chat-search"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
             </div>
 
             <ScrollArea className="flex-1 p-4" ref={scrollRef}>
@@ -700,7 +817,7 @@ export default function ChatPage() {
                         </div>
                       ) : (
                         <p className={`text-sm break-words ${isDeleted ? "text-muted-foreground italic" : ""}`}>
-                          {message.body}
+                          {isDeleted ? message.body : renderMessageBody(message.body)}
                         </p>
                       )}
                       {message.attachments && message.attachments.length > 0 && !isDeleted && (
@@ -801,13 +918,39 @@ export default function ChatPage() {
                     <Paperclip className="h-4 w-4" />
                   )}
                 </Button>
-                <Input
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                  placeholder={`Message ${selectedChannel ? "#" + selectedChannel.name : getDmDisplayName(selectedDm!)}`}
-                  disabled={sendMessageMutation.isPending}
-                  data-testid="input-message"
-                />
+                <div className="relative flex-1">
+                  <Input
+                    ref={messageInputRef}
+                    value={messageInput}
+                    onChange={handleMessageInputChange}
+                    placeholder={`Message ${selectedChannel ? "#" + selectedChannel.name : getDmDisplayName(selectedDm!)}`}
+                    disabled={sendMessageMutation.isPending}
+                    data-testid="input-message"
+                  />
+                  {mentionOpen && mentionableUsersQuery.data && mentionableUsersQuery.data.length > 0 && (
+                    <div className="absolute bottom-full left-0 w-64 mb-1 bg-popover border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {mentionableUsersQuery.data.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => insertMention(u)}
+                          className="w-full px-3 py-2 text-left text-sm hover-elevate flex items-center gap-2"
+                          data-testid={`mention-user-${u.id}`}
+                        >
+                          <Avatar className="h-6 w-6">
+                            <AvatarFallback className="text-xs">
+                              {u.displayName.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">{u.displayName}</div>
+                            <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Button
                   type="submit"
                   size="icon"
@@ -880,6 +1023,102 @@ export default function ChatPage() {
               data-testid="button-confirm-create-channel"
             >
               Create Channel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Search Messages</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search messages (min 2 characters)"
+              data-testid="input-search-messages"
+            />
+            <ScrollArea className="h-80">
+              {searchResultsQuery.isLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              )}
+              {searchResultsQuery.data && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Found {searchResultsQuery.data.total} message{searchResultsQuery.data.total !== 1 ? "s" : ""}
+                  </p>
+                  {searchResultsQuery.data.messages.map((result) => (
+                    <Card
+                      key={result.id}
+                      className="p-3 cursor-pointer hover-elevate"
+                      onClick={() => {
+                        if (result.channelId) {
+                          const channel = channels.find(c => c.id === result.channelId);
+                          if (channel) {
+                            setSelectedChannel(channel);
+                            setSelectedDm(null);
+                          }
+                        } else if (result.dmThreadId) {
+                          const dm = dmThreads.find(d => d.id === result.dmThreadId);
+                          if (dm) {
+                            setSelectedDm(dm);
+                            setSelectedChannel(null);
+                          }
+                        }
+                        setSearchOpen(false);
+                        setSearchQuery("");
+                      }}
+                      data-testid={`search-result-${result.id}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Avatar className="h-5 w-5">
+                          <AvatarFallback className="text-xs">
+                            {result.author.displayName.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm font-medium">{result.author.displayName}</span>
+                        {result.channelName && (
+                          <Badge variant="outline" className="text-xs">
+                            <Hash className="h-3 w-3 mr-0.5" />
+                            {result.channelName}
+                          </Badge>
+                        )}
+                        {result.dmThreadId && (
+                          <Badge variant="outline" className="text-xs">
+                            <MessageCircle className="h-3 w-3 mr-0.5" />
+                            DM
+                          </Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {new Date(result.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {renderMessageBody(result.body)}
+                      </p>
+                    </Card>
+                  ))}
+                  {searchResultsQuery.data.messages.length === 0 && searchQuery.length >= 2 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No messages found matching "{searchQuery}"
+                    </p>
+                  )}
+                </div>
+              )}
+              {!searchResultsQuery.data && searchQuery.length < 2 && searchQuery.length > 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Type at least 2 characters to search
+                </p>
+              )}
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
