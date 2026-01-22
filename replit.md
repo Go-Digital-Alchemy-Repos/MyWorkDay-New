@@ -115,6 +115,20 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Email notifications via Mailgun for mentioned users
   - Mention format: `@[DisplayName](userId)` - emails never exposed publicly
   - Component: `client/src/components/comment-thread.tsx`
+- **Tenant-Scoped Chat System**: Slack-like messaging with channels and direct messages:
+  - Real-time messaging via Socket.IO with session-based authentication
+  - Public and private channels with member management
+  - Direct message threads between users
+  - Global chat drawer accessible from anywhere via chat icon in header
+  - File attachments using hierarchical S3 storage resolver
+- **Chat File Attachments**: Two-phase upload workflow for chat messages:
+  - POST `/api/v1/chat/uploads` endpoint creates attachment records with S3 storage
+  - Supported file types: pdf, docx, xlsx, csv, png, jpg, webp (max 10MB)
+  - Attachments linked to messages via `attachmentIds` array when sending
+  - Tenant-scoped validation prevents cross-tenant attachment access
+  - Images displayed inline in messages; other files shown as download links
+  - Toast notifications for upload errors and failures
+  - Components: `client/src/pages/chat.tsx`, `client/src/components/global-chat-drawer.tsx`
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
