@@ -13,6 +13,7 @@ import emailOutboxRoutes from "./emailOutbox";
 import systemStatusRoutes from "./systemStatus";
 import systemIntegrationsRoutes from "./systemIntegrations";
 import chatRoutes from "./chat";
+import chatRetentionRoutes from "./chatRetention";
 
 const router = Router();
 
@@ -29,6 +30,7 @@ router.use("/v1", workloadReportsRoutes);
 router.use("/v1/uploads", uploadRoutes);
 router.use("/v1", emailOutboxRoutes);
 router.use("/v1/chat", chatRoutes);
+router.use("/v1", chatRetentionRoutes);
 router.use(tenancyHealthRoutes);
 
 export default router;
