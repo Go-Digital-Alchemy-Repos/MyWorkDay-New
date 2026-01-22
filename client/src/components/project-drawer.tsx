@@ -25,8 +25,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle } from "lucide-react";
-import type { Project, Client, User, ProjectMember } from "@shared/schema";
+import { AlertCircle, Loader2 } from "lucide-react";
+import type { Project, Client, User, ProjectMember, ClientDivision } from "@shared/schema";
 
 const PROJECT_COLORS = [
   { name: "Blue", value: "#3B82F6" },
@@ -43,6 +43,7 @@ const projectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   description: z.string().optional(),
   clientId: z.string().min(1, "Client assignment is required"),
+  divisionId: z.string().optional(),
   color: z.string().default("#3B82F6"),
   memberIds: z.array(z.string()).default([]),
 });
@@ -90,6 +91,7 @@ export function ProjectDrawer({
       name: "",
       description: "",
       clientId: "",
+      divisionId: "",
       color: "#3B82F6",
       memberIds: [],
     },
@@ -99,6 +101,18 @@ export function ProjectDrawer({
   const hasClientAssigned = !!clientIdValue;
   const projectMissingClient = mode === "edit" && project && !project.clientId && !hasClientAssigned;
 
+  const { data: divisions, isLoading: divisionsLoading } = useQuery<ClientDivision[]>({
+    queryKey: ["/api/v1/clients", clientIdValue, "divisions"],
+    enabled: !!clientIdValue && open,
+  });
+
+  const clientHasDivisions = divisions && divisions.length > 0;
+
+  const handleClientChange = (newClientId: string) => {
+    form.setValue("clientId", newClientId, { shouldDirty: true });
+    form.setValue("divisionId", "", { shouldDirty: true });
+  };
+
   useEffect(() => {
     if (open && project && mode === "edit") {
       const memberIds = existingMembers?.map(m => m.userId) || [];
@@ -106,6 +120,7 @@ export function ProjectDrawer({
         name: project.name,
         description: project.description || "",
         clientId: project.clientId || "",
+        divisionId: project.divisionId || "",
         color: project.color || "#3B82F6",
         memberIds,
       });
@@ -114,6 +129,7 @@ export function ProjectDrawer({
         name: "",
         description: "",
         clientId: "",
+        divisionId: "",
         color: "#3B82F6",
         memberIds: [],
       });
@@ -128,6 +144,10 @@ export function ProjectDrawer({
   }, [form]);
 
   const handleSubmit = async (data: ProjectFormData) => {
+    if (clientHasDivisions && !data.divisionId) {
+      form.setError("divisionId", { message: "Division is required for this client" });
+      return;
+    }
     try {
       await onSubmit(data);
       form.reset();
@@ -256,7 +276,7 @@ export function ProjectDrawer({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Client *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={handleClientChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="select-client">
                           <SelectValue placeholder="Select a client (required)" />
@@ -274,6 +294,48 @@ export function ProjectDrawer({
                   </FormItem>
                 )}
               />
+
+              {clientIdValue && divisionsLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading divisions...
+                </div>
+              )}
+
+              {clientHasDivisions && (
+                <FormField
+                  control={form.control}
+                  name="divisionId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Division *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-division">
+                            <SelectValue placeholder="Select a division (required)" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {divisions.map((division) => (
+                            <SelectItem key={division.id} value={division.id}>
+                              <div className="flex items-center gap-2">
+                                {division.color && (
+                                  <div
+                                    className="h-3 w-3 rounded-full shrink-0"
+                                    style={{ backgroundColor: division.color }}
+                                  />
+                                )}
+                                {division.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}
