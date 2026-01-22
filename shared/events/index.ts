@@ -503,6 +503,94 @@ export interface MyTaskDeletedPayload {
 }
 
 // =============================================================================
+// CHAT EVENTS (Slack-like messaging)
+// =============================================================================
+
+export const CHAT_EVENTS = {
+  NEW_MESSAGE: 'chat:newMessage',
+  MESSAGE_UPDATED: 'chat:messageUpdated',
+  MESSAGE_DELETED: 'chat:messageDeleted',
+  CHANNEL_CREATED: 'chat:channelCreated',
+  MEMBER_JOINED: 'chat:memberJoined',
+} as const;
+
+export const CHAT_ROOM_EVENTS = {
+  JOIN: 'chat:join',
+  LEAVE: 'chat:leave',
+  SEND: 'chat:send',
+} as const;
+
+export interface ChatMessagePayload {
+  id: string;
+  tenantId: string;
+  channelId: string | null;
+  dmThreadId: string | null;
+  authorUserId: string;
+  body: string;
+  createdAt: Date;
+  editedAt: Date | null;
+  author?: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+}
+
+export interface ChatNewMessagePayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  message: ChatMessagePayload;
+}
+
+export interface ChatMessageUpdatedPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  messageId: string;
+  updates: Partial<ChatMessagePayload>;
+}
+
+export interface ChatMessageDeletedPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  messageId: string;
+}
+
+export interface ChatChannelCreatedPayload {
+  channel: {
+    id: string;
+    tenantId: string;
+    name: string;
+    isPrivate: boolean;
+    createdBy: string;
+    createdAt: Date;
+  };
+}
+
+export interface ChatMemberJoinedPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  userId: string;
+  userName: string;
+}
+
+export interface ChatJoinPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+}
+
+export interface ChatLeavePayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+}
+
+export interface ChatSendPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  body: string;
+}
+
+// =============================================================================
 // ALL EVENTS TYPE (for type-safe event handling)
 // =============================================================================
 
@@ -548,6 +636,12 @@ export type ServerToClientEvents = {
   [MY_TASK_EVENTS.CREATED]: (payload: MyTaskCreatedPayload) => void;
   [MY_TASK_EVENTS.UPDATED]: (payload: MyTaskUpdatedPayload) => void;
   [MY_TASK_EVENTS.DELETED]: (payload: MyTaskDeletedPayload) => void;
+  // Chat events
+  [CHAT_EVENTS.NEW_MESSAGE]: (payload: ChatNewMessagePayload) => void;
+  [CHAT_EVENTS.MESSAGE_UPDATED]: (payload: ChatMessageUpdatedPayload) => void;
+  [CHAT_EVENTS.MESSAGE_DELETED]: (payload: ChatMessageDeletedPayload) => void;
+  [CHAT_EVENTS.CHANNEL_CREATED]: (payload: ChatChannelCreatedPayload) => void;
+  [CHAT_EVENTS.MEMBER_JOINED]: (payload: ChatMemberJoinedPayload) => void;
 };
 
 export type ClientToServerEvents = {
@@ -557,4 +651,8 @@ export type ClientToServerEvents = {
   [ROOM_EVENTS.LEAVE_CLIENT]: (payload: LeaveClientPayload) => void;
   [ROOM_EVENTS.JOIN_WORKSPACE]: (payload: JoinWorkspacePayload) => void;
   [ROOM_EVENTS.LEAVE_WORKSPACE]: (payload: LeaveWorkspacePayload) => void;
+  // Chat room events
+  [CHAT_ROOM_EVENTS.JOIN]: (payload: ChatJoinPayload) => void;
+  [CHAT_ROOM_EVENTS.LEAVE]: (payload: ChatLeavePayload) => void;
+  [CHAT_ROOM_EVENTS.SEND]: (payload: ChatSendPayload) => void;
 };
