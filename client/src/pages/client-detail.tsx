@@ -60,10 +60,18 @@ import {
   Link as LinkIcon,
   Search,
   Play,
+  Layers,
+  Users,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { StartTimerDrawer } from "@/components/start-timer-drawer";
-import type { ClientWithContacts, Project, ClientContact } from "@shared/schema";
+import { DivisionDrawer } from "@/components/division-drawer";
+import type { ClientWithContacts, Project, ClientContact, ClientDivision } from "@shared/schema";
+
+interface DivisionWithCounts extends ClientDivision {
+  memberCount: number;
+  projectCount: number;
+}
 
 const createContactSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -215,9 +223,17 @@ export default function ClientDetailPage() {
   const [addProjectOpen, setAddProjectOpen] = useState(false);
   const [projectView, setProjectView] = useState<"options" | "create" | "assign">("options");
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
+  const [divisionDrawerOpen, setDivisionDrawerOpen] = useState(false);
+  const [editingDivision, setEditingDivision] = useState<ClientDivision | null>(null);
+  const [divisionMode, setDivisionMode] = useState<"create" | "edit">("create");
 
   const { data: client, isLoading } = useQuery<ClientWithContacts>({
     queryKey: ["/api/clients", clientId],
+    enabled: !!clientId,
+  });
+
+  const { data: divisions = [] } = useQuery<DivisionWithCounts[]>({
+    queryKey: ["/api/v1/clients", clientId, "divisions"],
     enabled: !!clientId,
   });
 
@@ -567,6 +583,9 @@ export default function ClientDetailPage() {
               <TabsTrigger value="projects" data-testid="tab-projects">
                 Projects ({client.projects?.length || 0})
               </TabsTrigger>
+              <TabsTrigger value="divisions" data-testid="tab-divisions">
+                Divisions ({divisions.length})
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -893,8 +912,101 @@ export default function ClientDetailPage() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="divisions" className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-medium">Divisions</h2>
+              <Button
+                onClick={() => {
+                  setEditingDivision(null);
+                  setDivisionMode("create");
+                  setDivisionDrawerOpen(true);
+                }}
+                data-testid="button-add-division"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Division
+              </Button>
+            </div>
+
+            {divisions.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {divisions.map((division) => (
+                  <Card
+                    key={division.id}
+                    className="cursor-pointer hover-elevate"
+                    onClick={() => {
+                      setEditingDivision(division);
+                      setDivisionMode("edit");
+                      setDivisionDrawerOpen(true);
+                    }}
+                    data-testid={`card-division-${division.id}`}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="h-3 w-3 rounded-sm shrink-0"
+                            style={{ backgroundColor: division.color || "#3B82F6" }}
+                          />
+                          <CardTitle className="text-base truncate">{division.name}</CardTitle>
+                        </div>
+                        {!division.isActive && (
+                          <Badge variant="outline" className="shrink-0">Inactive</Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {division.description && (
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                          {division.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Users className="h-3.5 w-3.5" />
+                          <span>{division.memberCount} members</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <FolderKanban className="h-3.5 w-3.5" />
+                          <span>{division.projectCount} projects</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Layers className="h-12 w-12 text-muted-foreground/50 mb-3" />
+                <p className="text-sm text-muted-foreground mb-4">No divisions created yet</p>
+                <p className="text-xs text-muted-foreground mb-4 max-w-md">
+                  Divisions help you organize teams and projects within this client for better access control.
+                </p>
+                <Button
+                  onClick={() => {
+                    setEditingDivision(null);
+                    setDivisionMode("create");
+                    setDivisionDrawerOpen(true);
+                  }}
+                  variant="outline"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create First Division
+                </Button>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
+
+      <DivisionDrawer
+        open={divisionDrawerOpen}
+        onOpenChange={setDivisionDrawerOpen}
+        clientId={clientId || ""}
+        division={editingDivision}
+        mode={divisionMode}
+      />
 
       <Sheet open={addProjectOpen} onOpenChange={handleCloseProjectSheet}>
         <SheetContent className="sm:max-w-md">
