@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Clock, Play, Pause, Square, Plus, Download, Filter, 
-  ChevronDown, Timer, Calendar, BarChart3, Trash2, Edit2, MoreHorizontal, X
+  ChevronDown, Timer, Calendar, BarChart3, Trash2, Edit2, MoreHorizontal, X, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -909,6 +909,7 @@ function EditTimeEntryDrawer({ entry, open, onOpenChange }: EditTimeEntryDrawerP
   const [hasChanges, setHasChanges] = useState(false);
   
   const [clientId, setClientId] = useState<string | null>(null);
+  const [divisionId, setDivisionId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [subtaskId, setSubtaskId] = useState<string | null>(null);
@@ -924,6 +925,7 @@ function EditTimeEntryDrawer({ entry, open, onOpenChange }: EditTimeEntryDrawerP
   useEffect(() => {
     if (entry && open) {
       setClientId(entry.clientId);
+      setDivisionId(null);
       setProjectId(entry.projectId);
       setTaskId(entry.taskId);
       setSubtaskId(null);
@@ -957,11 +959,32 @@ function EditTimeEntryDrawer({ entry, open, onOpenChange }: EditTimeEntryDrawerP
     enabled: open,
   });
 
-  const { data: clientProjects = [] } = useQuery<Array<{ id: string; name: string }>>({
+  const { data: clientDivisions = [], isLoading: divisionsLoading } = useQuery<Array<{ id: string; name: string; color?: string | null }>>({
+    queryKey: ["/api/v1/clients", clientId, "divisions"],
+    queryFn: () => fetch(`/api/v1/clients/${clientId}/divisions`, { credentials: "include" }).then((r) => r.json()),
+    enabled: !!clientId && open,
+  });
+
+  const clientHasDivisions = clientDivisions.length > 0;
+
+  const { data: allClientProjects = [] } = useQuery<Array<{ id: string; name: string; divisionId?: string | null }>>({
     queryKey: ["/api/clients", clientId, "projects"],
     queryFn: () => fetch(`/api/clients/${clientId}/projects`, { credentials: "include" }).then((r) => r.json()),
     enabled: !!clientId && open,
   });
+
+  useEffect(() => {
+    if (projectId && allClientProjects.length > 0 && clientHasDivisions && divisionId === null) {
+      const currentProject = allClientProjects.find(p => p.id === projectId);
+      if (currentProject?.divisionId) {
+        setDivisionId(currentProject.divisionId);
+      }
+    }
+  }, [projectId, allClientProjects, clientHasDivisions, divisionId]);
+
+  const clientProjects = clientHasDivisions && divisionId
+    ? allClientProjects.filter(p => p.divisionId === divisionId)
+    : allClientProjects;
 
   const { data: projectTasks = [] } = useQuery<Array<{ id: string; title: string; parentTaskId: string | null; status: string }>>({
     queryKey: ["/api/projects", projectId, "tasks"],
@@ -1012,6 +1035,15 @@ function EditTimeEntryDrawer({ entry, open, onOpenChange }: EditTimeEntryDrawerP
 
   const handleClientChange = (newClientId: string | null) => {
     setClientId(newClientId);
+    setDivisionId(null);
+    setProjectId(null);
+    setTaskId(null);
+    setSubtaskId(null);
+    markChanged();
+  };
+
+  const handleDivisionChange = (newDivisionId: string | null) => {
+    setDivisionId(newDivisionId);
     setProjectId(null);
     setTaskId(null);
     setSubtaskId(null);
@@ -1144,6 +1176,45 @@ function EditTimeEntryDrawer({ entry, open, onOpenChange }: EditTimeEntryDrawerP
               </Select>
             </div>
 
+            {clientId && divisionsLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading divisions...
+              </div>
+            )}
+
+            {clientHasDivisions && (
+              <div>
+                <Label>Division</Label>
+                <Select
+                  value={divisionId || "none"}
+                  onValueChange={(v) => handleDivisionChange(v === "none" ? null : v)}
+                >
+                  <SelectTrigger className="mt-2" data-testid="select-edit-division">
+                    <SelectValue placeholder="Select division" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">All divisions</SelectItem>
+                    {clientDivisions.map((division) => (
+                      <SelectItem key={division.id} value={division.id}>
+                        <div className="flex items-center gap-2">
+                          {division.color && (
+                            <div
+                              className="h-3 w-3 rounded-full shrink-0"
+                              style={{ backgroundColor: division.color }}
+                            />
+                          )}
+                          {division.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <div className={`grid grid-cols-1 ${clientHasDivisions ? "" : "md:grid-cols-2"} gap-6`}>
             <div>
               <Label>Project</Label>
               <Select
