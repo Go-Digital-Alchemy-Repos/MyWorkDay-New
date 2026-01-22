@@ -1,0 +1,195 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+FEATURE: Chat group membership management + “Start chat with user(s)” via a Team panel.
+
+Problem:
+- Users can start a group chat, but there’s no way to add members afterward.
+- We need a Team panel to (1) initiate chats with other tenant users and (2) manage group membership.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes (add-only endpoints OK).
+- Do NOT break existing chat functionality (DMs, groups, messages).
+- Multi-tenant isolation is mandatory: users can only see and chat with users in their tenant.
+- Permissions: Tenant Admin + Employees can initiate chats; Clients only if you already allow them (default: allow read/write only where already allowed).
+- No destructive operations without confirmation (removing a member requires confirm).
+- No DB schema changes unless absolutely necessary; prefer using existing chat tables.
+- Keep UI changes additive and scoped to Chat + Team panel.
+
+===============================================================================
+GOALS
+===============================================================================
+1) Add a “Team” panel (within Chat area) to:
+- search users in the tenant
+- select 1+ users
+- start a new direct chat or group chat
+- optionally choose an existing group to add selected members (if user has permission)
+
+2) Enable group chat member management:
+- View group members
+- Add member(s)
+- Remove member(s) (with confirmation)
+- Leave group
+
+3) Chat initiation should be possible with any other tenant user:
+- From Team panel: “Start chat”
+- From a user row: “Message”
+
+===============================================================================
+PART A — DATA MODEL / BACKEND (REUSE IF PRESENT)
+===============================================================================
+A1) Confirm existing chat schema
+Look for tables like:
+- conversations (id, tenantId, type: 'dm'|'group', name, createdBy, createdAt)
+- conversation_members (conversationId, userId, role?, joinedAt)
+- messages (id, conversationId, senderId, body, createdAt)
+If these exist: reuse them.
+If missing membership table: add minimal additive table conversation_members.
+
+A2) Rules
+- Every conversation MUST be tenant-scoped (tenantId stored and enforced).
+- Membership determines who can read/write messages and manage members.
+
+===============================================================================
+PART B — NEW/UPDATED ENDPOINTS (ADD-ONLY IF MISSING)
+===============================================================================
+B1) List tenant users for Team panel
+GET /api/v1/tenant/users?search=...
+- Returns safe fields only:
+  { id, firstName, lastName, email, role, avatarUrl? }
+- Must be tenant-scoped.
+
+B2) Create conversation (DM or group)
+POST /api/v1/chat/conversations
+Body:
+{
+  type: "dm"|"group",
+  name?: string,
+  memberIds: string[]   // includes selected users; server will also include current user
+}
+Behavior:
+- If type="dm" and memberIds length==1:
+  - Ensure only one DM exists per pair; reuse if already exists.
+- If type="group":
+  - Create new conversation + add members
+Return conversation summary (same shape as existing create if it exists).
+
+B3) Add members to group
+POST /api/v1/chat/conversations/:id/members
+Body: { memberIds: string[] }
+Rules:
+- Only group conversations
+- Only members can add others (OR restrict to admins/creator — choose the least disruptive rule consistent with current app)
+- Must validate every added user is in same tenant
+- Must prevent duplicates
+- Return updated member list or success response (keep current patterns)
+
+B4) Remove member from group
+DELETE /api/v1/chat/conversations/:id/members/:userId
+Rules:
+- Cannot remove last remaining member
+- If removing self, treat as “leave group”
+- Confirm UI before calling
+- Enforce permission checks
+
+B5) Get conversation members
+GET /api/v1/chat/conversations/:id/members
+- Return list of member user summaries
+
+NOTE:
+If your app already has similar endpoints, DO NOT replace them—just add what’s missing and wire UI to existing ones.
+
+===============================================================================
+PART C — FRONTEND: TEAM PANEL + MEMBER MANAGEMENT UI
+===============================================================================
+C1) Add Team Panel in Chat view
+In Chat area add a left-side sub-tab or panel:
+- Tabs: “Chats” | “Team”
+Team tab includes:
+- Search input
+- List of tenant users (excluding yourself by default)
+- Multi-select checkboxes
+- Button: “Start Chat”
+  - If 1 user selected → create/reuse DM and open it
+  - If 2+ selected → prompt for optional group name, create group, open it
+- Optional: “Add to existing group” dropdown (only appears if a group chat is currently selected)
+  - adds selected users to that group
+
+C2) Conversation Detail: Members panel
+Inside a group chat’s header area add:
+- “Members” button opens a drawer/side panel (NOT a small modal)
+Members drawer:
+- List members
+- Add members (search + select + Add)
+- Remove member button per row (confirm)
+- Leave group button for current user (confirm)
+
+C3) Real-time updates (sockets)
+When members are added/removed:
+- Update member list in real time
+- Ensure users newly added can see the conversation immediately
+- Ensure removed users lose access immediately (server enforcement + UI removal)
+
+===============================================================================
+PART D — PERMISSIONS (SAFE DEFAULTS)
+===============================================================================
+Default rules (safe, least surprising):
+- Any tenant user can start a DM or group with other tenant users (except if your app intentionally restricts Clients).
+- For group membership edits:
+  - Allowed for conversation creator and tenant admins OR any existing member (choose one; prefer creator+tenant admin if you want control)
+- Client users:
+  - If client users exist, allow them only if they are already allowed in chat; otherwise hide Team panel for Clients.
+
+===============================================================================
+PART E — TENANT ISOLATION + SECURITY
+===============================================================================
+- All user lists must be tenant-scoped.
+- All add/remove member actions must validate userId belongs to same tenant and that caller has access.
+- Server must enforce membership for message send/read.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) tenant_users_list_is_scoped.test.ts
+- tenant A cannot see tenant B users
+
+2) create_dm_reuses_existing_pair.test.ts
+- creating DM twice returns same conversation
+
+3) add_members_validates_same_tenant.test.ts
+- cannot add user from another tenant
+
+4) remove_member_revokes_access.test.ts
+- removed member cannot fetch messages/members
+
+Frontend (if available):
+5) team_panel_starts_dm_or_group.test.tsx
+6) members_drawer_add_remove_updates_ui.test.tsx
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+- Update /docs/CHAT.md:
+  - conversations vs members
+  - Team panel workflow
+  - permissions
+- Update /docs/TENANCY_MODEL.md:
+  - chat scoping + enforcement
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- From Team panel, a tenant user can initiate a DM or group with other tenant users.
+- In a group chat, members can be viewed and new members can be added.
+- Members can be removed (with confirmation) and access is revoked immediately.
+- Everything is tenant-isolated and works with sockets without refresh.
+- No breaking changes to existing chat; tests pass; docs updated.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Endpoints added/used
+- Membership permission rule implemented
+- UI locations (Team tab + Members drawer)
+- Manual test checklist (local + Railway)

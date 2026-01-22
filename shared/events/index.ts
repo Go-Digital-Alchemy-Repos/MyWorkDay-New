@@ -512,6 +512,7 @@ export const CHAT_EVENTS = {
   MESSAGE_DELETED: 'chat:messageDeleted',
   CHANNEL_CREATED: 'chat:channelCreated',
   MEMBER_JOINED: 'chat:memberJoined',
+  MEMBER_LEFT: 'chat:memberLeft',
 } as const;
 
 export const CHAT_ROOM_EVENTS = {
@@ -572,6 +573,14 @@ export interface ChatMemberJoinedPayload {
   targetId: string;
   userId: string;
   userName: string;
+}
+
+export interface ChatMemberLeftPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  userId: string;
+  userName: string;
+  removedBy: string | null;
 }
 
 export interface ChatJoinPayload {
@@ -643,6 +652,7 @@ export type ServerToClientEvents = {
   [CHAT_EVENTS.MESSAGE_DELETED]: (payload: ChatMessageDeletedPayload) => void;
   [CHAT_EVENTS.CHANNEL_CREATED]: (payload: ChatChannelCreatedPayload) => void;
   [CHAT_EVENTS.MEMBER_JOINED]: (payload: ChatMemberJoinedPayload) => void;
+  [CHAT_EVENTS.MEMBER_LEFT]: (payload: ChatMemberLeftPayload) => void;
 };
 
 export type ClientToServerEvents = {

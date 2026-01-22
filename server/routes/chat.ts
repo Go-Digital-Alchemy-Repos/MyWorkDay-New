@@ -58,6 +58,49 @@ const upload = multer({
   },
 });
 
+// =============================================================================
+// TEAM PANEL: List tenant users for chat initiation
+// =============================================================================
+
+router.get(
+  "/users",
+  asyncHandler(async (req: Request, res: Response) => {
+    const tenantId = getCurrentTenantId(req);
+    const userId = getCurrentUserId(req);
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
+
+    const { search } = req.query;
+    const searchQuery = typeof search === "string" ? search.toLowerCase().trim() : "";
+
+    const allUsers = await storage.getUsersByTenant(tenantId);
+    
+    // Map to safe user summary (exclude sensitive fields)
+    let usersForTeam = allUsers.map((u) => ({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      role: u.role,
+      avatarUrl: u.avatarUrl,
+      displayName: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email,
+    }));
+
+    // Filter by search query if provided
+    if (searchQuery) {
+      usersForTeam = usersForTeam.filter(
+        (u) =>
+          u.displayName.toLowerCase().includes(searchQuery) ||
+          u.email.toLowerCase().includes(searchQuery)
+      );
+    }
+
+    // Optionally exclude current user (caller can filter client-side too)
+    // usersForTeam = usersForTeam.filter(u => u.id !== userId);
+
+    res.json(usersForTeam);
+  })
+);
+
 router.get(
   "/channels",
   asyncHandler(async (req: Request, res: Response) => {
@@ -940,6 +983,146 @@ router.get(
     }
 
     res.json(filtered.slice(0, 20));
+  })
+);
+
+// =============================================================================
+// CHANNEL MEMBER MANAGEMENT - Add/Remove members
+// =============================================================================
+
+const addMembersSchema = z.object({
+  userIds: z.array(z.string().uuid()).min(1).max(20),
+});
+
+// POST /api/v1/chat/channels/:channelId/members - Add members to a channel
+router.post(
+  "/channels/:channelId/members",
+  validateBody(addMembersSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const tenantId = getCurrentTenantId(req);
+    const userId = getCurrentUserId(req);
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
+
+    const { channelId } = req.params;
+    const { userIds } = req.body;
+
+    // Verify channel exists and belongs to tenant
+    const channel = await storage.getChatChannel(channelId);
+    if (!channel || channel.tenantId !== tenantId) {
+      throw AppError.notFound("Channel not found");
+    }
+
+    // Check if current user is a member (only members can add others)
+    const currentMember = await storage.getChatChannelMember(channelId, userId);
+    if (!currentMember) {
+      throw AppError.forbidden("Only channel members can add new members");
+    }
+
+    // Validate all users exist and belong to the same tenant
+    const validUsers = [];
+    for (const uid of userIds) {
+      const user = await storage.getUser(uid);
+      if (!user) {
+        throw AppError.badRequest(`User ${uid} not found`);
+      }
+      if (user.tenantId !== tenantId) {
+        throw AppError.badRequest(`User ${uid} does not belong to this tenant`);
+      }
+      validUsers.push(user);
+    }
+
+    // Add members (skip duplicates)
+    const addedMembers = [];
+    for (const user of validUsers) {
+      const existingMember = await storage.getChatChannelMember(channelId, user.id);
+      if (!existingMember) {
+        await storage.addChatChannelMember({
+          tenantId,
+          channelId,
+          userId: user.id,
+          role: "member",
+        });
+        addedMembers.push(user);
+      }
+    }
+
+    // Emit socket events for each added member
+    for (const user of addedMembers) {
+      emitToTenant(tenantId, CHAT_EVENTS.MEMBER_JOINED, {
+        targetType: "channel",
+        targetId: channelId,
+        userId: user.id,
+        userName: user.name || user.email || "Unknown",
+      });
+    }
+
+    // Return updated member list
+    const members = await storage.getChatChannelMembers(channelId);
+    res.status(201).json({ 
+      added: addedMembers.length, 
+      members 
+    });
+  })
+);
+
+// DELETE /api/v1/chat/channels/:channelId/members/:userId - Remove a member from a channel
+router.delete(
+  "/channels/:channelId/members/:userId",
+  asyncHandler(async (req: Request, res: Response) => {
+    const tenantId = getCurrentTenantId(req);
+    const currentUserId = getCurrentUserId(req);
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
+
+    const { channelId, userId: targetUserId } = req.params;
+
+    // Verify channel exists and belongs to tenant
+    const channel = await storage.getChatChannel(channelId);
+    if (!channel || channel.tenantId !== tenantId) {
+      throw AppError.notFound("Channel not found");
+    }
+
+    // Check if the target user is a member
+    const targetMember = await storage.getChatChannelMember(channelId, targetUserId);
+    if (!targetMember) {
+      throw AppError.notFound("User is not a member of this channel");
+    }
+
+    // Permission checks:
+    // 1. Users can always remove themselves (leave)
+    // 2. Channel owner/creator can remove anyone
+    // 3. Tenant admins can remove anyone
+    const isSelf = currentUserId === targetUserId;
+    const isCreator = channel.createdBy === currentUserId;
+    const currentMember = await storage.getChatChannelMember(channelId, currentUserId);
+    const isOwner = currentMember?.role === "owner";
+    const currentUser = await storage.getUser(currentUserId);
+    const isTenantAdmin = currentUser?.role === "admin";
+
+    if (!isSelf && !isCreator && !isOwner && !isTenantAdmin) {
+      throw AppError.forbidden("You do not have permission to remove this member");
+    }
+
+    // Check if this would leave the channel empty
+    const members = await storage.getChatChannelMembers(channelId);
+    if (members.length <= 1) {
+      throw AppError.badRequest("Cannot remove the last member from a channel");
+    }
+
+    // Remove the member
+    await storage.removeChatChannelMember(channelId, targetUserId);
+
+    const targetUser = await storage.getUser(targetUserId);
+
+    // Emit socket event
+    emitToTenant(tenantId, CHAT_EVENTS.MEMBER_LEFT, {
+      targetType: "channel",
+      targetId: channelId,
+      userId: targetUserId,
+      userName: targetUser?.name || targetUser?.email || "Unknown",
+      removedBy: isSelf ? null : currentUserId,
+    });
+
+    res.json({ success: true, message: isSelf ? "Left channel" : "Member removed" });
   })
 );
 

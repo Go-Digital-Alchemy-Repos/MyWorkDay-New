@@ -348,6 +348,7 @@ export interface IStorage {
   getChatDmThread(id: string): Promise<ChatDmThread | undefined>;
   getChatDmThreadByMembers(tenantId: string, userIds: string[]): Promise<ChatDmThread | undefined>;
   getUserChatDmThreads(tenantId: string, userId: string): Promise<(ChatDmThread & { members: (ChatDmMember & { user: User })[] })[]>;
+  getChatDmParticipants(dmThreadId: string): Promise<ChatDmMember[]>;
   createChatDmThread(thread: InsertChatDmThread, memberUserIds: string[]): Promise<ChatDmThread>;
 
   // Chat - Messages
@@ -2547,6 +2548,10 @@ export class DatabaseStorage implements IStorage {
         .map(m => ({ ...m, user: userMap.get(m.userId)! }))
         .filter(m => m.user),
     }));
+  }
+
+  async getChatDmParticipants(dmThreadId: string): Promise<ChatDmMember[]> {
+    return await db.select().from(chatDmMembers).where(eq(chatDmMembers.dmThreadId, dmThreadId));
   }
 
   async createChatDmThread(thread: InsertChatDmThread, memberUserIds: string[]): Promise<ChatDmThread> {
