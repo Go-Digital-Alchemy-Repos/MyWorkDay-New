@@ -133,13 +133,34 @@ Manual regression checklist for verifying core functionality. Run through this c
 - [ ] Add client contact
 - [ ] Delete client
 
-### 5.2 Projects
+### 5.2 Client Divisions
+- [ ] Navigate to Client detail page
+- [ ] Click "Divisions" tab
+- [ ] Create division (Admin only)
+  - [ ] Fill name, description, color
+  - [ ] Save division
+- [ ] Edit division
+  - [ ] Click division card to open drawer
+  - [ ] Update details
+  - [ ] Switch to "Team" tab
+  - [ ] Add/remove members via checkboxes
+  - [ ] Save members
+- [ ] Verify employee visibility
+  - [ ] Log in as employee assigned to Division A
+  - [ ] Only Division A visible in Divisions tab
+  - [ ] Divisions B, C not visible
+- [ ] Project-division requirement
+  - [ ] Create project for client with divisions
+  - [ ] Division selection required
+  - [ ] Selecting invalid division rejected
+
+### 5.3 Projects
 - [ ] Create project
 - [ ] Assign to client (optional)
 - [ ] Set budget minutes
 - [ ] View project board
 
-### 5.3 Sections (Board View)
+### 5.4 Sections (Board View)
 - [ ] Add section
 - [ ] Rename section
 - [ ] Delete section
