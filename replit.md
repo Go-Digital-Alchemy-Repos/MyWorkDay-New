@@ -57,7 +57,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Hierarchical S3 Storage**: 3-tier storage configuration with automatic fallback (tenant-specific → system-level → env vars).
 - **Global Command Palette**: Keyboard-driven search (⌘K / Ctrl+K) and quick actions across clients, projects, and tasks.
 - **Enhanced Task Comments**: Full comment management with edit/delete permissions, resolve/unresolve, and @mention support with email notifications.
-- **Tenant-Scoped Chat System**: Slack-like messaging with channels and direct messages via Socket.IO, including file attachments using hierarchical S3 storage.
+- **Tenant-Scoped Chat System**: Slack-like messaging with channels and direct messages via Socket.IO, including file attachments using hierarchical S3 storage. Includes comprehensive stability features: infinite reconnection with automatic room rejoin, duplicate message guards, optimistic UI with pending/sent/failed states, retry mechanism for failed messages, consistent message ordering, stale pending cleanup (2-minute timeout), connection status indicator, and toast notifications when removed from channels.
 - **Chat Unread Tracking**: Real-time unread badge indicators using `chat_reads` table and auto-mark as read.
 - **Chat Message Search**: Tenant-scoped message search across accessible channels and DMs.
 - **Chat @Mentions**: Real-time @mention autocomplete and rendering with tenant-scoped validation.
