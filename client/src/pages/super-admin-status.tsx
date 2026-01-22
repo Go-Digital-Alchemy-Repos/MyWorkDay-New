@@ -1639,23 +1639,29 @@ function DebugToolsPanel() {
                         <div>
                           <div className="text-sm font-medium text-green-600">Updated</div>
                           <div className="text-sm space-y-1">
-                            {Object.entries(backfillResult.updated).map(([table, count]) => (
+                            {Object.entries(backfillResult.updated || {}).map(([table, count]) => (
                               <div key={table} className="flex justify-between">
                                 <span className="capitalize">{table}:</span>
                                 <span>{count}</span>
                               </div>
                             ))}
+                            {(!backfillResult.updated || Object.keys(backfillResult.updated).length === 0) && (
+                              <div className="text-muted-foreground">No updates</div>
+                            )}
                           </div>
                         </div>
                         <div>
                           <div className="text-sm font-medium text-yellow-600">Quarantined</div>
                           <div className="text-sm space-y-1">
-                            {Object.entries(backfillResult.quarantined).map(([table, count]) => (
+                            {Object.entries(backfillResult.quarantined || {}).map(([table, count]) => (
                               <div key={table} className="flex justify-between">
                                 <span className="capitalize">{table}:</span>
                                 <span>{count}</span>
                               </div>
                             ))}
+                            {(!backfillResult.quarantined || Object.keys(backfillResult.quarantined).length === 0) && (
+                              <div className="text-muted-foreground">None quarantined</div>
+                            )}
                           </div>
                         </div>
                       </div>
