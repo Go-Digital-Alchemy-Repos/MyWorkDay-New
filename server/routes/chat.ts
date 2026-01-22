@@ -726,4 +726,133 @@ router.post(
   })
 );
 
+// ============================================================================
+// Message Edit/Delete
+// ============================================================================
+
+const updateMessageSchema = z.object({
+  body: z.string().min(1).max(10000),
+});
+
+// PATCH /api/v1/chat/messages/:id - Edit a message
+// Authorization: Only the message author can edit their own message
+router.patch(
+  "/messages/:id",
+  validateBody(updateMessageSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const tenantId = getCurrentTenantId(req);
+    const userId = getCurrentUserId(req);
+    const messageId = req.params.id;
+    const { body } = req.body;
+
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
+
+    // Get the message
+    const message = await storage.getChatMessage(messageId);
+    if (!message || message.tenantId !== tenantId) {
+      throw AppError.notFound("Message not found");
+    }
+
+    // Check if message was already deleted
+    if (message.deletedAt) {
+      throw AppError.badRequest("Cannot edit a deleted message");
+    }
+
+    // Only the author can edit their own message
+    if (message.authorUserId !== userId) {
+      throw AppError.forbidden("You can only edit your own messages");
+    }
+
+    // Update the message
+    const updatedMessage = await storage.updateChatMessage(messageId, { body });
+
+    if (!updatedMessage) {
+      throw AppError.notFound("Message not found");
+    }
+
+    // Get author info for socket payload
+    const author = await storage.getUser(userId);
+
+    // Emit socket event
+    const targetType = message.channelId ? "channel" : "dm";
+    const targetId = message.channelId || message.dmThreadId!;
+    
+    const payload = {
+      targetType,
+      targetId,
+      messageId,
+      updates: {
+        body: updatedMessage.body,
+        editedAt: updatedMessage.editedAt,
+      },
+    };
+
+    if (targetType === "channel") {
+      emitToChatChannel(targetId, CHAT_EVENTS.MESSAGE_UPDATED, payload);
+    } else {
+      emitToChatDm(targetId, CHAT_EVENTS.MESSAGE_UPDATED, payload);
+    }
+
+    res.json({
+      ...updatedMessage,
+      author: author ? { id: author.id, name: author.name, email: author.email, avatarUrl: author.avatarUrl } : undefined,
+    });
+  })
+);
+
+// DELETE /api/v1/chat/messages/:id - Delete a message (soft delete)
+// Authorization: Message author can delete their own message, Tenant Admin can delete any message
+router.delete(
+  "/messages/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const tenantId = getCurrentTenantId(req);
+    const userId = getCurrentUserId(req);
+    const messageId = req.params.id;
+
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
+
+    // Get the message
+    const message = await storage.getChatMessage(messageId);
+    if (!message || message.tenantId !== tenantId) {
+      throw AppError.notFound("Message not found");
+    }
+
+    // Check if message was already deleted
+    if (message.deletedAt) {
+      throw AppError.badRequest("Message already deleted");
+    }
+
+    // Check authorization: author can delete their own, tenant admin can delete any
+    const currentUser = await storage.getUser(userId);
+    const isAuthor = message.authorUserId === userId;
+    const isTenantAdmin = currentUser?.role === "admin";
+
+    if (!isAuthor && !isTenantAdmin) {
+      throw AppError.forbidden("You can only delete your own messages");
+    }
+
+    // Soft delete: set deletedAt and replace body
+    await storage.updateChatMessage(messageId, { body: "Message deleted" });
+    await storage.deleteChatMessage(messageId);
+
+    // Emit socket event
+    const targetType = message.channelId ? "channel" : "dm";
+    const targetId = message.channelId || message.dmThreadId!;
+    
+    const payload = {
+      targetType,
+      targetId,
+      messageId,
+    };
+
+    if (targetType === "channel") {
+      emitToChatChannel(targetId, CHAT_EVENTS.MESSAGE_DELETED, payload);
+    } else {
+      emitToChatDm(targetId, CHAT_EVENTS.MESSAGE_DELETED, payload);
+    }
+
+    res.json({ success: true });
+  })
+);
+
 export default router;
