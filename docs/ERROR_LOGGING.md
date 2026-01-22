@@ -6,8 +6,10 @@ MyWorkDay includes a centralized error logging system designed for production de
 
 ## Key Features
 
-- **Automatic Error Capture**: All 500+ errors are logged with request context
+- **Automatic Error Capture**: All 500+ errors and key 4xx errors are logged with request context
+- **Key 4xx Capture**: Captures 403 (Forbidden), 404 (Not Found), and 429 (Rate Limited) for security/debugging
 - **Request ID Correlation**: Every error includes the requestId for tracing across logs
+- **Request ID in Toasts**: 500+ errors display a reference ID in toast notifications for user support
 - **Secret Redaction**: Sensitive data (passwords, API keys, tokens) are automatically redacted
 - **Stack Trace Storage**: Full stack traces stored server-side only, never exposed to tenants
 - **Tenant/User Context**: Errors include tenantId and userId for scoped debugging
@@ -126,6 +128,50 @@ Error logs are accessible in the Super Admin dashboard:
 4. Click any row to view full error details
 5. Copy request ID to correlate with other logs
 
+## Captured Error Types
+
+### 500+ Server Errors (Always Captured)
+
+All internal server errors are automatically captured, including:
+- Database connection failures
+- Unhandled exceptions
+- Internal processing errors
+- Integration failures
+
+### Key 4xx Errors (Selective Capture)
+
+The following 4xx errors are captured for debugging and security monitoring:
+
+| Status | Name | Why Captured |
+|--------|------|--------------|
+| 403 | Forbidden | Security - potential permission misconfigurations or unauthorized access attempts |
+| 404 | Not Found | May indicate broken links, invalid API calls, or route misconfigurations |
+| 429 | Rate Limited | Abuse detection, rate limit tuning, capacity planning |
+
+Non-key 4xx errors (400, 401, 402, etc.) are NOT captured to reduce log noise.
+
+## Request ID in Tenant UI
+
+When a 500+ error occurs, tenant users see a toast notification with a reference ID:
+
+```
+Something went wrong
+Please try again later. (Ref: abc12345)
+```
+
+This reference ID is the first 8 characters of the request ID, allowing users to report issues to support. Support can then look up the full error in the Error Logs panel using the reference.
+
+The utility function `formatErrorForToast(error)` in `client/src/lib/parseApiError.ts` handles this:
+
+```typescript
+import { formatErrorForToast } from "@/lib/parseApiError";
+
+onError: (error: Error) => {
+  const { title, description } = formatErrorForToast(error);
+  toast({ title, description, variant: "destructive" });
+}
+```
+
 ## Debugging Workflow
 
 ### 1. Error Discovery
@@ -220,7 +266,7 @@ Error logging uses the same `requestId` from `requestIdMiddleware`, ensuring con
 
 ### Errors Not Appearing
 
-1. Check status code is 500+ (4xx errors are not logged)
+1. Check status code - captured errors include 500+ and key 4xx (403, 404, 429)
 2. Verify `errorLoggingMiddleware` is in middleware chain
 3. Check database connectivity
 

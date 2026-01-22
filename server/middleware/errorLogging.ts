@@ -4,6 +4,7 @@
  * 
  * INVARIANTS:
  * - All 500+ errors are logged to error_logs table
+ * - Key 4xx errors (403, 404, 429) are also logged for debugging
  * - Secrets are redacted from messages and meta
  * - Stack traces are stored server-side only, never sent to tenant users
  * - requestId is always included for correlation
@@ -139,7 +140,23 @@ export async function captureError(
 }
 
 /**
- * Middleware that wraps the response to capture 500+ errors
+ * Key 4xx status codes worth capturing for debugging
+ * - 403: Forbidden (potential security issues or permission misconfigurations)
+ * - 404: Not Found (may indicate broken links or invalid API calls)  
+ * - 429: Rate Limited (may indicate abuse or need for rate limit tuning)
+ */
+const KEY_4XX_STATUSES = [403, 404, 429];
+
+/**
+ * Determines if an error should be captured to the error_logs table
+ */
+function shouldCaptureError(status: number): boolean {
+  return status >= 500 || KEY_4XX_STATUSES.includes(status);
+}
+
+/**
+ * Middleware that captures errors to the error_logs table.
+ * Captures all 500+ errors and key 4xx errors (403, 404, 429).
  */
 export function errorLoggingMiddleware(
   err: Error,
@@ -147,10 +164,9 @@ export function errorLoggingMiddleware(
   res: Response,
   next: NextFunction
 ): void {
-  // Only capture 500+ errors
   const status = (err as any).statusCode || (err as any).status || 500;
   
-  if (status >= 500) {
+  if (shouldCaptureError(status)) {
     // Fire and forget - don't block the response
     captureError(req, err, status).catch(() => {
       // Ignore errors from error logging

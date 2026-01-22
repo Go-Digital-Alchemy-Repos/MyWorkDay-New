@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { formatErrorForToast } from "@/lib/parseApiError";
 
 export interface CreateTaskData {
   title: string;
@@ -73,9 +74,10 @@ export function useCreateTask(options?: {
       options?.onSuccess?.(task);
     },
     onError: (error: Error) => {
+      const { title, description } = formatErrorForToast(error);
       toast({
-        title: "Failed to create task",
-        description: error.message,
+        title,
+        description,
         variant: "destructive",
       });
       options?.onError?.(error);
@@ -100,9 +102,10 @@ export function useCreatePersonalTask(options?: {
       options?.onSuccess?.(task);
     },
     onError: (error: Error) => {
+      const { title, description } = formatErrorForToast(error);
       toast({
-        title: "Failed to create personal task",
-        description: error.message,
+        title,
+        description,
         variant: "destructive",
       });
       options?.onError?.(error);
@@ -136,9 +139,10 @@ export function useCreateChildTask(options?: {
       options?.onSuccess?.(task);
     },
     onError: (error: Error) => {
+      const { title, description } = formatErrorForToast(error);
       toast({
-        title: "Failed to create subtask",
-        description: error.message,
+        title,
+        description,
         variant: "destructive",
       });
       options?.onError?.(error);
@@ -164,9 +168,10 @@ export function useCreateSubtask(options?: {
       options?.onSuccess?.(subtask);
     },
     onError: (error: Error) => {
+      const { title, description } = formatErrorForToast(error);
       toast({
-        title: "Failed to create subtask",
-        description: error.message,
+        title,
+        description,
         variant: "destructive",
       });
       options?.onError?.(error);

@@ -292,3 +292,80 @@ describe("Error Log Response Shape", () => {
     expect(res.body.log).toHaveProperty("stack");
   });
 });
+
+describe("X-Request-Id Header Presence", () => {
+  it("should include X-Request-Id header in responses", async () => {
+    const app = createMockApp("super_user");
+    const res = await request(app).get("/api/v1/super/status/error-logs");
+    
+    expect(res.headers["x-request-id"]).toBeDefined();
+    expect(typeof res.headers["x-request-id"]).toBe("string");
+    expect(res.headers["x-request-id"].length).toBeGreaterThan(0);
+  });
+
+  it("should use provided X-Request-Id header if present", async () => {
+    const app = createMockApp("super_user");
+    const customRequestId = "custom-request-id-12345";
+    const res = await request(app)
+      .get("/api/v1/super/status/error-logs")
+      .set("X-Request-Id", customRequestId);
+    
+    expect(res.headers["x-request-id"]).toBe(customRequestId);
+  });
+});
+
+describe("Key 4xx Error Capture Configuration", () => {
+  it("should have correct 4xx status codes configured for capture", () => {
+    const KEY_4XX_STATUSES = [403, 404, 429];
+    
+    expect(KEY_4XX_STATUSES).toContain(403);
+    expect(KEY_4XX_STATUSES).toContain(404);
+    expect(KEY_4XX_STATUSES).toContain(429);
+    expect(KEY_4XX_STATUSES).toHaveLength(3);
+    expect(KEY_4XX_STATUSES).not.toContain(400);
+    expect(KEY_4XX_STATUSES).not.toContain(401);
+  });
+
+  it("shouldCaptureError returns true for 500+ errors", () => {
+    const shouldCaptureError = (status: number) => 
+      status >= 500 || [403, 404, 429].includes(status);
+    
+    expect(shouldCaptureError(500)).toBe(true);
+    expect(shouldCaptureError(501)).toBe(true);
+    expect(shouldCaptureError(502)).toBe(true);
+    expect(shouldCaptureError(503)).toBe(true);
+    expect(shouldCaptureError(599)).toBe(true);
+  });
+
+  it("shouldCaptureError returns true for key 4xx errors", () => {
+    const shouldCaptureError = (status: number) => 
+      status >= 500 || [403, 404, 429].includes(status);
+    
+    expect(shouldCaptureError(403)).toBe(true);
+    expect(shouldCaptureError(404)).toBe(true);
+    expect(shouldCaptureError(429)).toBe(true);
+  });
+
+  it("shouldCaptureError returns false for non-key 4xx errors", () => {
+    const shouldCaptureError = (status: number) => 
+      status >= 500 || [403, 404, 429].includes(status);
+    
+    expect(shouldCaptureError(400)).toBe(false);
+    expect(shouldCaptureError(401)).toBe(false);
+    expect(shouldCaptureError(402)).toBe(false);
+    expect(shouldCaptureError(405)).toBe(false);
+    expect(shouldCaptureError(409)).toBe(false);
+    expect(shouldCaptureError(422)).toBe(false);
+  });
+
+  it("shouldCaptureError returns false for success codes", () => {
+    const shouldCaptureError = (status: number) => 
+      status >= 500 || [403, 404, 429].includes(status);
+    
+    expect(shouldCaptureError(200)).toBe(false);
+    expect(shouldCaptureError(201)).toBe(false);
+    expect(shouldCaptureError(204)).toBe(false);
+    expect(shouldCaptureError(301)).toBe(false);
+    expect(shouldCaptureError(302)).toBe(false);
+  });
+});

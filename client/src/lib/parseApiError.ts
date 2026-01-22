@@ -209,3 +209,68 @@ export function isAgreementError(error: ParsedApiError): boolean {
 export function isTenantError(error: ParsedApiError): boolean {
   return error.code === "TENANT_REQUIRED";
 }
+
+/**
+ * Formats an error for display in a toast notification.
+ * For 500+ errors, includes the requestId so users can report issues.
+ * Stack traces are never shown to tenant users.
+ */
+export function formatErrorForToast(error: unknown): {
+  title: string;
+  description: string;
+} {
+  const parsed = parseApiError(error);
+  const message = getErrorMessage(parsed);
+  
+  // For server errors (500+), include requestId for correlation
+  if (parsed.status >= 500 && parsed.requestId) {
+    return {
+      title: "Something went wrong",
+      description: `${message} (Ref: ${parsed.requestId.slice(0, 8)})`,
+    };
+  }
+  
+  return {
+    title: getToastTitleForCode(parsed.code),
+    description: message,
+  };
+}
+
+/**
+ * Gets an appropriate toast title for an error code.
+ */
+function getToastTitleForCode(code: string): string {
+  switch (code) {
+    case "VALIDATION_ERROR":
+      return "Validation Error";
+    case "UNAUTHORIZED":
+      return "Authentication Required";
+    case "FORBIDDEN":
+      return "Access Denied";
+    case "NOT_FOUND":
+      return "Not Found";
+    case "RATE_LIMITED":
+      return "Too Many Requests";
+    case "CONFLICT":
+      return "Conflict";
+    case "INTERNAL_ERROR":
+      return "Server Error";
+    default:
+      return "Error";
+  }
+}
+
+/**
+ * Extracts requestId from an ApiError if present.
+ * Useful for logging or displaying in error details.
+ */
+export function getRequestIdFromError(error: unknown): string | null {
+  // Check if it's an ApiError with requestId property
+  if (error && typeof error === "object" && "requestId" in error) {
+    return (error as { requestId: string | null }).requestId;
+  }
+  
+  // Try parsing to extract from message
+  const parsed = parseApiError(error);
+  return parsed.requestId || null;
+}
