@@ -66,6 +66,7 @@ import {
 import { useLocation } from "wouter";
 import { StartTimerDrawer } from "@/components/start-timer-drawer";
 import { DivisionDrawer } from "@/components/division-drawer";
+import { useToast } from "@/hooks/use-toast";
 import type { ClientWithContacts, Project, ClientContact, ClientDivision } from "@shared/schema";
 
 interface DivisionWithCounts extends ClientDivision {
@@ -215,6 +216,7 @@ export default function ClientDetailPage() {
   const [, params] = useRoute("/clients/:id");
   const [, navigate] = useLocation();
   const clientId = params?.id;
+  const { toast } = useToast();
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<ClientContact | null>(null);
@@ -257,10 +259,34 @@ export default function ClientDetailPage() {
     mutationFn: async (data: UpdateClientForm) => {
       return apiRequest("PATCH", `/api/clients/${clientId}`, data);
     },
+    onMutate: async (newData) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/clients", clientId] });
+      const previousClient = queryClient.getQueryData<ClientWithContacts>(["/api/clients", clientId]);
+      if (previousClient) {
+        queryClient.setQueryData<ClientWithContacts>(["/api/clients", clientId], {
+          ...previousClient,
+          companyName: newData.companyName,
+          displayName: newData.displayName || null,
+          status: newData.status,
+          industry: newData.industry || null,
+          notes: newData.notes || null,
+        });
+      }
+      return { previousClient };
+    },
+    onError: (err, _newData, context) => {
+      if (context?.previousClient) {
+        queryClient.setQueryData(["/api/clients", clientId], context.previousClient);
+      }
+      toast({ title: "Failed to update client", variant: "destructive" });
+    },
     onSuccess: () => {
+      toast({ title: "Client updated successfully" });
+      setEditClientOpen(false);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
-      setEditClientOpen(false);
     },
   });
 

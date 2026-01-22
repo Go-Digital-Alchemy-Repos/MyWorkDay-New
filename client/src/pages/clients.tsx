@@ -10,11 +10,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ClientDrawer } from "@/components/client-drawer";
 import { Plus, Building2, FolderKanban, User } from "lucide-react";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 import type { ClientWithContacts } from "@shared/schema";
 
 export default function ClientsPage() {
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const { toast } = useToast();
 
   const { data: clients, isLoading } = useQuery<ClientWithContacts[]>({
     queryKey: ["/api/clients"],
@@ -24,7 +26,48 @@ export default function ClientsPage() {
     mutationFn: async (data: any) => {
       return apiRequest("POST", "/api/clients", data);
     },
+    onMutate: async (newClient) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/clients"] });
+      const previousClients = queryClient.getQueryData<ClientWithContacts[]>(["/api/clients"]);
+      const optimisticClient = {
+        id: `temp-${Date.now()}`,
+        companyName: newClient.companyName,
+        displayName: newClient.displayName || null,
+        status: newClient.status || "active",
+        industry: newClient.industry || null,
+        website: newClient.website || null,
+        notes: newClient.notes || null,
+        addressLine1: null,
+        addressLine2: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: null,
+        phone: null,
+        email: null,
+        tenantId: "",
+        workspaceId: "",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        contacts: [],
+        projects: [],
+      } as ClientWithContacts;
+      queryClient.setQueryData<ClientWithContacts[]>(["/api/clients"], (old) => 
+        old ? [optimisticClient, ...old] : [optimisticClient]
+      );
+      return { previousClients };
+    },
+    onError: (err, _newClient, context) => {
+      if (context?.previousClients) {
+        queryClient.setQueryData(["/api/clients"], context.previousClients);
+      }
+      toast({ title: "Failed to create client", variant: "destructive" });
+    },
     onSuccess: () => {
+      toast({ title: "Client created successfully" });
+      setCreateDrawerOpen(false);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
     },
   });
@@ -65,14 +108,36 @@ export default function ClientsPage() {
       <div className="flex flex-col h-full overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
-            <Skeleton className="h-8 w-32" />
-            <Skeleton className="h-4 w-48 mt-1" />
+            <h1 className="text-2xl font-semibold text-foreground">Clients</h1>
+            <p className="text-sm text-muted-foreground">Manage your clients and their projects</p>
           </div>
+          <Skeleton className="h-9 w-28" />
+        </div>
+        <div className="px-6 py-4 border-b border-border shrink-0">
+          <Skeleton className="h-9 w-64" />
         </div>
         <div className="flex-1 overflow-auto p-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-48" />
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Card key={i} className="hover-elevate">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start gap-3">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="flex-1 space-y-1">
+                      <Skeleton className="h-5 w-32" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <Skeleton className="h-3 w-24 mt-2" />
+                </CardContent>
+              </Card>
             ))}
           </div>
         </div>

@@ -351,20 +351,55 @@ export default function ProjectsDashboard() {
         </div>
 
         {projectsLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-16 w-full" />
-            ))}
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[250px]">Project Name</TableHead>
+                  <TableHead>Client</TableHead>
+                  <TableHead>Team</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-center">Open</TableHead>
+                  <TableHead className="text-center">Overdue</TableHead>
+                  <TableHead className="text-center">Today</TableHead>
+                  <TableHead className="w-[100px]">Progress</TableHead>
+                  <TableHead className="text-center">Budget</TableHead>
+                  <TableHead>Activity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-5 w-40" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
+                    <TableCell className="text-center"><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+                    <TableCell className="text-center"><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+                    <TableCell className="text-center"><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+                    <TableCell><Skeleton className="h-2 w-full" /></TableCell>
+                    <TableCell className="text-center"><Skeleton className="h-5 w-12 mx-auto" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <FolderKanban className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">No projects found</h3>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-sm mb-4">
               {searchQuery || statusFilter !== "all" || clientFilter !== "all" || divisionFilter !== "all" || teamFilter !== "all"
                 ? "Try adjusting your filters"
                 : "Create your first project to get started"}
             </p>
+            {!(searchQuery || statusFilter !== "all" || clientFilter !== "all" || divisionFilter !== "all" || teamFilter !== "all") && (
+              <Button onClick={() => setCreateProjectOpen(true)} data-testid="button-add-first-project">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Project
+              </Button>
+            )}
           </div>
         ) : (
           <div className="border rounded-lg overflow-hidden">
