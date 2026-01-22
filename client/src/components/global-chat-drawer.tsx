@@ -37,6 +37,7 @@ interface ChatChannel {
   isPrivate: boolean;
   createdBy: string;
   createdAt: Date;
+  unreadCount?: number;
 }
 
 interface ChatAttachment {
@@ -73,6 +74,7 @@ interface ChatDmThread {
   id: string;
   tenantId: string;
   createdAt: Date;
+  unreadCount?: number;
   members: Array<{
     id: string;
     userId: string;
@@ -98,6 +100,7 @@ export function GlobalChatDrawer() {
   const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastMarkedReadRef = useRef<string | null>(null);
 
   const { data: channels = [] } = useQuery<ChatChannel[]>({
     queryKey: ["/api/v1/chat/channels"],
@@ -230,6 +233,48 @@ export function GlobalChatDrawer() {
       setPendingAttachments([]);
     },
   });
+
+  const markAsReadMutation = useMutation({
+    mutationFn: async ({ targetType, targetId, lastReadMessageId }: { targetType: "channel" | "dm"; targetId: string; lastReadMessageId: string }) => {
+      return apiRequest("POST", "/api/v1/chat/reads", { targetType, targetId, lastReadMessageId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/dm"] });
+    },
+  });
+
+  // Mark thread as read when messages load
+  // Uses ref to prevent redundant POST requests when the same message is already marked
+  useEffect(() => {
+    if (messages.length > 0 && (selectedChannel || selectedDm)) {
+      const lastMessage = messages[messages.length - 1];
+      const threadKey = selectedChannel 
+        ? `channel:${selectedChannel.id}:${lastMessage.id}`
+        : `dm:${selectedDm?.id}:${lastMessage.id}`;
+      
+      // Skip if we've already marked this exact message as read
+      if (lastMarkedReadRef.current === threadKey) {
+        return;
+      }
+      
+      lastMarkedReadRef.current = threadKey;
+      
+      if (selectedChannel) {
+        markAsReadMutation.mutate({
+          targetType: "channel",
+          targetId: selectedChannel.id,
+          lastReadMessageId: lastMessage.id,
+        });
+      } else if (selectedDm) {
+        markAsReadMutation.mutate({
+          targetType: "dm",
+          targetId: selectedDm.id,
+          lastReadMessageId: lastMessage.id,
+        });
+      }
+    }
+  }, [messages.length, selectedChannel?.id, selectedDm?.id]);
 
   const handleSelectChannel = (channel: ChatChannel) => {
     setSelectedChannel(channel);
@@ -407,7 +452,15 @@ export function GlobalChatDrawer() {
                     ) : (
                       <Hash className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                     )}
-                    <span className="truncate">{channel.name}</span>
+                    <span className="truncate flex-1">{channel.name}</span>
+                    {channel.unreadCount && channel.unreadCount > 0 && (
+                      <span 
+                        className="ml-auto px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full"
+                        data-testid={`drawer-channel-unread-${channel.id}`}
+                      >
+                        {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+                      </span>
+                    )}
                   </button>
                 ))}
                 {channels.length === 0 && (
@@ -431,7 +484,15 @@ export function GlobalChatDrawer() {
                         {getInitials(getDmDisplayName(dm))}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="truncate">{getDmDisplayName(dm)}</span>
+                    <span className="truncate flex-1">{getDmDisplayName(dm)}</span>
+                    {dm.unreadCount && dm.unreadCount > 0 && (
+                      <span 
+                        className="ml-auto px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full"
+                        data-testid={`drawer-dm-unread-${dm.id}`}
+                      >
+                        {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
+                      </span>
+                    )}
                   </button>
                 ))}
                 {dmThreads.length === 0 && (

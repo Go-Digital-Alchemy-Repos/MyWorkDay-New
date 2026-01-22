@@ -129,6 +129,14 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Images displayed inline in messages; other files shown as download links
   - Toast notifications for upload errors and failures
   - Components: `client/src/pages/chat.tsx`, `client/src/components/global-chat-drawer.tsx`
+- **Chat Unread Tracking**: Real-time unread badge indicators:
+  - `chat_reads` table tracks last read message per user per thread (channel or DM)
+  - Unique constraints on (userId, channelId) and (userId, dmThreadId) prevent duplicates
+  - POST `/api/v1/chat/reads` endpoint updates read position with access validation
+  - Channel and DM list endpoints include `unreadCount` calculated via message timestamp comparison
+  - Unread badges displayed with 99+ cap in both chat page sidebar and global chat drawer
+  - Auto-mark as read when messages load via useEffect with ref-based guard to prevent redundant POSTs
+  - Access validation ensures users can only mark threads they have access to
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
