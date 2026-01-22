@@ -46,6 +46,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { FullScreenDrawer, FullScreenDrawerFooter } from "@/components/ui/full-screen-drawer";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1781,14 +1782,33 @@ export default function TimeTrackingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setStartTimerDrawerOpen(true)}
-            disabled={hasActiveTimer}
-            data-testid="button-start-timer"
-          >
-            <Play className="h-4 w-4 mr-2" />
-            Start Timer
-          </Button>
+          {hasActiveTimer ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-block" data-testid="disabled-start-timer-wrapper">
+                  <Button
+                    disabled
+                    className="pointer-events-none"
+                    data-testid="button-start-timer"
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Start Timer
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Stop the current timer before starting a new one</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              onClick={() => setStartTimerDrawerOpen(true)}
+              data-testid="button-start-timer"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Start Timer
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setManualEntryDrawerOpen(true)}
