@@ -362,6 +362,7 @@ export interface IStorage {
   getChatAttachmentsByMessageId(messageId: string): Promise<ChatAttachment[]>;
   getChatAttachment(id: string): Promise<ChatAttachment | undefined>;
   getChatAttachmentsByTenantAndIds(tenantId: string, ids: string[]): Promise<ChatAttachment[]>;
+  linkChatAttachmentsToMessage(messageId: string, attachmentIds: string[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2623,6 +2624,13 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(chatAttachments).where(
       and(eq(chatAttachments.tenantId, tenantId), inArray(chatAttachments.id, ids))
     );
+  }
+
+  async linkChatAttachmentsToMessage(messageId: string, attachmentIds: string[]): Promise<void> {
+    if (attachmentIds.length === 0) return;
+    await db.update(chatAttachments)
+      .set({ messageId })
+      .where(inArray(chatAttachments.id, attachmentIds));
   }
 }
 

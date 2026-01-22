@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
+import multer from "multer";
+import crypto from "crypto";
 import { storage } from "../storage";
 import { insertChatChannelSchema, insertChatMessageSchema } from "@shared/schema";
 import { getCurrentUserId } from "../middleware/authContext";
@@ -9,6 +11,8 @@ import { validateBody } from "../middleware/validate";
 import { AppError } from "../lib/errors";
 import { emitToTenant, emitToChatChannel, emitToChatDm } from "../realtime/socket";
 import { CHAT_EVENTS } from "@shared/events";
+import { getStorageProvider, createS3ClientFromConfig, StorageNotConfiguredError } from "../storage/getStorageProvider";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 function getCurrentTenantId(req: Request): string | null {
   return getEffectiveTenantId(req);
@@ -23,10 +27,35 @@ const createChannelSchema = z.object({
 
 const sendMessageSchema = z.object({
   body: z.string().min(1).max(10000),
+  attachmentIds: z.array(z.string()).max(10).optional(),
 });
 
 const createDmSchema = z.object({
   userIds: z.array(z.string()).min(1).max(10),
+});
+
+// File upload configuration
+const ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} is not allowed`));
+    }
+  },
 });
 
 router.get(
@@ -230,6 +259,21 @@ router.post(
       throw AppError.forbidden("Not a member of this private channel");
     }
 
+    // Validate attachments belong to this tenant and are not yet linked
+    const attachmentIds: string[] = req.body.attachmentIds || [];
+    let attachments: any[] = [];
+    if (attachmentIds.length > 0) {
+      attachments = await storage.getChatAttachmentsByTenantAndIds(tenantId, attachmentIds);
+      if (attachments.length !== attachmentIds.length) {
+        throw AppError.badRequest("One or more attachments are invalid or belong to another tenant");
+      }
+      // Check none are already linked
+      const alreadyLinked = attachments.filter(a => a.messageId !== null);
+      if (alreadyLinked.length > 0) {
+        throw AppError.badRequest("One or more attachments are already linked to a message");
+      }
+    }
+
     const data = insertChatMessageSchema.parse({
       tenantId,
       channelId: channel.id,
@@ -239,6 +283,14 @@ router.post(
     });
 
     const message = await storage.createChatMessage(data);
+
+    // Link attachments to the message
+    if (attachments.length > 0) {
+      await storage.linkChatAttachmentsToMessage(message.id, attachmentIds);
+      // Refresh attachments with updated messageId
+      attachments = await storage.getChatAttachmentsByMessageId(message.id);
+    }
+
     const author = await storage.getUser(userId);
 
     const payload = {
@@ -253,6 +305,13 @@ router.post(
         body: message.body,
         createdAt: message.createdAt,
         editedAt: message.editedAt,
+        attachments: attachments.map(a => ({
+          id: a.id,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          url: a.url,
+        })),
         author: author ? {
           id: author.id,
           name: author.name,
@@ -368,6 +427,20 @@ router.post(
       throw AppError.forbidden("Not a member of this DM thread");
     }
 
+    // Validate attachments belong to this tenant and are not yet linked
+    const attachmentIds: string[] = req.body.attachmentIds || [];
+    let attachments: any[] = [];
+    if (attachmentIds.length > 0) {
+      attachments = await storage.getChatAttachmentsByTenantAndIds(tenantId, attachmentIds);
+      if (attachments.length !== attachmentIds.length) {
+        throw AppError.badRequest("One or more attachments are invalid or belong to another tenant");
+      }
+      const alreadyLinked = attachments.filter(a => a.messageId !== null);
+      if (alreadyLinked.length > 0) {
+        throw AppError.badRequest("One or more attachments are already linked to a message");
+      }
+    }
+
     const data = insertChatMessageSchema.parse({
       tenantId,
       channelId: null,
@@ -377,6 +450,13 @@ router.post(
     });
 
     const message = await storage.createChatMessage(data);
+
+    // Link attachments to the message
+    if (attachments.length > 0) {
+      await storage.linkChatAttachmentsToMessage(message.id, attachmentIds);
+      attachments = await storage.getChatAttachmentsByMessageId(message.id);
+    }
+
     const author = await storage.getUser(userId);
 
     const payload = {
@@ -391,6 +471,13 @@ router.post(
         body: message.body,
         createdAt: message.createdAt,
         editedAt: message.editedAt,
+        attachments: attachments.map(a => ({
+          id: a.id,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          url: a.url,
+        })),
         author: author ? {
           id: author.id,
           name: author.name,
@@ -484,6 +571,78 @@ router.delete(
     }
 
     res.json({ message: "Message deleted" });
+  })
+);
+
+// File Upload Endpoint
+router.post(
+  "/uploads",
+  upload.single("file"),
+  asyncHandler(async (req: Request, res: Response) => {
+    const tenantId = getCurrentTenantId(req);
+    const userId = getCurrentUserId(req);
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
+    if (!req.file) throw AppError.badRequest("No file provided");
+
+    // Get storage provider with tenant fallback
+    let storageProvider;
+    try {
+      storageProvider = await getStorageProvider(tenantId);
+    } catch (err) {
+      if (err instanceof StorageNotConfiguredError) {
+        throw AppError.badRequest("File storage is not configured for this tenant");
+      }
+      throw err;
+    }
+
+    const { config, source } = storageProvider;
+    const s3Client = createS3ClientFromConfig(config);
+
+    // Generate unique S3 key with tenant isolation
+    const fileId = crypto.randomUUID();
+    const ext = req.file.originalname.split(".").pop() || "";
+    const safeFileName = `${fileId}${ext ? `.${ext}` : ""}`;
+    
+    // Build S3 key with tenant prefix for isolation
+    let keyPrefix = config.keyPrefixTemplate || "chat-attachments";
+    keyPrefix = keyPrefix.replace("{{tenantId}}", tenantId);
+    const s3Key = `${keyPrefix}/${tenantId}/${safeFileName}`;
+
+    // Upload to S3
+    await s3Client.send(new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: s3Key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+      Metadata: {
+        "tenant-id": tenantId,
+        "uploaded-by": userId,
+        "original-name": encodeURIComponent(req.file.originalname),
+      },
+    }));
+
+    // Construct URL (for public buckets or presigned URLs)
+    const url = `https://${config.bucketName}.s3.${config.region}.amazonaws.com/${s3Key}`;
+
+    // Save attachment metadata to DB (not linked to a message yet)
+    const attachment = await storage.createChatAttachment({
+      tenantId,
+      messageId: null, // Will be linked when message is sent
+      s3Key,
+      url,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      sizeBytes: req.file.size,
+    });
+
+    res.status(201).json({
+      id: attachment.id,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      url: attachment.url,
+      storageSource: source,
+    });
   })
 );
 

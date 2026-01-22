@@ -1080,7 +1080,7 @@ export const chatMessages = pgTable("chat_messages", {
 export const chatAttachments = pgTable("chat_attachments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
-  messageId: varchar("message_id").references(() => chatMessages.id).notNull(),
+  messageId: varchar("message_id").references(() => chatMessages.id), // Nullable until linked to a message
   s3Key: text("s3_key").notNull(),
   url: text("url").notNull(),
   fileName: text("file_name").notNull(),
