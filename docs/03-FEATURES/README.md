@@ -86,16 +86,15 @@ This section documents all major features and modules in MyWorkDay.
 
 ### Most Common Tasks
 
-- **Create a project**: [PROJECT_MANAGEMENT.md](./PROJECT_MANAGEMENT.md#creating-projects)
 - **Track time**: [TIME_TRACKING.md](./TIME_TRACKING.md#using-the-timer)
-- **Add a client**: [CLIENT_MANAGEMENT.md](./CLIENT_MANAGEMENT.md#creating-clients)
-- **Configure branding**: [WHITE_LABEL.md](./WHITE_LABEL.md)
+- **Manage divisions**: [DIVISIONS.md](./DIVISIONS.md)
+- **Use chat**: [CHAT.md](./CHAT.md)
 
-### Administration
+### Technical References
 
-- **Manage tenants**: [SUPER_ADMIN.md](./SUPER_ADMIN.md#tenant-management)
-- **Set up integrations**: [INTEGRATIONS.md](./INTEGRATIONS.md)
-- **View system health**: [SUPER_ADMIN.md](./SUPER_ADMIN.md#system-status)
+- **Error handling**: [ERROR_HANDLING.md](./ERROR_HANDLING.md)
+- **Architecture**: [MODULAR_ARCHITECTURE.md](./MODULAR_ARCHITECTURE.md)
+- **Tenant admin guide**: [TENANT_ADMIN_GUIDE.md](./TENANT_ADMIN_GUIDE.md)
 
 ---
 
