@@ -217,6 +217,68 @@ app.use(errorHandler);         // Must be last
 |----------|-------------|
 | `NODE_ENV` | Set to `production` to hide internal error details |
 
+## Request ID in Toast Notifications
+
+For 500+ errors, the `formatErrorForToast` utility includes a truncated request ID for support correlation:
+
+```typescript
+import { formatErrorForToast } from "@/lib/parseApiError";
+
+onError: (error: Error) => {
+  const { title, description } = formatErrorForToast(error);
+  toast({ title, description, variant: "destructive" });
+}
+```
+
+This displays as:
+```
+Something went wrong
+Please try again later. (Ref: abc12345)
+```
+
+Users can provide this reference ID to support, who can search error logs using the full request ID.
+
+## Error Logging
+
+Server-side error logging captures both 500+ errors and key 4xx errors (403, 404, 429) automatically. See [ERROR_LOGGING.md](./ERROR_LOGGING.md) for details.
+
+## Migration: Legacy to Standard Pattern
+
+### Legacy Pattern (Not Recommended)
+
+```typescript
+if (!user) {
+  return res.status(404).json({ error: "User not found" });
+}
+```
+
+This pattern:
+- Does not include `requestId` for debugging
+- Does not include `code` for client parsing
+- Does not use standard envelope structure
+
+### Standard Pattern (Recommended)
+
+```typescript
+import { AppError } from "../lib/errors";
+
+if (!user) {
+  return next(AppError.notFound("User"));
+}
+```
+
+This pattern:
+- Includes all standard envelope fields
+- Includes `requestId` from middleware
+- Includes legacy fields for backward compatibility
+- Is captured by error logging middleware
+
+### Migration Priority
+
+1. **High**: Routes handling sensitive operations or returning security-related errors
+2. **Medium**: Routes with validation that should include field details
+3. **Low**: Simple not-found responses in non-critical paths
+
 ## Best Practices
 
 1. **Always use error codes** - Don't rely on message strings for logic
@@ -224,3 +286,5 @@ app.use(errorHandler);         // Must be last
 3. **Log with requestId** - Include `requestId` in all log messages
 4. **User-friendly messages** - Use `getErrorMessage()` for display
 5. **Handle all codes** - Use switch statements with exhaustive cases
+6. **Use next(err)** - Prefer `next(AppError.xxx())` over `res.status().json()`
+7. **Use formatErrorForToast** - For mutation error handlers to include request ID references
