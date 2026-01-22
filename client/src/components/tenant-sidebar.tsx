@@ -40,7 +40,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
-import type { Project, Team, Workspace } from "@shared/schema";
+import type { Project, Team, Workspace, Client } from "@shared/schema";
 
 const mainNavItems = [
   { title: "Home", url: "/", icon: Home },
@@ -68,6 +68,10 @@ export function TenantSidebar() {
 
   const { data: teams } = useQuery<Team[]>({
     queryKey: ["/api/teams"],
+  });
+
+  const { data: clients } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
   });
 
   const createProjectMutation = useMutation({
@@ -311,6 +315,7 @@ export function TenantSidebar() {
         onOpenChange={setCreateProjectOpen}
         onSubmit={handleCreateProject}
         teams={teams}
+        clients={clients}
         isPending={createProjectMutation.isPending}
       />
     </Sidebar>

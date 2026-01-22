@@ -16,7 +16,7 @@ import { TaskCard } from "@/components/task-card";
 import { TaskDetailDrawer } from "@/components/task-detail-drawer";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Project, TaskWithRelations, Team, Workspace } from "@shared/schema";
+import type { Project, TaskWithRelations, Team, Workspace, Client } from "@shared/schema";
 
 export default function Home() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
@@ -32,6 +32,10 @@ export default function Home() {
 
   const { data: teams, isLoading: teamsLoading } = useQuery<Team[]>({
     queryKey: ["/api/teams"],
+  });
+
+  const { data: clients } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
   });
 
   const { data: currentWorkspace } = useQuery<Workspace>({
@@ -302,6 +306,7 @@ export default function Home() {
         onOpenChange={setCreateProjectOpen}
         onSubmit={handleCreateProject}
         teams={teams}
+        clients={clients}
         isPending={createProjectMutation.isPending}
       />
 

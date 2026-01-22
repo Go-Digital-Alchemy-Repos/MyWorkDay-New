@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Team } from "@shared/schema";
+import { Loader2 } from "lucide-react";
+import type { Team, Client, ClientDivision } from "@shared/schema";
 
 const PROJECT_COLORS = [
   { name: "Blue", value: "#3B82F6" },
@@ -43,6 +45,8 @@ const PROJECT_COLORS = [
 const createProjectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   description: z.string().optional(),
+  clientId: z.string().min(1, "Client is required"),
+  divisionId: z.string().optional(),
   teamId: z.string().optional(),
   color: z.string().default("#3B82F6"),
   visibility: z.enum(["workspace", "private"]).default("workspace"),
@@ -55,6 +59,7 @@ interface CreateProjectDialogProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: CreateProjectFormData) => void;
   teams?: Team[];
+  clients?: Client[];
   isPending?: boolean;
 }
 
@@ -63,6 +68,7 @@ export function CreateProjectDialog({
   onOpenChange,
   onSubmit,
   teams = [],
+  clients = [],
   isPending = false,
 }: CreateProjectDialogProps) {
   const form = useForm<CreateProjectFormData>({
@@ -70,19 +76,46 @@ export function CreateProjectDialog({
     defaultValues: {
       name: "",
       description: "",
+      clientId: "",
+      divisionId: "",
       teamId: "",
       color: "#3B82F6",
       visibility: "workspace",
     },
   });
 
+  const selectedClientId = form.watch("clientId");
+
+  const { data: divisions, isLoading: divisionsLoading } = useQuery<ClientDivision[]>({
+    queryKey: ["/api/v1/clients", selectedClientId, "divisions"],
+    enabled: !!selectedClientId && open,
+  });
+
+  const clientHasDivisions = divisions && divisions.length > 0;
+
   const handleSubmit = (data: CreateProjectFormData) => {
+    if (clientHasDivisions && !data.divisionId) {
+      form.setError("divisionId", { message: "Division is required for this client" });
+      return;
+    }
     onSubmit(data);
     form.reset();
   };
 
+  const handleClientChange = (clientId: string) => {
+    form.setValue("clientId", clientId);
+    form.setValue("divisionId", "");
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      form.reset();
+    }
+    onOpenChange(open);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-lg" data-testid="dialog-create-project">
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
@@ -129,6 +162,73 @@ export function CreateProjectDialog({
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="clientId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Client</FormLabel>
+                  <Select onValueChange={handleClientChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-client">
+                        <SelectValue placeholder="Select a client" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.displayName || client.companyName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {selectedClientId && divisionsLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading divisions...
+              </div>
+            )}
+
+            {clientHasDivisions && (
+              <FormField
+                control={form.control}
+                name="divisionId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Division</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-division">
+                          <SelectValue placeholder="Select a division" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {divisions.map((division) => (
+                          <SelectItem key={division.id} value={division.id}>
+                            <div className="flex items-center gap-2">
+                              {division.color && (
+                                <div
+                                  className="h-3 w-3 rounded-full"
+                                  style={{ backgroundColor: division.color }}
+                                />
+                              )}
+                              {division.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               {teams.length > 0 && (
@@ -213,7 +313,7 @@ export function CreateProjectDialog({
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
                 data-testid="button-cancel"
               >
                 Cancel

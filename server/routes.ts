@@ -558,6 +558,24 @@ export async function registerRoutes(
         if (!client) {
           return res.status(400).json({ error: "Client not found or does not belong to tenant" });
         }
+        
+        // Check if client has divisions - if so, divisionId is required
+        const clientDivisions = await storage.getClientDivisionsByClient(body.clientId, tenantId);
+        if (clientDivisions.length > 0) {
+          if (!body.divisionId) {
+            return res.status(400).json({ error: "Division is required when client has divisions" });
+          }
+          // Validate divisionId belongs to this client and tenant
+          const divisionValid = await storage.validateDivisionBelongsToClientTenant(
+            body.divisionId, body.clientId, tenantId
+          );
+          if (!divisionValid) {
+            return res.status(400).json({ error: "Division does not belong to the selected client" });
+          }
+        } else if (body.divisionId) {
+          // Client has no divisions but divisionId was provided - reject
+          return res.status(400).json({ error: "Cannot assign division to a client without divisions" });
+        }
       }
       
       // Validate all memberIds belong to same tenant
@@ -613,11 +631,44 @@ export async function registerRoutes(
     try {
       const tenantId = getEffectiveTenantId(req);
       
+      // Get current project to determine effective clientId
+      let existingProject;
+      if (tenantId) {
+        existingProject = await storage.getProjectByIdAndTenant(req.params.id, tenantId);
+      } else {
+        existingProject = await storage.getProject(req.params.id);
+      }
+      if (!existingProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      
+      // Determine the effective clientId (updated or existing)
+      const effectiveClientId = req.body.clientId !== undefined ? req.body.clientId : existingProject.clientId;
+      const effectiveDivisionId = req.body.divisionId !== undefined ? req.body.divisionId : existingProject.divisionId;
+      
       // Validate clientId belongs to tenant if being updated and tenantId available
-      if (req.body.clientId && tenantId) {
-        const client = await storage.getClientByIdAndTenant(req.body.clientId, tenantId);
+      if (effectiveClientId && tenantId) {
+        const client = await storage.getClientByIdAndTenant(effectiveClientId, tenantId);
         if (!client) {
           return res.status(400).json({ error: "Client not found or does not belong to tenant" });
+        }
+        
+        // Check if client has divisions - if so, divisionId is required
+        const clientDivisions = await storage.getClientDivisionsByClient(effectiveClientId, tenantId);
+        if (clientDivisions.length > 0) {
+          if (!effectiveDivisionId) {
+            return res.status(400).json({ error: "Division is required when client has divisions" });
+          }
+          // Validate divisionId belongs to this client and tenant
+          const divisionValid = await storage.validateDivisionBelongsToClientTenant(
+            effectiveDivisionId, effectiveClientId, tenantId
+          );
+          if (!divisionValid) {
+            return res.status(400).json({ error: "Division does not belong to the selected client" });
+          }
+        } else if (effectiveDivisionId) {
+          // Client has no divisions but divisionId was provided - clear it
+          req.body.divisionId = null;
         }
       }
       
@@ -631,12 +682,8 @@ export async function registerRoutes(
         return res.status(500).json({ error: "User tenant not configured" });
       }
       
-      if (!project) {
-        return res.status(404).json({ error: "Project not found" });
-      }
-
       // Emit real-time event after successful DB operation
-      emitProjectUpdated(project.id, req.body);
+      emitProjectUpdated(project!.id, req.body);
 
       res.json(project);
     } catch (error) {
