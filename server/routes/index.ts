@@ -15,9 +15,11 @@ import systemStatusRoutes from "./systemStatus";
 import systemIntegrationsRoutes from "./systemIntegrations";
 import chatRoutes from "./chat";
 import chatRetentionRoutes from "./chatRetention";
+import featuresRoutes from "../features";
 
 const router = Router();
 
+router.use(featuresRoutes);
 router.use("/timer", timerRoutes);
 router.use("/v1/super", superAdminRoutes);
 router.use("/v1/super/debug", superDebugRoutes);
