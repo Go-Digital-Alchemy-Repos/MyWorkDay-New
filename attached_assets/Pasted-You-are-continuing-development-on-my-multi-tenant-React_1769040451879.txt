@@ -1,0 +1,107 @@
+You are continuing development on my multi-tenant React + Express + Postgres app (cookie auth) on Railway.
+NEW FEATURE: Tenant-scoped Chat (Slack-like) with Channels + DMs + real-time messages.
+
+SCOPE (Phase 1):
+- Add DB schema for chat entities
+- Add REST endpoints for: list threads, create channel, create/find DM, fetch messages
+- Add Socket.IO events for join + send message
+- Strict tenant isolation for REST + sockets
+
+DO NOT:
+- Add attachments
+- Add Super Admin monitoring
+- Add threads/reactions/search/retention
+- Refactor unrelated code
+
+SAFETY RULES:
+- No changes to existing endpoint paths/response shapes outside /api/v1/chat/*
+- All chat rows must have tenantId and must be filtered by effectiveTenantId
+- Socket joins must validate tenant + membership before joining rooms
+- Prevent cross-tenant message access in every query
+
+DB MIGRATIONS (additive):
+1) chat_channels:
+  id UUID PK, tenant_id UUID NOT NULL, name TEXT NOT NULL,
+  is_private BOOLEAN NOT NULL DEFAULT false,
+  created_by UUID NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT now()
+  UNIQUE(tenant_id, lower(name))
+
+2) chat_channel_members:
+  id UUID PK, tenant_id UUID NOT NULL,
+  channel_id UUID NOT NULL, user_id UUID NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+  UNIQUE(channel_id, user_id)
+
+3) chat_dm_threads:
+  id UUID PK, tenant_id UUID NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+
+4) chat_dm_members:
+  id UUID PK, tenant_id UUID NOT NULL,
+  dm_thread_id UUID NOT NULL, user_id UUID NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+  UNIQUE(dm_thread_id, user_id)
+
+5) chat_messages:
+  id UUID PK, tenant_id UUID NOT NULL,
+  channel_id UUID NULL, dm_thread_id UUID NULL,
+  author_user_id UUID NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  edited_at TIMESTAMP NULL,
+  deleted_at TIMESTAMP NULL
+  CHECK( (channel_id IS NOT NULL) <> (dm_thread_id IS NOT NULL) )
+
+OPTIONAL (recommended but can be Phase 4):
+6) chat_reads:
+  id UUID PK, tenant_id UUID NOT NULL,
+  target_type TEXT NOT NULL ('channel'|'dm'),
+  target_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  last_read_at TIMESTAMP NULL,
+  last_read_message_id UUID NULL,
+  UNIQUE(target_type, target_id, user_id)
+
+REST ENDPOINTS (new only):
+- GET  /api/v1/chat/threads
+  returns channels user is member of + dm threads user is member of (tenant-scoped)
+- POST /api/v1/chat/channels
+  body: { name: string, isPrivate?: boolean }
+  creates channel; auto-add creator as member
+- POST /api/v1/chat/dms
+  body: { userId: string }
+  creates or finds dm thread between current user and userId (same tenant)
+- GET  /api/v1/chat/channels/:id/messages?cursor=...&limit=50
+- GET  /api/v1/chat/dms/:id/messages?cursor=...&limit=50
+Cursor pagination, newest-first or oldest-first but consistent; document it.
+
+SOCKET EVENTS (use existing cookie auth sockets):
+- chat:join { targetType:'channel'|'dm', targetId }
+  validate membership + tenant
+  join room:
+    tenant:{tenantId}:channel:{id}
+    tenant:{tenantId}:dm:{id}
+- chat:send { targetType, targetId, body }
+  validate access -> insert chat_messages -> emit to room:
+  chat:newMessage { targetType, targetId, message }
+
+FRONTEND MVP:
+- Sidebar nav item: Chat
+- Chat page layout:
+  Left: Channels + DMs + New Channel + New DM
+  Right: message list + composer
+- Selecting a thread loads history via REST and joins socket room
+- Incoming messages append in realtime
+
+TESTS (mandatory):
+- Tenant isolation: cannot DM user from other tenant; cannot read other tenant channel
+- Membership: cannot read private channel messages without membership
+- Socket: cannot join room without membership
+- Message write: inserts tenantId, channelId/dmThreadId constraint holds
+
+OUTPUT REQUIRED:
+- migrations added
+- routes + socket handlers added
+- how tenant scoping enforced
+- manual verification steps (2 users in same tenant + user in different tenant)

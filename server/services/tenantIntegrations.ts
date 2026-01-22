@@ -5,7 +5,7 @@ import { encryptValue, decryptValue, isEncryptionAvailable } from "../lib/encryp
 import Mailgun from "mailgun.js";
 import FormData from "form-data";
 
-export type IntegrationProvider = "mailgun" | "s3";
+export type IntegrationProvider = "mailgun" | "s3" | "sso_google" | "sso_github";
 
 interface MailgunPublicConfig {
   domain: string;
@@ -28,13 +28,46 @@ interface S3SecretConfig {
   secretAccessKey?: string;
 }
 
-type PublicConfig = MailgunPublicConfig | S3PublicConfig;
-type SecretConfig = MailgunSecretConfig | S3SecretConfig;
+/**
+ * SSO Google OAuth public configuration (non-secret fields)
+ */
+export interface SsoGooglePublicConfig {
+  enabled: boolean;
+  clientId: string;
+  redirectUri: string;
+}
+
+/**
+ * SSO Google OAuth secret configuration (encrypted)
+ */
+export interface SsoGoogleSecretConfig {
+  clientSecret: string;
+}
+
+/**
+ * SSO GitHub OAuth public configuration (non-secret fields)
+ */
+export interface SsoGithubPublicConfig {
+  enabled: boolean;
+  clientId: string;
+  redirectUri: string;
+}
+
+/**
+ * SSO GitHub OAuth secret configuration (encrypted)
+ */
+export interface SsoGithubSecretConfig {
+  clientSecret: string;
+}
+
+type PublicConfig = MailgunPublicConfig | S3PublicConfig | SsoGooglePublicConfig | SsoGithubPublicConfig;
+type SecretConfig = MailgunSecretConfig | S3SecretConfig | SsoGoogleSecretConfig | SsoGithubSecretConfig;
 
 interface SecretMaskedInfo {
   apiKeyMasked?: string | null;
   accessKeyIdMasked?: string | null;
   secretAccessKeyMasked?: string | null;
+  clientSecretMasked?: string | null;
 }
 
 export interface IntegrationResponse {
@@ -100,6 +133,11 @@ export class TenantIntegrationService {
             accessKeyIdMasked: maskSecret(s3Secrets.accessKeyId),
             secretAccessKeyMasked: maskSecret(s3Secrets.secretAccessKey),
           };
+        } else if (provider === "sso_google" || provider === "sso_github") {
+          const ssoSecrets = secrets as SsoGoogleSecretConfig | SsoGithubSecretConfig;
+          secretMasked = {
+            clientSecretMasked: maskSecret(ssoSecrets.clientSecret),
+          };
         }
       } catch (err) {
         debugLog("getIntegration - failed to decrypt secrets for masking", { tenantId, provider });
@@ -135,7 +173,7 @@ export class TenantIntegrationService {
       .from(tenantIntegrations)
       .where(condition);
 
-    const providers: IntegrationProvider[] = ["mailgun", "s3"];
+    const providers: IntegrationProvider[] = ["mailgun", "s3", "sso_google", "sso_github"];
     const result: IntegrationResponse[] = [];
 
     for (const provider of providers) {
@@ -154,6 +192,9 @@ export class TenantIntegrationService {
                 accessKeyIdMasked: maskSecret(s3Secrets.accessKeyId),
                 secretAccessKeyMasked: maskSecret(s3Secrets.secretAccessKey),
               };
+            } else if (provider === "sso_google" || provider === "sso_github") {
+              const ssoSecrets = secrets as SsoGoogleSecretConfig | SsoGithubSecretConfig;
+              secretMasked = { clientSecretMasked: maskSecret(ssoSecrets.clientSecret) };
             }
           } catch {
             debugLog("listIntegrations - failed to decrypt secrets for masking", { tenantId, provider });
@@ -362,6 +403,12 @@ export class TenantIntegrationService {
         case "s3":
           testResult = await this.testS3(tenantId);
           break;
+        case "sso_google":
+          testResult = await this.testSsoGoogle();
+          break;
+        case "sso_github":
+          testResult = await this.testSsoGitHub();
+          break;
         default:
           testResult = { success: false, message: `Unknown provider: ${provider}` };
       }
@@ -527,9 +574,80 @@ export class TenantIntegrationService {
         }
         break;
       }
+      case "sso_google":
+      case "sso_github": {
+        const config = publicConfig as SsoGooglePublicConfig | SsoGithubPublicConfig;
+        if (config.enabled && config.clientId && hasSecret) {
+          return IntegrationStatus.CONFIGURED;
+        }
+        break;
+      }
     }
 
     return IntegrationStatus.NOT_CONFIGURED;
+  }
+
+  /**
+   * Test SSO Google configuration by validating required fields
+   * and optionally checking Google's OIDC discovery endpoint
+   */
+  private async testSsoGoogle(): Promise<{ success: boolean; message: string }> {
+    const integration = await this.getIntegration(null, "sso_google");
+    
+    if (!integration?.publicConfig) {
+      return { success: false, message: "Google SSO is not configured" };
+    }
+
+    const config = integration.publicConfig as SsoGooglePublicConfig;
+    if (!config.enabled) {
+      return { success: false, message: "Google SSO is disabled" };
+    }
+
+    if (!config.clientId) {
+      return { success: false, message: "Google Client ID is required" };
+    }
+
+    const secrets = await this.getDecryptedSecrets(null, "sso_google") as SsoGoogleSecretConfig | null;
+    if (!secrets?.clientSecret) {
+      return { success: false, message: "Google Client Secret is required" };
+    }
+
+    try {
+      const response = await fetch("https://accounts.google.com/.well-known/openid-configuration");
+      if (response.ok) {
+        return { success: true, message: "Google SSO configuration is valid. OIDC discovery endpoint reachable." };
+      }
+      return { success: false, message: "Could not reach Google OIDC discovery endpoint" };
+    } catch (error) {
+      return { success: true, message: "Google SSO configuration is valid (network check skipped)" };
+    }
+  }
+
+  /**
+   * Test SSO GitHub configuration by validating required fields
+   */
+  private async testSsoGitHub(): Promise<{ success: boolean; message: string }> {
+    const integration = await this.getIntegration(null, "sso_github");
+    
+    if (!integration?.publicConfig) {
+      return { success: false, message: "GitHub SSO is not configured" };
+    }
+
+    const config = integration.publicConfig as SsoGithubPublicConfig;
+    if (!config.enabled) {
+      return { success: false, message: "GitHub SSO is disabled" };
+    }
+
+    if (!config.clientId) {
+      return { success: false, message: "GitHub Client ID is required" };
+    }
+
+    const secrets = await this.getDecryptedSecrets(null, "sso_github") as SsoGithubSecretConfig | null;
+    if (!secrets?.clientSecret) {
+      return { success: false, message: "GitHub Client Secret is required" };
+    }
+
+    return { success: true, message: "GitHub SSO configuration is valid" };
   }
 }
 

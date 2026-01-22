@@ -1330,51 +1330,47 @@ export function setupPasswordResetEndpoints(app: Express): void {
 /**
  * Google OAuth Authentication Setup
  * 
- * Adds Google as an additional authentication provider.
- * Integrates with existing session/cookie-based auth.
+ * SSO Configuration Resolution Order:
+ * 1. Database configuration (tenant_integrations with tenantId=NULL)
+ * 2. Environment variables fallback (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
  * 
  * Account Linking Rules:
  * - If user exists with same email AND email is verified by Google → auto-link and login
  * - If user exists but already linked to different Google ID → block with error
  * - If no user exists → check if bootstrap required or invite exists
  * 
- * Environment Variables Required:
- * - GOOGLE_CLIENT_ID: OAuth client ID from Google Cloud Console
- * - GOOGLE_CLIENT_SECRET: OAuth client secret
- * - GOOGLE_OAUTH_REDIRECT_URL: Full callback URL (e.g., https://yourdomain.com/api/v1/auth/google/callback)
+ * The SSO config is checked on each request to support runtime configuration changes.
  */
-export function setupGoogleAuth(app: Express): void {
-  const clientID = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const callbackURL = process.env.GOOGLE_OAUTH_REDIRECT_URL || 
-    `${process.env.APP_PUBLIC_URL || "http://localhost:5000"}/api/v1/auth/google/callback`;
+import { getSsoGoogleConfig, getSsoProvidersStatus, type SsoGoogleConfig } from "./services/ssoConfig";
 
-  if (!clientID || !clientSecret) {
-    console.log("[auth] Google OAuth disabled: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set");
-    
-    app.get("/api/v1/auth/google", (_req, res) => {
-      res.status(503).json({ error: "Google authentication is not configured" });
-    });
-    
-    app.get("/api/v1/auth/google/callback", (_req, res) => {
-      res.status(503).json({ error: "Google authentication is not configured" });
-    });
-    
-    app.get("/api/v1/auth/google/status", (_req, res) => {
-      res.json({ enabled: false });
-    });
-    
-    return;
+let googleStrategyInitialized = false;
+let cachedGoogleConfig: SsoGoogleConfig | null = null;
+let googleConfigCacheTime = 0;
+const GOOGLE_CONFIG_CACHE_TTL = 60000; // 1 minute cache
+
+async function getGoogleSsoConfig(): Promise<SsoGoogleConfig | null> {
+  const now = Date.now();
+  if (cachedGoogleConfig && (now - googleConfigCacheTime) < GOOGLE_CONFIG_CACHE_TTL) {
+    return cachedGoogleConfig;
   }
+  cachedGoogleConfig = await getSsoGoogleConfig();
+  googleConfigCacheTime = now;
+  return cachedGoogleConfig;
+}
 
-  console.log("[auth] Google OAuth enabled with callback URL:", callbackURL);
+function initializeGoogleStrategy(config: SsoGoogleConfig): void {
+  if (googleStrategyInitialized) {
+    passport.unuse("google");
+  }
+  
+  console.log(`[auth] Initializing Google OAuth with config from ${config.source}, redirect: ${config.redirectUri}`);
 
   passport.use(
     new GoogleStrategy(
       {
-        clientID,
-        clientSecret,
-        callbackURL,
+        clientID: config.clientId,
+        clientSecret: config.clientSecret,
+        callbackURL: config.redirectUri,
         scope: ["email", "profile"],
       },
       async (_accessToken, _refreshToken, profile: GoogleProfile, done) => {
@@ -1479,77 +1475,138 @@ export function setupGoogleAuth(app: Express): void {
       }
     )
   );
+  
+  googleStrategyInitialized = true;
+}
 
+export function setupGoogleAuth(app: Express): void {
   // GET /api/v1/auth/google - Redirect to Google OAuth consent screen
-  app.get("/api/v1/auth/google", passport.authenticate("google", {
-    scope: ["email", "profile"],
-  }));
-
-  // GET /api/v1/auth/google/callback - Handle OAuth callback
-  app.get("/api/v1/auth/google/callback", (req, res, next) => {
-    passport.authenticate("google", async (err: Error | null, user: Express.User | false, info: { message: string }) => {
-      if (err) {
-        console.error("[auth] Google callback error:", err);
-        return res.redirect(`/login?error=${encodeURIComponent("Authentication failed")}`);
+  // Dynamically checks SSO config on each request
+  app.get("/api/v1/auth/google", async (req, res, next) => {
+    try {
+      const config = await getGoogleSsoConfig();
+      
+      if (!config || !config.enabled) {
+        return res.status(503).json({ 
+          error: { 
+            code: "SSO_DISABLED", 
+            message: "Google authentication is not configured" 
+          } 
+        });
       }
-
-      if (!user) {
-        const errorMessage = info?.message || "Google authentication failed";
-        console.log("[auth] Google auth rejected:", errorMessage);
-        return res.redirect(`/login?error=${encodeURIComponent(errorMessage)}`);
-      }
-
-      req.logIn(user, async (loginErr) => {
-        if (loginErr) {
-          console.error("[auth] Google login error:", loginErr);
-          return res.redirect(`/login?error=${encodeURIComponent("Login failed")}`);
-        }
-
-        try {
-          const isSuperUser = user.role === UserRole.SUPER_USER;
-          
-          let workspaceId: string | undefined = undefined;
-          if (!isSuperUser) {
-            const workspaces = await storage.getWorkspacesByUser(user.id);
-            workspaceId = workspaces.length > 0 ? workspaces[0].id : undefined;
-            
-            if (!workspaceId) {
-              req.logout(() => {});
-              return res.redirect(`/login?error=${encodeURIComponent("No workspace access. Please contact your administrator.")}`);
-            }
-          } else {
-            const workspaces = await storage.getWorkspacesByUser(user.id);
-            workspaceId = workspaces.length > 0 ? workspaces[0].id : undefined;
-          }
-          
-          req.session.workspaceId = workspaceId;
-
-          req.session.save((saveErr) => {
-            if (saveErr) {
-              console.error("[auth] Session save error:", saveErr);
-            }
-
-            console.log(`[auth] Google login successful: ${user.email}, role: ${user.role}`);
-            
-            // Redirect based on role
-            if (isSuperUser) {
-              res.redirect("/super-admin/dashboard");
-            } else {
-              res.redirect("/");
-            }
-          });
-        } catch (workspaceErr) {
-          console.error("[auth] Workspace lookup error:", workspaceErr);
-          req.logout(() => {});
-          res.redirect(`/login?error=${encodeURIComponent("Failed to resolve workspace")}`);
-        }
-      });
-    })(req, res, next);
+      
+      // Initialize or reinitialize strategy if needed
+      initializeGoogleStrategy(config);
+      
+      // Proceed with passport authentication
+      passport.authenticate("google", { scope: ["email", "profile"] })(req, res, next);
+    } catch (error) {
+      console.error("[auth] Error initializing Google auth:", error);
+      res.status(500).json({ error: { code: "AUTH_ERROR", message: "Failed to initialize authentication" } });
+    }
   });
 
-  // GET /api/v1/auth/google/status - Check if Google auth is enabled
-  app.get("/api/v1/auth/google/status", (_req, res) => {
-    res.json({ enabled: true });
+  // GET /api/v1/auth/google/callback - Handle OAuth callback
+  app.get("/api/v1/auth/google/callback", async (req, res, next) => {
+    try {
+      const config = await getGoogleSsoConfig();
+      
+      if (!config || !config.enabled) {
+        return res.redirect(`/login?error=${encodeURIComponent("Google authentication is not configured")}`);
+      }
+      
+      // Ensure strategy is initialized
+      if (!googleStrategyInitialized) {
+        initializeGoogleStrategy(config);
+      }
+      
+      passport.authenticate("google", async (err: Error | null, user: Express.User | false, info: { message: string }) => {
+        if (err) {
+          console.error("[auth] Google callback error:", err);
+          return res.redirect(`/login?error=${encodeURIComponent("Authentication failed")}`);
+        }
+
+        if (!user) {
+          const errorMessage = info?.message || "Google authentication failed";
+          console.log("[auth] Google auth rejected:", errorMessage);
+          return res.redirect(`/login?error=${encodeURIComponent(errorMessage)}`);
+        }
+
+        req.logIn(user, async (loginErr) => {
+          if (loginErr) {
+            console.error("[auth] Google login error:", loginErr);
+            return res.redirect(`/login?error=${encodeURIComponent("Login failed")}`);
+          }
+
+          try {
+            const isSuperUser = user.role === UserRole.SUPER_USER;
+            
+            let workspaceId: string | undefined = undefined;
+            if (!isSuperUser) {
+              const workspacesList = await storage.getWorkspacesByUser(user.id);
+              workspaceId = workspacesList.length > 0 ? workspacesList[0].id : undefined;
+              
+              if (!workspaceId) {
+                req.logout(() => {});
+                return res.redirect(`/login?error=${encodeURIComponent("No workspace access. Please contact your administrator.")}`);
+              }
+            } else {
+              const workspacesList = await storage.getWorkspacesByUser(user.id);
+              workspaceId = workspacesList.length > 0 ? workspacesList[0].id : undefined;
+            }
+            
+            req.session.workspaceId = workspaceId;
+
+            req.session.save((saveErr) => {
+              if (saveErr) {
+                console.error("[auth] Session save error:", saveErr);
+              }
+
+              console.log(`[auth] Google login successful: ${user.email}, role: ${user.role}`);
+              
+              // Redirect based on role
+              if (isSuperUser) {
+                res.redirect("/super-admin/dashboard");
+              } else {
+                res.redirect("/");
+              }
+            });
+          } catch (workspaceErr) {
+            console.error("[auth] Workspace lookup error:", workspaceErr);
+            req.logout(() => {});
+            res.redirect(`/login?error=${encodeURIComponent("Failed to resolve workspace")}`);
+          }
+        });
+      })(req, res, next);
+    } catch (error) {
+      console.error("[auth] Error in Google callback:", error);
+      res.redirect(`/login?error=${encodeURIComponent("Authentication error")}`);
+    }
+  });
+
+  // GET /api/v1/auth/google/status - Check if Google auth is enabled (dynamic)
+  app.get("/api/v1/auth/google/status", async (_req, res) => {
+    try {
+      const config = await getGoogleSsoConfig();
+      res.json({ 
+        enabled: !!config?.enabled,
+        source: config?.source || null,
+      });
+    } catch (error) {
+      console.error("[auth] Error checking Google status:", error);
+      res.json({ enabled: false });
+    }
+  });
+  
+  // GET /api/v1/auth/sso/providers - Get all SSO providers status
+  app.get("/api/v1/auth/sso/providers", async (_req, res) => {
+    try {
+      const status = await getSsoProvidersStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("[auth] Error getting SSO providers status:", error);
+      res.status(500).json({ error: "Failed to get SSO providers status" });
+    }
   });
 
   // POST /api/v1/auth/google/unlink - Unlink Google from account
