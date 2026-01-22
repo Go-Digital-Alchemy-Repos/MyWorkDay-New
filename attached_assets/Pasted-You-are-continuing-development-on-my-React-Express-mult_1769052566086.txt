@@ -1,0 +1,121 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+REFINEMENT: Chat panel needs a “Start New Chat” option that opens a tenant user directory to pick recipient(s).
+
+Goal:
+- Add a clear “Start New Chat” entry point in the Chat panel.
+- Provide a user directory (tenant-scoped) for selecting 1+ recipients.
+- Support both DM (1 recipient) and Group Chat (2+ recipients).
+- Keep all existing chat behavior intact.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes.
+- Add-only endpoints are OK if missing.
+- Do NOT break existing chat creation, message send/receive, or sockets.
+- Tenant isolation is mandatory: only users in the same tenant can be selected.
+- No destructive operations.
+- No DB schema changes unless absolutely necessary.
+
+===============================================================================
+REQUIREMENTS
+===============================================================================
+A) CHAT PANEL UI (LEFT SIDEBAR)
+1) Add a top button in the chat sidebar:
+- Label: “Start New Chat”
+- Placement: above the conversation list
+- This button opens a full-height drawer (preferred) or a large slide-out panel (not a small modal)
+
+2) The conversation list remains as-is under the button.
+
+B) “START NEW CHAT” DRAWER (USER DIRECTORY)
+1) User Directory
+- Search input (name/email)
+- Tenant-scoped user list
+- Each user row shows:
+  - avatar/initials
+  - first + last name
+  - email (optional)
+  - role badge (optional)
+
+2) Recipient selection
+- Multi-select checkboxes or “Add” chips
+- A selected recipients area at top showing chips (remove chip to unselect)
+
+3) Behavior
+- If exactly 1 recipient selected:
+  - Button label: “Start Direct Message”
+  - Create or reuse DM conversation and open it immediately
+
+- If 2+ recipients selected:
+  - Button label: “Create Group Chat”
+  - Ask for optional group name (simple input)
+  - Create group, open it immediately
+
+4) Quality of life
+- Prevent selecting yourself (or allow but ignore on submit)
+- Keep the drawer open state stable while creating, show loading indicator
+
+C) BACKEND WIRING (REUSE IF EXISTS; ADD-ONLY IF MISSING)
+1) Tenant user directory endpoint (if not present):
+GET /api/v1/tenant/users?search=
+- Must be tenant-scoped and return safe fields only:
+  { id, firstName, lastName, email, role, avatarUrl? }
+
+2) Conversation creation endpoint (if not present):
+POST /api/v1/chat/conversations
+Body:
+{ type: "dm"|"group", name?: string, memberIds: string[] }
+Rules:
+- DM: reuse existing conversation for the pair if one exists
+- Group: create conversation + add members
+- Always enforce tenant scoping server-side
+
+D) CACHE + SOCKETS
+- After creating a chat:
+  - update conversation list immediately (optimistic update is fine)
+  - open the new conversation
+  - ensure socket room join happens so messages arrive without refresh
+
+E) PERMISSIONS / TENANT ISOLATION
+- Only allow selecting users within same tenant.
+- Tenant Admin + Employee can start chats.
+- Client: follow existing chat permission rules; if clients are not allowed, hide “Start New Chat” or restrict directory.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) tenant_users_directory_scoped.test.ts
+2) create_dm_reuses_existing.test.ts
+
+Frontend (if test infra exists):
+3) start_new_chat_opens_directory.test.tsx
+4) selecting_one_user_creates_dm_and_opens.test.tsx
+5) selecting_multiple_users_creates_group_and_opens.test.tsx
+
+If UI tests are limited, add manual checklist to /docs/REGRESSION_CHECKLIST.md.
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+- Update /docs/CHAT.md:
+  - Start New Chat flow
+  - DM vs Group behavior
+  - Tenant-scoped user directory rules
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Chat sidebar shows “Start New Chat”.
+- Clicking it opens a user directory to select recipients.
+- 1 recipient => DM created/reused and opened.
+- 2+ recipients => group created and opened.
+- Tenant isolation enforced; no stale UI; no breaking changes.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- UI component(s) added (drawer + directory)
+- Endpoints used/added
+- Manual test checklist (local + Railway)

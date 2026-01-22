@@ -1,0 +1,152 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+STABILITY PASS: Harden Chat system for reliability, real-time sync, and usability.
+
+This is NOT a feature expansion prompt.
+Focus on stability, predictability, and UX clarity for chat.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes.
+- Do NOT break existing chat creation or membership features.
+- No destructive DB changes.
+- Multi-tenant isolation must remain enforced.
+- All changes must be backward compatible.
+- Favor additive guards, retries, and UI clarity over refactors.
+
+===============================================================================
+GOALS
+===============================================================================
+1) Ensure chat state is always correct:
+- membership
+- message order
+- unread counts
+- active conversation
+
+2) Make chat resilient to:
+- refreshes
+- reconnects
+- tab switches
+- socket disconnects
+
+3) Improve usability:
+- clear loading states
+- optimistic updates with rollback
+- visible member changes
+
+===============================================================================
+PART A — SOCKET RELIABILITY & RECONNECT HANDLING
+===============================================================================
+1) On socket connect/reconnect:
+- Rejoin all conversations the user is a member of
+- Re-fetch conversation metadata (members, last message, unread count)
+- Do NOT duplicate listeners or messages
+
+2) Add guards to prevent:
+- duplicate message rendering
+- duplicate socket room joins
+- message echoing from sender
+
+3) Add heartbeat / ping handling if not already present
+- Detect stale socket connections and recover automatically
+
+===============================================================================
+PART B — MESSAGE DELIVERY GUARANTEES
+===============================================================================
+1) When sending a message:
+- Use optimistic UI update
+- Mark message as “pending”
+- Replace with server-confirmed message (ID + timestamp)
+- If server fails, mark message as “failed” with retry option
+
+2) Enforce message ordering:
+- Always sort by createdAt + server ID fallback
+- Never trust client timestamps alone
+
+===============================================================================
+PART C — MEMBERSHIP SYNC & VISIBILITY
+===============================================================================
+1) When members are added or removed:
+- Broadcast membership change event
+- Update member list in real time for all connected users
+- If a user is removed:
+  - Immediately revoke access
+  - Auto-navigate them out of the conversation with a message:
+    “You’ve been removed from this chat.”
+
+2) Prevent UI from showing:
+- conversations user is no longer a member of
+- stale member lists after refresh
+
+===============================================================================
+PART D — CHAT PANEL UX IMPROVEMENTS
+===============================================================================
+1) Conversation list:
+- Show unread message badge
+- Highlight active conversation
+- Show last message preview + timestamp
+- Show group avatar / initials fallback
+
+2) Loading & empty states:
+- Skeleton loaders while fetching
+- Clear “No messages yet” states
+- Clear “No conversations yet” with CTA → Start New Chat
+
+3) Keyboard + accessibility:
+- Enter to send
+- Shift+Enter for newline
+- Focus message input on conversation open
+
+===============================================================================
+PART E — CACHE & QUERY INVALIDATION
+===============================================================================
+- On:
+  - new message
+  - new conversation
+  - membership change
+Invalidate or update:
+- conversation list
+- conversation detail
+- unread counts
+without requiring full refresh.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+Backend:
+1) user_removed_loses_access_immediately.test.ts
+2) message_ordering_consistent.test.ts
+
+Frontend:
+3) optimistic_message_replaced_on_ack.test.tsx
+4) reconnect_rehydrates_conversations.test.tsx
+5) removed_user_redirected_from_chat.test.tsx
+
+If UI test infra is limited, add detailed manual steps to:
+- /docs/REGRESSION_CHECKLIST.md
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+- Update /docs/CHAT.md:
+  - message lifecycle (pending → sent → failed)
+  - socket reconnect behavior
+  - membership sync rules
+- Add inline comments explaining real-time assumptions
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Chat remains consistent after refresh or reconnect.
+- Messages never duplicate or reorder incorrectly.
+- Membership changes propagate instantly.
+- UI clearly communicates loading, errors, and state.
+- No breaking changes; all existing chat features still work.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Summary of stability improvements
+- List of socket events handled
+- Known limitations (if any)
+- Manual verification checklist (local + Railway)

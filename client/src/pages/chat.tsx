@@ -171,6 +171,12 @@ export default function ChatPage() {
   const [addMemberSearchQuery, setAddMemberSearchQuery] = useState("");
   const [removeMemberConfirmUserId, setRemoveMemberConfirmUserId] = useState<string | null>(null);
 
+  // Start New Chat drawer state
+  const [startChatDrawerOpen, setStartChatDrawerOpen] = useState(false);
+  const [startChatSearchQuery, setStartChatSearchQuery] = useState("");
+  const [startChatSelectedUsers, setStartChatSelectedUsers] = useState<Set<string>>(new Set());
+  const [startChatGroupName, setStartChatGroupName] = useState("");
+
   interface TeamUser {
     id: string;
     firstName: string | null;
@@ -243,10 +249,16 @@ export default function ChatPage() {
     enabled: mentionOpen && (!!selectedChannel || !!selectedDm),
   });
 
-  // Team panel: fetch all tenant users - also needed when members drawer is open
+  // Team panel: fetch all tenant users
   const { data: teamUsers = [], isLoading: isLoadingTeamUsers } = useQuery<TeamUser[]>({
     queryKey: ["/api/v1/chat/users", { search: teamSearchQuery }],
     enabled: sidebarTab === "team" || membersDrawerOpen,
+  });
+
+  // Separate query for Start Chat drawer to avoid cache conflicts
+  const { data: startChatUsers = [], isLoading: isLoadingStartChatUsers } = useQuery<TeamUser[]>({
+    queryKey: ["/api/v1/chat/users", "startChat", { search: startChatSearchQuery }],
+    enabled: startChatDrawerOpen,
   });
 
   // Channel members query for the members drawer
@@ -403,6 +415,105 @@ export default function ChatPage() {
         u.email.toLowerCase().includes(addMemberSearchQuery.toLowerCase())
       )
     : usersNotInChannel;
+
+  // Start Chat drawer: filter users by search and exclude self (uses dedicated query)
+  const startChatFilteredUsers = startChatUsers.filter(u => u.id !== user?.id);
+
+  // Get selected users for display in chips (uses dedicated query)
+  const startChatSelectedUsersList = startChatUsers.filter(u => startChatSelectedUsers.has(u.id));
+
+  // Toggle user selection in Start Chat drawer
+  const toggleStartChatUserSelection = (userId: string) => {
+    setStartChatSelectedUsers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  };
+
+  // Mutation for starting a new chat from drawer
+  const startNewChatMutation = useMutation({
+    mutationFn: async (userIds: string[]) => {
+      return apiRequest("POST", "/api/v1/chat/dm", { userIds });
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/dm"] });
+      setStartChatSelectedUsers(new Set());
+      setStartChatSearchQuery("");
+      setStartChatDrawerOpen(false);
+      if (result && result.id) {
+        setSelectedDm(result);
+        setSelectedChannel(null);
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to start conversation",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation for creating a group from drawer
+  const createGroupFromDrawerMutation = useMutation({
+    mutationFn: async ({ name, userIds }: { name: string; userIds: string[] }) => {
+      const channel: any = await apiRequest("POST", "/api/v1/chat/channels", { name, isPrivate: true });
+      let addMembersFailed = false;
+      if (userIds.length > 0 && channel?.id) {
+        try {
+          await apiRequest("POST", `/api/v1/chat/channels/${channel.id}/members`, { userIds });
+        } catch (err) {
+          addMembersFailed = true;
+        }
+      }
+      return { channel, addMembersFailed };
+    },
+    onSuccess: (result: { channel: any; addMembersFailed: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      setStartChatSelectedUsers(new Set());
+      setStartChatSearchQuery("");
+      setStartChatGroupName("");
+      setStartChatDrawerOpen(false);
+      if (result.channel?.id) {
+        setSelectedChannel(result.channel);
+        setSelectedDm(null);
+      }
+      if (result.addMembersFailed) {
+        toast({
+          title: "Group created with warning",
+          description: "The group was created but some members could not be added.",
+          variant: "default",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to create group",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Handle create chat from drawer
+  const handleCreateChatFromDrawer = () => {
+    if (startChatSelectedUsers.size === 0) return;
+    const userIds = Array.from(startChatSelectedUsers);
+    
+    if (userIds.length === 1) {
+      // Start DM
+      startNewChatMutation.mutate(userIds);
+    } else {
+      // Multiple users - create group
+      const groupName = startChatGroupName.trim() || `Group (${userIds.length + 1} members)`;
+      createGroupFromDrawerMutation.mutate({ name: groupName, userIds });
+    }
+  };
 
   const handleMessageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -588,16 +699,18 @@ export default function ChatPage() {
 
     const handleMemberJoined = (payload: ChatMemberJoinedPayload) => {
       // Refresh channel members if currently viewing this channel's members
-      if (selectedChannel && payload.channelId === selectedChannel.id) {
+      if (payload.targetType === 'channel' && selectedChannel && payload.targetId === selectedChannel.id) {
         queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels", selectedChannel.id, "members"] });
       }
       // Refresh channel list in case user was added to a new channel
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      if (payload.targetType === 'channel') {
+        queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      }
     };
 
     const handleMemberLeft = (payload: ChatMemberLeftPayload) => {
       // Refresh channel members if currently viewing this channel's members
-      if (selectedChannel && payload.channelId === selectedChannel.id) {
+      if (payload.targetType === 'channel' && selectedChannel && payload.targetId === selectedChannel.id) {
         queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels", selectedChannel.id, "members"] });
         // If current user was removed, deselect and refresh channels
         if (payload.userId === user?.id) {
@@ -607,7 +720,9 @@ export default function ChatPage() {
         }
       }
       // Refresh channel list
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      if (payload.targetType === 'channel') {
+        queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      }
     };
 
     socket.on(CHAT_EVENTS.NEW_MESSAGE as any, handleNewMessage as any);
@@ -845,6 +960,19 @@ export default function ChatPage() {
 
           {/* Chats Tab */}
           <TabsContent value="chats" className="flex-1 flex flex-col overflow-hidden mt-0 p-0">
+            {/* Start New Chat Button */}
+            <div className="p-2 border-b">
+              <Button
+                className="w-full justify-start gap-2"
+                variant="outline"
+                onClick={() => setStartChatDrawerOpen(true)}
+                data-testid="button-start-new-chat"
+              >
+                <UserPlus className="h-4 w-4" />
+                Start New Chat
+              </Button>
+            </div>
+
             <div className="p-4 border-b">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-semibold text-sidebar-foreground">Channels</h2>
@@ -1667,6 +1795,146 @@ export default function ChatPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Start New Chat Drawer */}
+      <Sheet open={startChatDrawerOpen} onOpenChange={(open) => {
+        setStartChatDrawerOpen(open);
+        if (!open) {
+          // Reset state when drawer closes
+          setStartChatSearchQuery("");
+          setStartChatSelectedUsers(new Set());
+          setStartChatGroupName("");
+        }
+      }}>
+        <SheetContent side="left" className="w-80 flex flex-col">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Start New Chat
+            </SheetTitle>
+            <SheetDescription>
+              Select one or more team members to start a conversation.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 flex flex-col overflow-hidden mt-4">
+            {/* Search input */}
+            <Input
+              placeholder="Search by name or email..."
+              value={startChatSearchQuery}
+              onChange={(e) => setStartChatSearchQuery(e.target.value)}
+              className="mb-4"
+              data-testid="input-start-chat-search"
+            />
+
+            {/* Selected users chips */}
+            {startChatSelectedUsersList.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-4 p-2 border rounded-md bg-muted/50">
+                {startChatSelectedUsersList.map((u) => (
+                  <Badge 
+                    key={u.id} 
+                    variant="secondary" 
+                    className="flex items-center gap-1 pr-1"
+                  >
+                    {u.displayName}
+                    <button
+                      onClick={() => toggleStartChatUserSelection(u.id)}
+                      className="ml-1 rounded-full hover:bg-muted p-0.5"
+                      data-testid={`remove-chip-${u.id}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Group name input (shown for 2+ selections) */}
+            {startChatSelectedUsers.size >= 2 && (
+              <div className="mb-4">
+                <Label htmlFor="start-chat-group-name" className="text-sm">Group Name (optional)</Label>
+                <Input
+                  id="start-chat-group-name"
+                  placeholder="Enter group name..."
+                  value={startChatGroupName}
+                  onChange={(e) => setStartChatGroupName(e.target.value)}
+                  className="mt-1"
+                  data-testid="input-start-chat-group-name"
+                />
+              </div>
+            )}
+
+            {/* User list */}
+            <ScrollArea className="flex-1">
+              {isLoadingStartChatUsers ? (
+                <div className="flex justify-center p-4">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : startChatFilteredUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center p-4">
+                  {startChatSearchQuery ? "No users found" : "No team members available"}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {startChatFilteredUsers.map((teamUser) => (
+                    <div
+                      key={teamUser.id}
+                      className={`flex items-center gap-2 px-2 py-2 rounded hover-elevate cursor-pointer ${
+                        startChatSelectedUsers.has(teamUser.id) ? "bg-accent" : ""
+                      }`}
+                      onClick={() => toggleStartChatUserSelection(teamUser.id)}
+                      data-testid={`start-chat-user-${teamUser.id}`}
+                    >
+                      <Checkbox
+                        checked={startChatSelectedUsers.has(teamUser.id)}
+                        onCheckedChange={() => toggleStartChatUserSelection(teamUser.id)}
+                        data-testid={`start-chat-checkbox-${teamUser.id}`}
+                      />
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback className="text-xs">
+                          {getInitials(teamUser.displayName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{teamUser.displayName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{teamUser.email}</p>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {teamUser.role}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+
+            {/* Action button */}
+            <div className="pt-4 border-t mt-auto">
+              <Button
+                className="w-full"
+                onClick={handleCreateChatFromDrawer}
+                disabled={
+                  startChatSelectedUsers.size === 0 ||
+                  startNewChatMutation.isPending ||
+                  createGroupFromDrawerMutation.isPending
+                }
+                data-testid="button-create-chat-from-drawer"
+              >
+                {(startNewChatMutation.isPending || createGroupFromDrawerMutation.isPending) ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                )}
+                {startChatSelectedUsers.size === 0
+                  ? "Select Recipients"
+                  : startChatSelectedUsers.size === 1
+                  ? "Start Direct Message"
+                  : `Create Group Chat (${startChatSelectedUsers.size + 1} members)`}
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
