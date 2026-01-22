@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2 } from "lucide-react";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2, CheckSquare } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -380,44 +380,49 @@ export function TaskDetailDrawer({
         </SheetHeader>
 
         <div className="px-6 py-6 space-y-6">
-          {task.projectId && (
-            <div className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap" data-testid="task-breadcrumbs">
-              {projectContextLoading ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Loading context...</span>
-                </div>
-              ) : (
-                <>
-                  {projectContext?.client && (
-                    <>
-                      <Building2 className="h-3.5 w-3.5 shrink-0" />
-                      <span className="font-medium" data-testid="breadcrumb-client">
-                        {projectContext.client.displayName || projectContext.client.companyName}
-                      </span>
-                      <ChevronRight className="h-3 w-3 shrink-0" />
-                    </>
-                  )}
-                  {projectContext?.division && (
-                    <>
-                      <div className="flex items-center gap-1">
-                        {projectContext.division.color && (
-                          <div
-                            className="h-2.5 w-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: projectContext.division.color }}
-                          />
-                        )}
-                        <span data-testid="breadcrumb-division">{projectContext.division.name}</span>
-                      </div>
-                      <ChevronRight className="h-3 w-3 shrink-0" />
-                    </>
-                  )}
-                  <FolderKanban className="h-3.5 w-3.5 shrink-0" />
-                  <span data-testid="breadcrumb-project">{projectContext?.name || "Project"}</span>
-                </>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap" data-testid="task-breadcrumbs">
+            {task.projectId && projectContextLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Loading context...</span>
+              </div>
+            ) : (
+              <>
+                {task.projectId && projectContext?.client && (
+                  <>
+                    <Building2 className="h-3.5 w-3.5 shrink-0" />
+                    <span className="font-medium" data-testid="breadcrumb-client">
+                      {projectContext.client.displayName || projectContext.client.companyName}
+                    </span>
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                  </>
+                )}
+                {task.projectId && projectContext?.division && (
+                  <>
+                    <div className="flex items-center gap-1">
+                      {projectContext.division.color && (
+                        <div
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: projectContext.division.color }}
+                        />
+                      )}
+                      <span data-testid="breadcrumb-division">{projectContext.division.name}</span>
+                    </div>
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                  </>
+                )}
+                {task.projectId && (
+                  <>
+                    <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+                    <span data-testid="breadcrumb-project">{projectContext?.name || "Project"}</span>
+                    <ChevronRight className="h-3 w-3 shrink-0" />
+                  </>
+                )}
+                <CheckSquare className="h-3.5 w-3.5 shrink-0" />
+                <span className="font-medium" data-testid="breadcrumb-task">{task.title?.slice(0, 30) || "Task"}{(task.title?.length || 0) > 30 ? "..." : ""}</span>
+              </>
+            )}
+          </div>
 
           <div className="flex items-center gap-2 flex-wrap" data-testid="task-action-bar">
             {!activeTimer && !timerLoading && (
