@@ -1081,8 +1081,10 @@ export async function registerRoutes(
 
   // Create a personal task (no project)
   app.post("/api/tasks/personal", async (req, res) => {
+    const requestId = (req as any).requestId || 'unknown';
     try {
       const userId = getCurrentUserId(req);
+      const tenantId = getEffectiveTenantId(req);
       const workspaceId = getCurrentWorkspaceId(req);
       const { personalSectionId, ...restBody } = req.body;
       
@@ -1096,7 +1098,10 @@ export async function registerRoutes(
         personalSortOrder: 0,
       });
       
-      const task = await storage.createTask(data);
+      // Use tenant-aware task creation
+      const task = tenantId 
+        ? await storage.createTaskWithTenant(data, tenantId)
+        : await storage.createTask(data);
 
       // Auto-assign the task to the creating user
       await storage.addTaskAssignee({
@@ -1114,10 +1119,11 @@ export async function registerRoutes(
       res.status(201).json(taskWithRelations);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return res.status(400).json({ error: error.errors, requestId });
       }
-      console.error("Error creating personal task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[Personal Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${sanitizedError}`);
+      res.status(500).json({ error: "Unable to create personal task", requestId });
     }
   });
 
@@ -1295,20 +1301,28 @@ export async function registerRoutes(
   });
 
   app.post("/api/tasks", async (req, res) => {
+    const requestId = (req as any).requestId || 'unknown';
     try {
+      const tenantId = getEffectiveTenantId(req);
+      const userId = getCurrentUserId(req);
+      
       const body = { ...req.body };
       if (body.sectionId === "" || body.sectionId === undefined) {
         body.sectionId = null;
       }
       const data = insertTaskSchema.parse({
         ...body,
-        createdBy: getCurrentUserId(req),
+        createdBy: userId,
       });
-      const task = await storage.createTask(data);
+      
+      // Use tenant-aware task creation
+      const task = tenantId 
+        ? await storage.createTaskWithTenant(data, tenantId)
+        : await storage.createTask(data);
 
       await storage.addTaskAssignee({
         taskId: task.id,
-        userId: getCurrentUserId(req),
+        userId: userId,
       });
 
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
@@ -1325,23 +1339,27 @@ export async function registerRoutes(
       res.status(201).json(taskWithRelations);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return res.status(400).json({ error: error.errors, requestId });
       }
-      console.error("Error creating task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${sanitizedError}`);
+      res.status(500).json({ error: "Unable to create task", requestId });
     }
   });
 
   app.post("/api/tasks/:taskId/childtasks", async (req, res) => {
+    const requestId = (req as any).requestId || 'unknown';
     try {
       const parentTaskId = req.params.taskId;
+      const tenantId = getEffectiveTenantId(req);
       const parentTask = await storage.getTask(parentTaskId);
       if (!parentTask) {
-        return res.status(404).json({ error: "Parent task not found" });
+        return res.status(404).json({ error: "Parent task not found", requestId });
       }
       if (parentTask.parentTaskId) {
         return res.status(400).json({
           error: "Cannot create subtask of a subtask (max depth is 2 levels)",
+          requestId,
         });
       }
 
@@ -1353,7 +1371,11 @@ export async function registerRoutes(
         createdBy: getCurrentUserId(req),
       });
 
-      const task = await storage.createChildTask(parentTaskId, data);
+      // Child task inherits parent's tenantId or uses current tenant context
+      const effectiveTenantId = parentTask.tenantId || tenantId;
+      const task = effectiveTenantId
+        ? await storage.createTaskWithTenant({ ...data, parentTaskId }, effectiveTenantId)
+        : await storage.createChildTask(parentTaskId, data);
 
       if (body.assigneeId) {
         await storage.addTaskAssignee({
@@ -1372,14 +1394,16 @@ export async function registerRoutes(
       res.status(201).json(taskWithRelations);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return res.status(400).json({ error: error.errors, requestId });
       }
-      console.error("Error creating child task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[Child Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${sanitizedError}`);
+      res.status(500).json({ error: "Unable to create child task", requestId });
     }
   });
 
   app.patch("/api/tasks/:id", async (req, res) => {
+    const requestId = (req as any).requestId || 'unknown';
     try {
       // If converting to personal task, force clear project ties
       const updateData = { ...req.body };
@@ -1391,7 +1415,7 @@ export async function registerRoutes(
       
       const task = await storage.updateTask(req.params.id, updateData);
       if (!task) {
-        return res.status(404).json({ error: "Task not found" });
+        return res.status(404).json({ error: "Task not found", requestId });
       }
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
@@ -1406,17 +1430,19 @@ export async function registerRoutes(
 
       res.json(taskWithRelations);
     } catch (error) {
-      console.error("Error updating task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[Task Update Error] requestId=${requestId} taskId=${req.params.id} error=${sanitizedError}`);
+      res.status(500).json({ error: "Unable to update task", requestId });
     }
   });
 
   app.delete("/api/tasks/:id", async (req, res) => {
+    const requestId = (req as any).requestId || 'unknown';
     try {
       // Get task before deletion to emit event with projectId
       const task = await storage.getTask(req.params.id);
       if (!task) {
-        return res.status(404).json({ error: "Task not found" });
+        return res.status(404).json({ error: "Task not found", requestId });
       }
 
       await storage.deleteTask(req.params.id);
@@ -1437,8 +1463,9 @@ export async function registerRoutes(
 
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[Task Delete Error] requestId=${requestId} taskId=${req.params.id} error=${sanitizedError}`);
+      res.status(500).json({ error: "Unable to delete task", requestId });
     }
   });
 
