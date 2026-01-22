@@ -1,0 +1,94 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+FEATURE: Add a centralized Error Log visible to Super Admins in System Status for monitoring and debugging production issues.
+Also improve error correlation by requestId across server + client.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths or response shapes.
+- Do NOT expose secrets in logs (keys/tokens/passwords).
+- Do NOT show raw stack traces or SQL errors to tenant users.
+- Error Log must be super-admin only.
+- Additive DB changes allowed if necessary.
+
+===============================================================================
+PART 1 — STANDARDIZE SERVER ERROR CAPTURE (INTERNAL)
+===============================================================================
+1) Ensure requestId exists for all requests and is included in:
+- response header X-Request-Id
+- server logs
+
+2) Add an error capture middleware that records errors to an ErrorLog store when:
+- status >= 500
+- OR explicit “captureError()” is called
+
+Record:
+- id
+- requestId
+- timestamp
+- environment (prod/staging)
+- route/method
+- userId (nullable)
+- tenantId (nullable)
+- effectiveTenantId (nullable)
+- errorName
+- message (sanitized)
+- stack (server-only)
+- dbCode/constraint (if available)
+- metadata JSON (safe; no secrets)
+
+Storage:
+- Prefer DB table error_logs (additive) to persist across restarts:
+  error_logs(id, requestId, tenantId, userId, method, path, status, message, stack, meta, createdAt)
+- If you already have a logs table, reuse it.
+
+===============================================================================
+PART 2 — SUPER ADMIN UI: SYSTEM STATUS → “Error Log” TAB
+===============================================================================
+Add a new tab in Super Admin System Status:
+- Error Log
+Features:
+- Table view with:
+  createdAt, status, tenantName/tenantId, path, message (short), requestId
+- Filters:
+  time range, tenant, status code, path contains
+- Row click opens a drawer with full details:
+  stack trace (server-side captured), meta, db constraint
+- Copy buttons:
+  Copy requestId
+  Copy full error payload (redacted)
+
+Optional:
+- “Mark resolved” flag (client-side only or DB flag if easy)
+
+===============================================================================
+PART 3 — CLIENT-SIDE UX: SHOW REQUEST ID (NOT STACK)
+===============================================================================
+For tenant-facing UI errors:
+- Show friendly message + requestId from X-Request-Id header
+- Add “Copy requestId”
+Do NOT show internal stack to tenant users.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+- error_log_captures_500_with_requestid.test.ts
+- error_log_is_super_admin_only.test.ts
+- error_log_redacts_secrets.test.ts (ensure known secret keys are masked if present in meta)
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+- Create /docs/ERROR_LOGGING.md:
+  - what’s captured
+  - where requestId is surfaced
+  - Railway troubleshooting workflow
+- Update /docs/SUPER_SYSTEM_STATUS.md with Error Log tab.
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Any 500 error results in a stored error_log record with requestId.
+- Super Admin can view/filter errors in System Status.
+- Tenant users see requestId but not stack traces.
+- No endpoint/response shape changes; tests pass.

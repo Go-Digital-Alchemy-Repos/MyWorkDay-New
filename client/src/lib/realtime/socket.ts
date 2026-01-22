@@ -1,10 +1,13 @@
 import { io, Socket } from "socket.io-client";
-import type { ServerToClientEvents, ClientToServerEvents } from "@shared/events";
+import type { ServerToClientEvents, ClientToServerEvents, ConnectionConnectedPayload } from "@shared/events";
+import { CONNECTION_EVENTS } from "@shared/events";
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 let socket: TypedSocket | null = null;
 let isConnected = false;
+let lastServerTime: string | null = null;
+let lastRequestId: string | null = null;
 
 // Track joined rooms for reconnect handling
 const joinedChatRooms: Set<string> = new Set();
@@ -12,6 +15,10 @@ const joinedChatRooms: Set<string> = new Set();
 // Callbacks for connection state changes
 type ConnectionCallback = (connected: boolean) => void;
 const connectionCallbacks: Set<ConnectionCallback> = new Set();
+
+// Callbacks for connected ack
+type ConnectedAckCallback = (payload: ConnectionConnectedPayload) => void;
+const connectedAckCallbacks: Set<ConnectedAckCallback> = new Set();
 
 export function getSocket(): TypedSocket {
   if (!socket) {
@@ -50,6 +57,15 @@ export function getSocket(): TypedSocket {
     // but we can add explicit pong handling if needed
     socket.io.on("ping", () => {
       console.debug("[Socket.IO] Ping received");
+    });
+
+    // Handle server connected ack with serverTime and requestId
+    socket.on(CONNECTION_EVENTS.CONNECTED, (payload: ConnectionConnectedPayload) => {
+      console.log("[Socket.IO] Server ack received:", payload.requestId);
+      lastServerTime = payload.serverTime;
+      lastRequestId = payload.requestId;
+      // Notify any listeners about the connected ack
+      connectedAckCallbacks.forEach(cb => cb(payload));
     });
   }
   return socket;
@@ -134,5 +150,23 @@ export function disconnectSocket(): void {
     socket = null;
     isConnected = false;
     joinedChatRooms.clear();
+    lastServerTime = null;
+    lastRequestId = null;
   }
+}
+
+// Get the last server time from connected ack
+export function getLastServerTime(): string | null {
+  return lastServerTime;
+}
+
+// Get the last request ID from connected ack
+export function getLastRequestId(): string | null {
+  return lastRequestId;
+}
+
+// Subscribe to connected ack events
+export function onConnectedAck(callback: ConnectedAckCallback): () => void {
+  connectedAckCallbacks.add(callback);
+  return () => connectedAckCallbacks.delete(callback);
 }

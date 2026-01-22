@@ -78,7 +78,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { CHAT_EVENTS, CHAT_ROOM_EVENTS, ChatNewMessagePayload, ChatMessageUpdatedPayload, ChatMessageDeletedPayload, ChatMemberJoinedPayload, ChatMemberLeftPayload } from "@shared/events";
+import { CHAT_EVENTS, CHAT_ROOM_EVENTS, ChatNewMessagePayload, ChatMessageUpdatedPayload, ChatMessageDeletedPayload, ChatMemberJoinedPayload, ChatMemberLeftPayload, ChatMemberAddedPayload, ChatMemberRemovedPayload } from "@shared/events";
 
 interface ChatChannel {
   id: string;
@@ -854,11 +854,41 @@ export default function ChatPage() {
       }
     };
 
+    // Handle member added (richer info, emitted to channel room)
+    const handleMemberAdded = (payload: ChatMemberAddedPayload) => {
+      if (payload.targetType === 'channel' && selectedChannel && payload.targetId === selectedChannel.id) {
+        // Invalidate members list to refresh with new member
+        queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels", selectedChannel.id, "members"] });
+      }
+    };
+
+    // Handle member removed (richer info, emitted to channel room)
+    const handleMemberRemoved = (payload: ChatMemberRemovedPayload) => {
+      if (payload.targetType === 'channel' && selectedChannel && payload.targetId === selectedChannel.id) {
+        queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels", selectedChannel.id, "members"] });
+        // If current user was removed, deselect and navigate out with message
+        if (payload.userId === user?.id) {
+          // Leave the socket room immediately
+          leaveChatRoom('channel', selectedChannel.id);
+          setSelectedChannel(null);
+          setMembersDrawerOpen(false);
+          queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+          toast({
+            title: "Removed from channel",
+            description: "You have been removed from this channel and can no longer access it.",
+            variant: "destructive",
+          });
+        }
+      }
+    };
+
     socket.on(CHAT_EVENTS.NEW_MESSAGE as any, handleNewMessage as any);
     socket.on(CHAT_EVENTS.MESSAGE_UPDATED as any, handleMessageUpdated as any);
     socket.on(CHAT_EVENTS.MESSAGE_DELETED as any, handleMessageDeleted as any);
     socket.on(CHAT_EVENTS.MEMBER_JOINED as any, handleMemberJoined as any);
     socket.on(CHAT_EVENTS.MEMBER_LEFT as any, handleMemberLeft as any);
+    socket.on(CHAT_EVENTS.MEMBER_ADDED as any, handleMemberAdded as any);
+    socket.on(CHAT_EVENTS.MEMBER_REMOVED as any, handleMemberRemoved as any);
 
     return () => {
       socket.off(CHAT_EVENTS.NEW_MESSAGE as any, handleNewMessage as any);
@@ -866,6 +896,8 @@ export default function ChatPage() {
       socket.off(CHAT_EVENTS.MESSAGE_DELETED as any, handleMessageDeleted as any);
       socket.off(CHAT_EVENTS.MEMBER_JOINED as any, handleMemberJoined as any);
       socket.off(CHAT_EVENTS.MEMBER_LEFT as any, handleMemberLeft as any);
+      socket.off(CHAT_EVENTS.MEMBER_ADDED as any, handleMemberAdded as any);
+      socket.off(CHAT_EVENTS.MEMBER_REMOVED as any, handleMemberRemoved as any);
     };
   }, [selectedChannel, selectedDm, user?.id]);
 

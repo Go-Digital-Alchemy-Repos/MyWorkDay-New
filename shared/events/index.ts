@@ -503,6 +503,21 @@ export interface MyTaskDeletedPayload {
 }
 
 // =============================================================================
+// CONNECTION EVENTS
+// =============================================================================
+
+export const CONNECTION_EVENTS = {
+  CONNECTED: 'connection:connected',
+} as const;
+
+export interface ConnectionConnectedPayload {
+  serverTime: string; // ISO timestamp
+  requestId: string;  // Unique connection request ID
+  userId: string | null;
+  tenantId: string | null;
+}
+
+// =============================================================================
 // CHAT EVENTS (Slack-like messaging)
 // =============================================================================
 
@@ -513,6 +528,8 @@ export const CHAT_EVENTS = {
   CHANNEL_CREATED: 'chat:channelCreated',
   MEMBER_JOINED: 'chat:memberJoined',
   MEMBER_LEFT: 'chat:memberLeft',
+  MEMBER_ADDED: 'chat:memberAdded',
+  MEMBER_REMOVED: 'chat:memberRemoved',
 } as const;
 
 export const CHAT_ROOM_EVENTS = {
@@ -576,6 +593,24 @@ export interface ChatMemberJoinedPayload {
 }
 
 export interface ChatMemberLeftPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  userId: string;
+  userName: string;
+  removedBy: string | null;
+}
+
+export interface ChatMemberAddedPayload {
+  targetType: 'channel' | 'dm';
+  targetId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userAvatarUrl: string | null;
+  addedBy: string | null;
+}
+
+export interface ChatMemberRemovedPayload {
   targetType: 'channel' | 'dm';
   targetId: string;
   userId: string;
@@ -653,6 +688,10 @@ export type ServerToClientEvents = {
   [CHAT_EVENTS.CHANNEL_CREATED]: (payload: ChatChannelCreatedPayload) => void;
   [CHAT_EVENTS.MEMBER_JOINED]: (payload: ChatMemberJoinedPayload) => void;
   [CHAT_EVENTS.MEMBER_LEFT]: (payload: ChatMemberLeftPayload) => void;
+  [CHAT_EVENTS.MEMBER_ADDED]: (payload: ChatMemberAddedPayload) => void;
+  [CHAT_EVENTS.MEMBER_REMOVED]: (payload: ChatMemberRemovedPayload) => void;
+  // Connection events
+  [CONNECTION_EVENTS.CONNECTED]: (payload: ConnectionConnectedPayload) => void;
 };
 
 export type ClientToServerEvents = {

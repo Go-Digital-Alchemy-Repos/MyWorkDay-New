@@ -1046,13 +1046,28 @@ router.post(
       }
     }
 
+    // Get current user for addedBy info
+    const currentUser = await storage.getUser(userId);
+
     // Emit socket events for each added member
     for (const user of addedMembers) {
+      // Emit to tenant for global updates
       emitToTenant(tenantId, CHAT_EVENTS.MEMBER_JOINED, {
         targetType: "channel",
         targetId: channelId,
         userId: user.id,
         userName: user.name || user.email || "Unknown",
+      });
+      
+      // Also emit MEMBER_ADDED with richer info for the channel room
+      emitToChatChannel(channelId, CHAT_EVENTS.MEMBER_ADDED, {
+        targetType: "channel",
+        targetId: channelId,
+        userId: user.id,
+        userName: user.name || user.email || "Unknown",
+        userEmail: user.email || "",
+        userAvatarUrl: user.avatarUrl || null,
+        addedBy: userId,
       });
     }
 
@@ -1113,8 +1128,17 @@ router.delete(
 
     const targetUser = await storage.getUser(targetUserId);
 
-    // Emit socket event
+    // Emit socket events
     emitToTenant(tenantId, CHAT_EVENTS.MEMBER_LEFT, {
+      targetType: "channel",
+      targetId: channelId,
+      userId: targetUserId,
+      userName: targetUser?.name || targetUser?.email || "Unknown",
+      removedBy: isSelf ? null : currentUserId,
+    });
+    
+    // Also emit MEMBER_REMOVED with richer info for the channel room
+    emitToChatChannel(channelId, CHAT_EVENTS.MEMBER_REMOVED, {
       targetType: "channel",
       targetId: channelId,
       userId: targetUserId,

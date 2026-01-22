@@ -1,0 +1,114 @@
+You are continuing development on my React + Express multi-tenant app (single codebase) deployed on Railway.
+BUG: Creating a new Task from a tenant user account results in HTTP 500 and the task is not saved.
+
+Also: There appear to be multiple tenant usability bugs across Tasks/Projects/Clients provisioning.
+Goal: Fix the root cause of the Task 500, and run a targeted verification pass across core tenant CRUD flows.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change endpoint paths or response shapes.
+- Do NOT change tenancy/auth/agreement enforcement behavior.
+- Do NOT wipe/reset any DB data.
+- Avoid schema changes unless a clear missing column/constraint is proven and additive.
+- Do NOT expose stack traces or raw DB errors to tenant users.
+- Add requestId surfacing and server-side logging for diagnosis (safe).
+
+===============================================================================
+PART 1 — IMMEDIATE DIAGNOSIS: CAPTURE ROOT CAUSE WITH REQUEST ID
+===============================================================================
+1) Ensure every response includes X-Request-Id header.
+2) In the tenant UI, when create task fails:
+   - show toast: “Unable to create task. Request ID: <id>” + Copy button
+   - do NOT show stack trace or raw SQL in tenant UI
+
+3) On server, add safe diagnostic logging for task creation failures:
+   - Always log: requestId, tenantId, userId, endpoint, payload field names (NOT secrets), and sanitized error code/constraint
+   - Only log full stack traces when SERVER_DEBUG=true
+
+4) Reproduce:
+   - Create task for a project
+   - Create task without project (if personal tasks supported)
+   - Create task with/without section
+   - Create task with assignees and tags (if supported)
+
+===============================================================================
+PART 2 — FIX THE REAL ROOT CAUSE (BASED ON LOGS)
+===============================================================================
+Investigate the failing code path for POST Task (likely POST /api/v1/tasks or /api/v1/tenant/tasks).
+
+Common causes to check (fix whichever is confirmed):
+A) tenantId missing or null insertion (tenancy derivation not applied)
+- Ensure server derives tenantId from effectiveTenantId/session, never trusts client
+- Reject if tenant context required and missing (but keep error shape consistent)
+
+B) projectId / clientId foreign key issue
+- If task requires projectId in schema but UI allows personal tasks, ensure correct nullable handling
+- If projectId provided, validate it belongs to the same tenant before insert
+
+C) sectionId/teamId missing or invalid
+- If “section” is required in DB, ensure a default section exists or make it optional safely (additive only if needed)
+
+D) Drizzle schema mismatch in Railway (migration missing)
+- If logs show “column does not exist” or similar:
+  - add missing additive migration
+  - ensure Railway migration runs
+
+E) Validation gap causing DB crash
+- Add server-side validation (zod or existing validator) to prevent DB exceptions
+- Return the same error response body as today (do not change shape), but avoid server crash.
+
+===============================================================================
+PART 3 — TARGETED TENANT SERVICES “SMOKE TEST” AUDIT (CORE CRUD)
+===============================================================================
+Add an integration test suite (or expand existing) that exercises these tenant flows end-to-end:
+1) Clients CRUD:
+- create client
+- list clients
+- update client
+- delete client (if supported) / deactivate
+
+2) Projects CRUD:
+- create project under client
+- list projects
+- update project
+- move project between client/unassigned (if supported)
+
+3) Tasks CRUD:
+- create task
+- list tasks by project
+- update task
+- delete/archive task
+- create sub-task (if supported)
+- assign user(s) (if supported)
+
+4) Tenancy enforcement:
+- tenant A cannot create/list/update anything in tenant B
+
+For each failing test:
+- fix minimal root cause and add regression coverage.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+- tenant_tasks_create_success.test.ts
+- tenant_tasks_create_requires_valid_tenant_context.test.ts
+- tenant_tasks_create_validates_project_belongs_to_tenant.test.ts
+- tenant_clients_projects_tasks_smoke_suite.test.ts (can be a single file containing multiple cases)
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+- Update /docs/REGRESSION_CHECKLIST.md:
+  - Task create flow
+  - Known required fields
+  - RequestId troubleshooting workflow
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Tenant user can create tasks successfully in all supported contexts.
+- Failures show requestId in UI.
+- Server logs contain enough detail to debug without exposing secrets to tenants.
+- Smoke test suite passes across Clients/Projects/Tasks.
+- No endpoint/response changes; no data wipes.

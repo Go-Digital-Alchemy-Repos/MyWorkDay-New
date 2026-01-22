@@ -20,8 +20,11 @@ import {
   ServerToClientEvents, 
   ClientToServerEvents,
   ROOM_EVENTS,
-  CHAT_ROOM_EVENTS
+  CHAT_ROOM_EVENTS,
+  CONNECTION_EVENTS,
+  ConnectionConnectedPayload
 } from '@shared/events';
+import { randomUUID } from 'crypto';
 import { log } from '../index';
 import { getSessionMiddleware } from '../auth';
 import passport from 'passport';
@@ -87,6 +90,15 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
     const authSocket = socket as AuthenticatedSocket;
     log(`Client connected: ${socket.id} (userId: ${authSocket.userId || 'anonymous'})`, 'socket.io');
+    
+    // Send connected ack with server time and request ID
+    const connectedPayload: ConnectionConnectedPayload = {
+      serverTime: new Date().toISOString(),
+      requestId: randomUUID(),
+      userId: authSocket.userId || null,
+      tenantId: authSocket.tenantId || null,
+    };
+    socket.emit(CONNECTION_EVENTS.CONNECTED, connectedPayload);
 
     // Handle joining a project room
     socket.on(ROOM_EVENTS.JOIN_PROJECT, ({ projectId }) => {
