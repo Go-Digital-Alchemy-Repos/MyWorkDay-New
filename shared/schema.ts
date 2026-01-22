@@ -1073,6 +1073,25 @@ export const chatMessages = pgTable("chat_messages", {
   index("chat_messages_created_idx").on(table.createdAt),
 ]);
 
+/**
+ * Chat Attachments table - file attachments for chat messages
+ * Files are stored in S3 using the hierarchical storage resolver
+ */
+export const chatAttachments = pgTable("chat_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  messageId: varchar("message_id").references(() => chatMessages.id).notNull(),
+  s3Key: text("s3_key").notNull(),
+  url: text("url").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("chat_attachments_tenant_idx").on(table.tenantId),
+  index("chat_attachments_message_idx").on(table.messageId),
+]);
+
 // =============================================================================
 // RELATIONS
 // =============================================================================
@@ -1734,6 +1753,11 @@ export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
   deletedAt: true,
 });
 
+export const insertChatAttachmentSchema = createInsertSchema(chatAttachments).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Enhanced user insert schema with role validation
 export const insertUserWithRoleSchema = insertUserSchema.extend({
   role: z.enum([UserRole.ADMIN, UserRole.EMPLOYEE, UserRole.CLIENT]).default(UserRole.EMPLOYEE),
@@ -1949,6 +1973,9 @@ export type InsertChatDmMember = z.infer<typeof insertChatDmMemberSchema>;
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+
+export type ChatAttachment = typeof chatAttachments.$inferSelect;
+export type InsertChatAttachment = z.infer<typeof insertChatAttachmentSchema>;
 
 // Chat extended types
 export type ChatChannelWithMembers = ChatChannel & {
