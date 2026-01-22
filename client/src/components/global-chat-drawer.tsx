@@ -21,6 +21,11 @@ import {
   Lock,
   X,
   ChevronLeft,
+  Paperclip,
+  File,
+  FileText,
+  Image,
+  Loader2,
 } from "lucide-react";
 import { CHAT_EVENTS, CHAT_ROOM_EVENTS, ChatNewMessagePayload } from "@shared/events";
 
@@ -33,6 +38,18 @@ interface ChatChannel {
   createdAt: Date;
 }
 
+interface ChatAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+}
+
+interface PendingAttachment extends ChatAttachment {
+  uploading?: boolean;
+}
+
 interface ChatMessage {
   id: string;
   tenantId: string;
@@ -42,6 +59,7 @@ interface ChatMessage {
   body: string;
   createdAt: Date;
   editedAt: Date | null;
+  attachments?: ChatAttachment[];
   author?: {
     id: string;
     name: string;
@@ -74,7 +92,10 @@ export function GlobalChatDrawer() {
   const [messageInput, setMessageInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [showThreadList, setShowThreadList] = useState(true);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: channels = [] } = useQuery<ChatChannel[]>({
     queryKey: ["/api/v1/chat/channels"],
@@ -193,16 +214,18 @@ export function GlobalChatDrawer() {
   });
 
   const sendMessageMutation = useMutation({
-    mutationFn: async (body: string) => {
+    mutationFn: async ({ body, attachmentIds }: { body: string; attachmentIds?: string[] }) => {
+      const payload = { body, attachmentIds };
       if (selectedChannel) {
-        return apiRequest("POST", `/api/v1/chat/channels/${selectedChannel.id}/messages`, { body });
+        return apiRequest("POST", `/api/v1/chat/channels/${selectedChannel.id}/messages`, payload);
       } else if (selectedDm) {
-        return apiRequest("POST", `/api/v1/chat/dm/${selectedDm.id}/messages`, { body });
+        return apiRequest("POST", `/api/v1/chat/dm/${selectedDm.id}/messages`, payload);
       }
       throw new Error("No channel or DM selected");
     },
     onSuccess: () => {
       setMessageInput("");
+      setPendingAttachments([]);
     },
   });
 
@@ -227,10 +250,61 @@ export function GlobalChatDrawer() {
     setSelectedDm(null);
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    setIsUploading(true);
+    
+    for (const file of Array.from(files)) {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const response = await fetch("/api/v1/chat/uploads", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+        
+        if (!response.ok) continue;
+        
+        const attachment = await response.json();
+        setPendingAttachments(prev => [...prev, attachment]);
+      } catch (error) {
+        console.error("Upload error:", error);
+      }
+    }
+    
+    setIsUploading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim()) return;
-    sendMessageMutation.mutate(messageInput.trim());
+    if (!messageInput.trim() && pendingAttachments.length === 0) return;
+    sendMessageMutation.mutate({
+      body: messageInput.trim() || " ",
+      attachmentIds: pendingAttachments.map(a => a.id),
+    });
+  };
+
+  const getFileIcon = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return Image;
+    if (mimeType === "application/pdf") return FileText;
+    return File;
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const getInitials = (name: string) => {
@@ -376,6 +450,37 @@ export function GlobalChatDrawer() {
                         )}
                       </div>
                       <p className="text-sm break-words">{message.body}</p>
+                      {message.attachments && message.attachments.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {message.attachments.map(attachment => {
+                            const FileIcon = getFileIcon(attachment.mimeType);
+                            const isImage = attachment.mimeType.startsWith("image/");
+                            return (
+                              <a
+                                key={attachment.id}
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 p-2 rounded-md bg-muted hover-elevate"
+                                data-testid={`drawer-attachment-${attachment.id}`}
+                              >
+                                {isImage ? (
+                                  <img 
+                                    src={attachment.url} 
+                                    alt={attachment.fileName}
+                                    className="h-12 w-12 object-cover rounded"
+                                  />
+                                ) : (
+                                  <>
+                                    <FileIcon className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-xs truncate max-w-[100px]">{attachment.fileName}</span>
+                                  </>
+                                )}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -389,7 +494,55 @@ export function GlobalChatDrawer() {
             </ScrollArea>
 
             <form onSubmit={handleSendMessage} className="p-4 border-t shrink-0">
+              {pendingAttachments.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {pendingAttachments.map(attachment => {
+                    const FileIcon = getFileIcon(attachment.mimeType);
+                    return (
+                      <div
+                        key={attachment.id}
+                        className="flex items-center gap-1 p-1 rounded-md bg-muted text-xs"
+                        data-testid={`drawer-pending-attachment-${attachment.id}`}
+                      >
+                        <FileIcon className="h-3 w-3 text-muted-foreground" />
+                        <span className="truncate max-w-[80px]">{attachment.fileName}</span>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-4 w-4"
+                          onClick={() => removePendingAttachment(attachment.id)}
+                        >
+                          <X className="h-2 w-2" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg,.webp"
+                  multiple
+                  onChange={handleFileSelect}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading || sendMessageMutation.isPending}
+                  data-testid="drawer-button-attach"
+                >
+                  {isUploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-4 w-4" />
+                  )}
+                </Button>
                 <Input
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
@@ -400,7 +553,7 @@ export function GlobalChatDrawer() {
                 <Button
                   type="submit"
                   size="icon"
-                  disabled={!messageInput.trim() || sendMessageMutation.isPending}
+                  disabled={(!messageInput.trim() && pendingAttachments.length === 0) || sendMessageMutation.isPending}
                   data-testid="drawer-button-send"
                 >
                   <Send className="h-4 w-4" />
