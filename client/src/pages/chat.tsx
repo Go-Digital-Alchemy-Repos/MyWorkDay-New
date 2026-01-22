@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { getSocket, joinChatRoom, leaveChatRoom, onConnectionChange, isSocketConnected } from "@/lib/realtime/socket";
@@ -312,9 +312,10 @@ export default function ChatPage() {
       toast({ title: "Members added successfully" });
     },
     onError: (error: any) => {
+      const requestId = error instanceof ApiError ? error.requestId : null;
       toast({
         title: "Failed to add members",
-        description: error.message || "An error occurred",
+        description: requestId ? `${error.message || "An error occurred"} (Request ID: ${requestId})` : (error.message || "An error occurred"),
         variant: "destructive",
       });
     },
@@ -337,9 +338,10 @@ export default function ChatPage() {
       toast({ title: "Member removed" });
     },
     onError: (error: any) => {
+      const requestId = error instanceof ApiError ? error.requestId : null;
       toast({
         title: "Failed to remove member",
-        description: error.message || "An error occurred",
+        description: requestId ? `${error.message || "An error occurred"} (Request ID: ${requestId})` : (error.message || "An error occurred"),
         variant: "destructive",
       });
     },
@@ -1017,7 +1019,7 @@ export default function ChatPage() {
       
       return { tempId, body };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       // Mark the pending message as failed
       if (context?.tempId) {
         // Remove from pending ref since it failed
@@ -1031,9 +1033,12 @@ export default function ChatPage() {
           )
         );
       }
+      const requestId = error instanceof ApiError ? error.requestId : null;
       toast({
         title: "Failed to send message",
-        description: "Click the retry button to try again.",
+        description: requestId 
+          ? `Click retry to try again. Request ID: ${requestId}`
+          : "Click the retry button to try again.",
         variant: "destructive",
       });
     },
@@ -1093,9 +1098,10 @@ export default function ChatPage() {
       setEditingBody("");
     },
     onError: (error: Error) => {
+      const requestId = error instanceof ApiError ? error.requestId : null;
       toast({
         title: "Failed to edit message",
-        description: error.message,
+        description: requestId ? `${error.message} (Request ID: ${requestId})` : error.message,
         variant: "destructive",
       });
     },
@@ -1111,9 +1117,10 @@ export default function ChatPage() {
       );
     },
     onError: (error: Error) => {
+      const requestId = error instanceof ApiError ? error.requestId : null;
       toast({
         title: "Failed to delete message",
-        description: error.message,
+        description: requestId ? `${error.message} (Request ID: ${requestId})` : error.message,
         variant: "destructive",
       });
     },

@@ -28,6 +28,7 @@ import { randomUUID } from 'crypto';
 import { log } from '../index';
 import { getSessionMiddleware } from '../auth';
 import passport from 'passport';
+import { chatDebugStore, isChatDebugEnabled } from './chatDebug';
 
 // Extended socket interface with authenticated user data
 interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
@@ -91,6 +92,13 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     const authSocket = socket as AuthenticatedSocket;
     log(`Client connected: ${socket.id} (userId: ${authSocket.userId || 'anonymous'})`, 'socket.io');
     
+    chatDebugStore.logEvent({
+      eventType: authSocket.userId ? 'socket_connected' : 'auth_session_missing',
+      socketId: socket.id,
+      userId: authSocket.userId,
+      tenantId: authSocket.tenantId || undefined,
+    });
+    
     // Send connected ack with server time and request ID
     const connectedPayload: ConnectionConnectedPayload = {
       serverTime: new Date().toISOString(),
@@ -146,6 +154,7 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     // Authorization: Uses server-derived userId/tenantId from authenticated session (ignores client-supplied IDs)
     socket.on(CHAT_ROOM_EVENTS.JOIN, async ({ targetType, targetId }) => {
       const roomName = `chat:${targetType}:${targetId}`;
+      const conversationId = `${targetType}:${targetId}`;
       
       // Use authenticated user data from socket, not client-supplied
       const serverUserId = authSocket.userId;
@@ -153,6 +162,13 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
       
       if (!serverUserId) {
         log(`Client ${socket.id} denied chat room join: not authenticated`, 'socket.io');
+        chatDebugStore.logEvent({
+          eventType: 'room_access_denied',
+          socketId: socket.id,
+          roomName,
+          conversationId,
+          errorCode: 'NOT_AUTHENTICATED',
+        });
         return;
       }
       
@@ -168,13 +184,38 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
         
         if (!hasAccess) {
           log(`Client ${socket.id} denied access to chat room: ${roomName} (user: ${serverUserId}, tenant: ${serverTenantId})`, 'socket.io');
+          chatDebugStore.logEvent({
+            eventType: 'room_access_denied',
+            socketId: socket.id,
+            userId: serverUserId,
+            tenantId: serverTenantId || undefined,
+            roomName,
+            conversationId,
+            errorCode: 'ACCESS_DENIED',
+          });
           return;
         }
         
         socket.join(roomName);
         log(`Client ${socket.id} joined chat room: ${roomName}`, 'socket.io');
+        chatDebugStore.logEvent({
+          eventType: 'room_joined',
+          socketId: socket.id,
+          userId: serverUserId,
+          tenantId: serverTenantId || undefined,
+          roomName,
+          conversationId,
+        });
       } catch (error) {
         log(`Error validating chat room access for ${socket.id}: ${error}`, 'socket.io');
+        chatDebugStore.logEvent({
+          eventType: 'error',
+          socketId: socket.id,
+          userId: serverUserId,
+          tenantId: serverTenantId || undefined,
+          roomName,
+          errorCode: 'VALIDATION_ERROR',
+        });
       }
     });
 
@@ -182,11 +223,26 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
       const roomName = `chat:${targetType}:${targetId}`;
       socket.leave(roomName);
       log(`Client ${socket.id} left chat room: ${roomName}`, 'socket.io');
+      chatDebugStore.logEvent({
+        eventType: 'room_left',
+        socketId: socket.id,
+        userId: authSocket.userId,
+        tenantId: authSocket.tenantId || undefined,
+        roomName,
+        conversationId: `${targetType}:${targetId}`,
+      });
     });
 
     // Handle client disconnection
     socket.on('disconnect', (reason) => {
       log(`Client disconnected: ${socket.id} (${reason})`, 'socket.io');
+      chatDebugStore.logEvent({
+        eventType: 'socket_disconnected',
+        socketId: socket.id,
+        userId: authSocket.userId,
+        tenantId: authSocket.tenantId || undefined,
+        disconnectReason: reason,
+      });
     });
   });
 

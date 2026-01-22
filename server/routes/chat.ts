@@ -13,6 +13,7 @@ import { emitToTenant, emitToChatChannel, emitToChatDm } from "../realtime/socke
 import { CHAT_EVENTS } from "@shared/events";
 import { getStorageProvider, createS3ClientFromConfig, StorageNotConfiguredError } from "../storage/getStorageProvider";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { chatDebugStore } from "../realtime/chatDebug";
 
 function getCurrentTenantId(req: Request): string | null {
   return getEffectiveTenantId(req);
@@ -303,6 +304,15 @@ router.post(
     const userId = getCurrentUserId(req);
     if (!tenantId) throw AppError.forbidden("Tenant context required");
 
+    chatDebugStore.logEvent({
+      eventType: 'message_send_attempt',
+      requestId: req.requestId,
+      userId,
+      tenantId,
+      conversationId: `channel:${req.params.channelId}`,
+      payloadSize: req.body.body?.length || 0,
+    });
+
     const channel = await storage.getChatChannel(req.params.channelId);
     if (!channel || channel.tenantId !== tenantId) {
       throw AppError.notFound("Channel not found");
@@ -313,7 +323,6 @@ router.post(
       throw AppError.forbidden("Not a member of this private channel");
     }
 
-    // Validate attachments belong to this tenant and are not yet linked
     const attachmentIds: string[] = req.body.attachmentIds || [];
     let attachments: any[] = [];
     if (attachmentIds.length > 0) {
@@ -321,7 +330,6 @@ router.post(
       if (attachments.length !== attachmentIds.length) {
         throw AppError.badRequest("One or more attachments are invalid or belong to another tenant");
       }
-      // Check none are already linked
       const alreadyLinked = attachments.filter(a => a.messageId !== null);
       if (alreadyLinked.length > 0) {
         throw AppError.badRequest("One or more attachments are already linked to a message");
@@ -338,10 +346,17 @@ router.post(
 
     const message = await storage.createChatMessage(data);
 
-    // Link attachments to the message
+    chatDebugStore.logEvent({
+      eventType: 'message_persisted',
+      requestId: req.requestId,
+      userId,
+      tenantId,
+      conversationId: `channel:${channel.id}`,
+      metadata: { messageId: message.id },
+    });
+
     if (attachments.length > 0) {
       await storage.linkChatAttachmentsToMessage(message.id, attachmentIds);
-      // Refresh attachments with updated messageId
       attachments = await storage.getChatAttachmentsByMessageId(message.id);
     }
 
@@ -375,8 +390,17 @@ router.post(
       },
     };
 
-    // Emit to the specific channel room for privacy
     emitToChatChannel(channel.id, CHAT_EVENTS.NEW_MESSAGE, payload);
+
+    chatDebugStore.logEvent({
+      eventType: 'message_broadcast',
+      requestId: req.requestId,
+      userId,
+      tenantId,
+      conversationId: `channel:${channel.id}`,
+      roomName: `chat:channel:${channel.id}`,
+      metadata: { messageId: message.id },
+    });
 
     res.status(201).json({ ...message, author });
   })
@@ -479,6 +503,15 @@ router.post(
     const userId = getCurrentUserId(req);
     if (!tenantId) throw AppError.forbidden("Tenant context required");
 
+    chatDebugStore.logEvent({
+      eventType: 'message_send_attempt',
+      requestId: req.requestId,
+      userId,
+      tenantId,
+      conversationId: `dm:${req.params.dmId}`,
+      payloadSize: req.body.body?.length || 0,
+    });
+
     const thread = await storage.getChatDmThread(req.params.dmId);
     if (!thread || thread.tenantId !== tenantId) {
       throw AppError.notFound("DM thread not found");
@@ -490,7 +523,6 @@ router.post(
       throw AppError.forbidden("Not a member of this DM thread");
     }
 
-    // Validate attachments belong to this tenant and are not yet linked
     const attachmentIds: string[] = req.body.attachmentIds || [];
     let attachments: any[] = [];
     if (attachmentIds.length > 0) {
@@ -513,6 +545,15 @@ router.post(
     });
 
     const message = await storage.createChatMessage(data);
+
+    chatDebugStore.logEvent({
+      eventType: 'message_persisted',
+      requestId: req.requestId,
+      userId,
+      tenantId,
+      conversationId: `dm:${thread.id}`,
+      metadata: { messageId: message.id },
+    });
 
     // Link attachments to the message
     if (attachments.length > 0) {
@@ -550,8 +591,17 @@ router.post(
       },
     };
 
-    // Emit to the specific DM room for privacy
     emitToChatDm(thread.id, CHAT_EVENTS.NEW_MESSAGE, payload);
+
+    chatDebugStore.logEvent({
+      eventType: 'message_broadcast',
+      requestId: req.requestId,
+      userId,
+      tenantId,
+      conversationId: `dm:${thread.id}`,
+      roomName: `chat:dm:${thread.id}`,
+      metadata: { messageId: message.id },
+    });
 
     res.status(201).json({ ...message, author });
   })

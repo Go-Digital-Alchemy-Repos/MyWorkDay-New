@@ -63,6 +63,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Chat @Mentions**: Real-time @mention autocomplete and rendering with tenant-scoped validation.
 - **Chat Retention Policies**: Configurable message retention with system-level and tenant-level settings and an archive job.
 - **Chat Transcript Export**: JSON export of chat conversations to S3 for tenant admins.
+- **Chat Debugging**: Super Admin diagnostic tools with CHAT_DEBUG=true env flag enabling socket event logging, in-memory metrics, debug endpoints (/api/v1/super/debug/chat/*), and UI panel. Request IDs surface in error toasts for log correlation. See /docs/CHAT_DEBUGGING.md.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
