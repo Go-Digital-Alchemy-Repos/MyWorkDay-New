@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { getSocket } from "@/lib/realtime/socket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,6 +91,7 @@ interface ChatDmThread {
 
 export default function ChatPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [selectedChannel, setSelectedChannel] = useState<ChatChannel | null>(null);
   const [selectedDm, setSelectedDm] = useState<ChatDmThread | null>(null);
   const [messageInput, setMessageInput] = useState("");
@@ -257,15 +259,23 @@ export default function ChatPage() {
         });
         
         if (!response.ok) {
-          const error = await response.json();
-          console.error("Upload failed:", error);
+          const error = await response.json().catch(() => ({ message: "Upload failed" }));
+          toast({
+            title: "Upload failed",
+            description: error.message || `Could not upload ${file.name}`,
+            variant: "destructive",
+          });
           continue;
         }
         
         const attachment = await response.json();
         setPendingAttachments(prev => [...prev, attachment]);
       } catch (error) {
-        console.error("Upload error:", error);
+        toast({
+          title: "Upload error",
+          description: `Could not upload ${file.name}`,
+          variant: "destructive",
+        });
       }
     }
     

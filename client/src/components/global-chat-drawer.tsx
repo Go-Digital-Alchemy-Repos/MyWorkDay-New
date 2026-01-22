@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { getSocket } from "@/lib/realtime/socket";
 import { useChatDrawer } from "@/contexts/chat-drawer-context";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ interface ChatDmThread {
 
 export function GlobalChatDrawer() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const { isOpen, closeDrawer, lastActiveThread, setLastActiveThread } = useChatDrawer();
   const [selectedChannel, setSelectedChannel] = useState<ChatChannel | null>(null);
   const [selectedDm, setSelectedDm] = useState<ChatDmThread | null>(null);
@@ -267,12 +269,24 @@ export function GlobalChatDrawer() {
           credentials: "include",
         });
         
-        if (!response.ok) continue;
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ message: "Upload failed" }));
+          toast({
+            title: "Upload failed",
+            description: error.message || `Could not upload ${file.name}`,
+            variant: "destructive",
+          });
+          continue;
+        }
         
         const attachment = await response.json();
         setPendingAttachments(prev => [...prev, attachment]);
       } catch (error) {
-        console.error("Upload error:", error);
+        toast({
+          title: "Upload error",
+          description: `Could not upload ${file.name}`,
+          variant: "destructive",
+        });
       }
     }
     
