@@ -42,12 +42,11 @@ import AcceptInvitePage from "@/pages/accept-invite";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
 import ChatPage from "@/pages/chat";
-import { Loader2 } from "lucide-react";
+import { Loader2, MessageCircle } from "lucide-react";
 import { useEffect } from "react";
 import { GlobalActiveTimer } from "@/components/global-active-timer";
 import { ChatDrawerProvider, useChatDrawer } from "@/contexts/chat-drawer-context";
 import { GlobalChatDrawer } from "@/components/global-chat-drawer";
-import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
