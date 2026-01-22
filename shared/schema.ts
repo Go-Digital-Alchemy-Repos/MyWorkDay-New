@@ -979,6 +979,101 @@ export const commentMentions = pgTable("comment_mentions", {
 ]);
 
 // =============================================================================
+// CHAT TABLES (Slack-like messaging)
+// =============================================================================
+
+/**
+ * Chat channel member role enum
+ */
+export const ChatChannelMemberRole = {
+  OWNER: "owner",
+  ADMIN: "admin",
+  MEMBER: "member",
+} as const;
+
+/**
+ * Chat Channels table - public or private channels for team communication
+ */
+export const chatChannels = pgTable("chat_channels", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  name: text("name").notNull(),
+  isPrivate: boolean("is_private").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("chat_channels_tenant_idx").on(table.tenantId),
+  index("chat_channels_created_by_idx").on(table.createdBy),
+  uniqueIndex("chat_channels_tenant_name_unique").on(table.tenantId, sql`lower(${table.name})`),
+]);
+
+/**
+ * Chat Channel Members table - users who belong to a channel
+ */
+export const chatChannelMembers = pgTable("chat_channel_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  channelId: varchar("channel_id").references(() => chatChannels.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  role: text("role").notNull().default("member"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("chat_channel_members_tenant_idx").on(table.tenantId),
+  index("chat_channel_members_channel_idx").on(table.channelId),
+  index("chat_channel_members_user_idx").on(table.userId),
+  uniqueIndex("chat_channel_members_channel_user_unique").on(table.channelId, table.userId),
+]);
+
+/**
+ * Chat DM Threads table - direct message conversations between users
+ */
+export const chatDmThreads = pgTable("chat_dm_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("chat_dm_threads_tenant_idx").on(table.tenantId),
+]);
+
+/**
+ * Chat DM Members table - users participating in a DM thread
+ */
+export const chatDmMembers = pgTable("chat_dm_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  dmThreadId: varchar("dm_thread_id").references(() => chatDmThreads.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("chat_dm_members_tenant_idx").on(table.tenantId),
+  index("chat_dm_members_thread_idx").on(table.dmThreadId),
+  index("chat_dm_members_user_idx").on(table.userId),
+  uniqueIndex("chat_dm_members_thread_user_unique").on(table.dmThreadId, table.userId),
+]);
+
+/**
+ * Chat Messages table - messages in channels or DM threads
+ * Constraint: Either channelId OR dmThreadId must be set, but not both
+ */
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  channelId: varchar("channel_id").references(() => chatChannels.id),
+  dmThreadId: varchar("dm_thread_id").references(() => chatDmThreads.id),
+  authorUserId: varchar("author_user_id").references(() => users.id).notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  editedAt: timestamp("edited_at"),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("chat_messages_tenant_idx").on(table.tenantId),
+  index("chat_messages_channel_idx").on(table.channelId),
+  index("chat_messages_dm_thread_idx").on(table.dmThreadId),
+  index("chat_messages_author_idx").on(table.authorUserId),
+  index("chat_messages_created_idx").on(table.createdAt),
+]);
+
+// =============================================================================
 // RELATIONS
 // =============================================================================
 
@@ -1611,6 +1706,34 @@ export const insertCommentMentionSchema = createInsertSchema(commentMentions).om
   createdAt: true,
 });
 
+// Chat Insert Schemas
+export const insertChatChannelSchema = createInsertSchema(chatChannels).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertChatChannelMemberSchema = createInsertSchema(chatChannelMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertChatDmThreadSchema = createInsertSchema(chatDmThreads).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertChatDmMemberSchema = createInsertSchema(chatDmMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
+  id: true,
+  createdAt: true,
+  editedAt: true,
+  deletedAt: true,
+});
+
 // Enhanced user insert schema with role validation
 export const insertUserWithRoleSchema = insertUserSchema.extend({
   role: z.enum([UserRole.ADMIN, UserRole.EMPLOYEE, UserRole.CLIENT]).default(UserRole.EMPLOYEE),
@@ -1809,4 +1932,34 @@ export type UserWithAccess = User & {
 export type CommentWithMentions = Comment & {
   user?: User;
   mentions?: (CommentMention & { mentionedUser?: User })[];
+};
+
+// Chat Types
+export type ChatChannel = typeof chatChannels.$inferSelect;
+export type InsertChatChannel = z.infer<typeof insertChatChannelSchema>;
+
+export type ChatChannelMember = typeof chatChannelMembers.$inferSelect;
+export type InsertChatChannelMember = z.infer<typeof insertChatChannelMemberSchema>;
+
+export type ChatDmThread = typeof chatDmThreads.$inferSelect;
+export type InsertChatDmThread = z.infer<typeof insertChatDmThreadSchema>;
+
+export type ChatDmMember = typeof chatDmMembers.$inferSelect;
+export type InsertChatDmMember = z.infer<typeof insertChatDmMemberSchema>;
+
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+
+// Chat extended types
+export type ChatChannelWithMembers = ChatChannel & {
+  members?: (ChatChannelMember & { user?: User })[];
+  creator?: User;
+};
+
+export type ChatDmThreadWithMembers = ChatDmThread & {
+  members?: (ChatDmMember & { user?: User })[];
+};
+
+export type ChatMessageWithAuthor = ChatMessage & {
+  author?: User;
 };
