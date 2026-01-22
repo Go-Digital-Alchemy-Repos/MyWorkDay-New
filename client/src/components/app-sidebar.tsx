@@ -44,7 +44,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { ProjectDrawer } from "@/components/project-drawer";
 import type { Project, Team, Workspace } from "@shared/schema";
 
 const mainNavItems = [
@@ -77,16 +77,16 @@ export function AppSidebar() {
 
   const createProjectMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest("POST", "/api/projects", data);
+      const response = await apiRequest("POST", "/api/projects", data);
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      setCreateProjectOpen(false);
     },
   });
 
-  const handleCreateProject = (data: any) => {
-    createProjectMutation.mutate(data);
+  const handleCreateProject = async (data: any) => {
+    await createProjectMutation.mutateAsync(data);
   };
 
   return (
@@ -364,12 +364,12 @@ export function AppSidebar() {
         </div>
       </SidebarFooter>
 
-      <CreateProjectDialog
+      <ProjectDrawer
         open={createProjectOpen}
         onOpenChange={setCreateProjectOpen}
         onSubmit={handleCreateProject}
-        teams={teams}
-        isPending={createProjectMutation.isPending}
+        isLoading={createProjectMutation.isPending}
+        mode="create"
       />
     </Sidebar>
   );

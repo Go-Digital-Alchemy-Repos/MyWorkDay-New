@@ -23,9 +23,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { FolderKanban, Search, Filter, Calendar, Users, CheckSquare, AlertTriangle, Clock, CircleOff, DollarSign, Plus } from "lucide-react";
+import { FolderKanban, Search, Filter, Calendar, Users, CheckSquare, AlertTriangle, Clock, CircleOff, DollarSign, Plus, Pencil } from "lucide-react";
 import { ProjectDetailDrawer } from "@/components/project-detail-drawer";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { ProjectDrawer } from "@/components/project-drawer";
 import { useToast } from "@/hooks/use-toast";
 import type { Project, Client, Team } from "@shared/schema";
 import { format } from "date-fns";
@@ -73,6 +74,8 @@ export default function ProjectsDashboard() {
   const [selectedProject, setSelectedProject] = useState<ProjectWithCounts | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [editProjectOpen, setEditProjectOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectWithCounts | null>(null);
   const { toast } = useToast();
 
   const { data: projects, isLoading: projectsLoading } = useQuery<ProjectWithCounts[]>({
@@ -114,6 +117,37 @@ export default function ProjectsDashboard() {
 
   const handleCreateProject = (data: any) => {
     createProjectMutation.mutate(data);
+  };
+
+  const updateProjectMutation = useMutation({
+    mutationFn: async ({ projectId, data }: { projectId: string; data: any }) => {
+      const { memberIds, ...projectData } = data;
+      await apiRequest("PATCH", `/api/projects/${projectId}`, projectData);
+      if (memberIds !== undefined) {
+        await apiRequest("PUT", `/api/projects/${projectId}/members`, { memberIds });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setEditProjectOpen(false);
+      setEditingProject(null);
+      toast({ title: "Project updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update project", variant: "destructive" });
+    },
+  });
+
+  const handleEditProject = (project: ProjectWithCounts) => {
+    setEditingProject(project);
+    setDrawerOpen(false);
+    setEditProjectOpen(true);
+  };
+
+  const handleUpdateProject = async (data: any) => {
+    if (!editingProject) return;
+    await updateProjectMutation.mutateAsync({ projectId: editingProject.id, data });
   };
 
   const getProjectStats = (projectId: string) => {
@@ -504,6 +538,16 @@ export default function ProjectsDashboard() {
         project={selectedProject}
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        onEdit={handleEditProject}
+      />
+
+      <ProjectDrawer
+        open={editProjectOpen}
+        onOpenChange={setEditProjectOpen}
+        onSubmit={handleUpdateProject}
+        project={editingProject}
+        isLoading={updateProjectMutation.isPending}
+        mode="edit"
       />
 
       <CreateProjectDialog

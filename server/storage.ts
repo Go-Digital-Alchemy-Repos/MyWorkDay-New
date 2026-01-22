@@ -115,6 +115,10 @@ export interface IStorage {
   
   getProjectMembers(projectId: string): Promise<(ProjectMember & { user?: User })[]>;
   addProjectMember(member: InsertProjectMember): Promise<ProjectMember>;
+  removeProjectMember(projectId: string, userId: string): Promise<void>;
+  setProjectMembers(projectId: string, userIds: string[]): Promise<void>;
+  isProjectMember(projectId: string, userId: string): Promise<boolean>;
+  getProjectsForUser(userId: string, tenantId: string, workspaceId: string, isAdmin: boolean): Promise<Project[]>;
   
   getSection(id: string): Promise<Section | undefined>;
   getSectionsByProject(projectId: string): Promise<Section[]>;
@@ -543,6 +547,58 @@ export class DatabaseStorage implements IStorage {
   async addProjectMember(member: InsertProjectMember): Promise<ProjectMember> {
     const [result] = await db.insert(projectMembers).values(member).returning();
     return result;
+  }
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    await db.delete(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+  }
+
+  async setProjectMembers(projectId: string, userIds: string[]): Promise<void> {
+    const existingMembers = await db.select()
+      .from(projectMembers)
+      .where(eq(projectMembers.projectId, projectId));
+    
+    const existingUserIds = new Set(existingMembers.map(m => m.userId));
+    const newUserIds = new Set(userIds);
+    
+    const toAdd = userIds.filter(id => !existingUserIds.has(id));
+    const toRemove = existingMembers.filter(m => !newUserIds.has(m.userId)).map(m => m.userId);
+    
+    for (const userId of toRemove) {
+      await this.removeProjectMember(projectId, userId);
+    }
+    
+    for (const userId of toAdd) {
+      await db.insert(projectMembers)
+        .values({ projectId, userId, role: "member" })
+        .onConflictDoNothing();
+    }
+  }
+
+  async isProjectMember(projectId: string, userId: string): Promise<boolean> {
+    const [member] = await db.select()
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+    return !!member;
+  }
+
+  async getProjectsForUser(userId: string, tenantId: string, workspaceId: string, isAdmin: boolean): Promise<Project[]> {
+    if (isAdmin) {
+      return this.getProjectsByTenant(tenantId, workspaceId);
+    }
+    
+    const memberProjects = await db.select({ project: projects })
+      .from(projectMembers)
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(and(
+        eq(projectMembers.userId, userId),
+        eq(projects.tenantId, tenantId),
+        eq(projects.workspaceId, workspaceId)
+      ))
+      .orderBy(desc(projects.createdAt));
+    
+    return memberProjects.map(r => r.project);
   }
 
   async getSection(id: string): Promise<Section | undefined> {

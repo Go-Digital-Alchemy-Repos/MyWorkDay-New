@@ -33,6 +33,7 @@ import {
   CircleOff,
   Target,
   DollarSign,
+  Pencil,
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
@@ -103,9 +104,10 @@ interface ProjectDetailDrawerProps {
   project: Project | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onEdit?: (project: Project) => void;
 }
 
-export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDetailDrawerProps) {
+export function ProjectDetailDrawer({ project, open, onOpenChange, onEdit }: ProjectDetailDrawerProps) {
   const { user } = useAuth();
   const isSuperUser = user?.role === "super_user";
   const [activeTab, setActiveTab] = useState("overview");
@@ -188,6 +190,17 @@ export function ProjectDetailDrawer({ project, open, onOpenChange }: ProjectDeta
               <Badge variant={currentProject.status === "archived" ? "secondary" : "default"}>
                 {currentProject.status === "archived" ? "Archived" : "Active"}
               </Badge>
+              {onEdit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEdit(currentProject)}
+                  data-testid="button-edit-project"
+                >
+                  <Pencil className="h-4 w-4 mr-1" />
+                  Edit
+                </Button>
+              )}
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/projects/${currentProject.id}`}>
                   <ExternalLink className="h-4 w-4 mr-1" />

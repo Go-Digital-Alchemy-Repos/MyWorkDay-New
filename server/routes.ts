@@ -460,10 +460,14 @@ export async function registerRoutes(
     try {
       const tenantId = getEffectiveTenantId(req);
       const workspaceId = getCurrentWorkspaceId(req);
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const isAdmin = user?.role === 'admin' || user?.role === 'super_user';
       
-      // Use tenant-scoped method if tenantId is available
+      // Use member-scoped method if tenantId is available
+      // Admins see all projects, employees only see projects they're members of
       if (tenantId) {
-        const projects = await storage.getProjectsByTenant(tenantId, workspaceId);
+        const projects = await storage.getProjectsForUser(userId, tenantId, workspaceId, isAdmin);
         return res.json(projects);
       }
       
@@ -529,11 +533,21 @@ export async function registerRoutes(
     try {
       const tenantId = getEffectiveTenantId(req);
       const workspaceId = getCurrentWorkspaceId(req);
+      const creatorId = getCurrentUserId(req);
       
       // Convert empty string teamId to null
       const body = { ...req.body };
       if (body.teamId === "") {
         body.teamId = null;
+      }
+      
+      // Extract memberIds before schema validation (not part of project schema)
+      const memberIds: string[] = Array.isArray(body.memberIds) ? body.memberIds : [];
+      delete body.memberIds;
+      
+      // ClientId is required for tenant users
+      if (tenantId && !body.clientId) {
+        return res.status(400).json({ error: "Client assignment is required for projects" });
       }
       
       // Validate clientId belongs to tenant if provided and tenantId available
@@ -544,10 +558,20 @@ export async function registerRoutes(
         }
       }
       
+      // Validate all memberIds belong to same tenant
+      if (memberIds.length > 0 && tenantId) {
+        for (const memberId of memberIds) {
+          const member = await storage.getUserByIdAndTenant(memberId, tenantId);
+          if (!member) {
+            return res.status(400).json({ error: `User ${memberId} not found or does not belong to tenant` });
+          }
+        }
+      }
+      
       const data = insertProjectSchema.parse({
         ...body,
         workspaceId,
-        createdBy: getCurrentUserId(req),
+        createdBy: creatorId,
       });
       
       let project;
@@ -558,6 +582,16 @@ export async function registerRoutes(
         project = await storage.createProject(data);
       } else {
         return res.status(500).json({ error: "User tenant not configured" });
+      }
+
+      // Add creator as project member automatically
+      await storage.addProjectMember({ projectId: project.id, userId: creatorId, role: "owner" });
+      
+      // Add additional members
+      for (const memberId of memberIds) {
+        if (memberId !== creatorId) {
+          await storage.addProjectMember({ projectId: project.id, userId: memberId, role: "member" });
+        }
       }
 
       // Emit real-time event after successful DB operation
@@ -645,6 +679,134 @@ export async function registerRoutes(
       res.json(updatedProject);
     } catch (error) {
       console.error("Error assigning client to project:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Project member management endpoints
+  app.get("/api/projects/:projectId/members", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Verify project exists and belongs to tenant
+      if (tenantId) {
+        const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
+        if (!project) {
+          return res.status(404).json({ error: "Project not found" });
+        }
+      }
+      
+      const members = await storage.getProjectMembers(projectId);
+      res.json(members);
+    } catch (error) {
+      console.error("Error fetching project members:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/members", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { userId } = req.body;
+      const tenantId = getEffectiveTenantId(req);
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      
+      // Verify project exists and belongs to tenant
+      if (tenantId) {
+        const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
+        if (!project) {
+          return res.status(404).json({ error: "Project not found" });
+        }
+        
+        // Verify user belongs to same tenant
+        const user = await storage.getUserByIdAndTenant(userId, tenantId);
+        if (!user) {
+          return res.status(400).json({ error: "User not found or does not belong to tenant" });
+        }
+      }
+      
+      // Check if already a member
+      const isMember = await storage.isProjectMember(projectId, userId);
+      if (isMember) {
+        return res.status(409).json({ error: "User is already a project member" });
+      }
+      
+      const member = await storage.addProjectMember({ projectId, userId, role: "member" });
+      
+      // Emit membership change event
+      emitProjectUpdated(projectId, { membershipChanged: true } as any);
+      
+      res.status(201).json(member);
+    } catch (error) {
+      console.error("Error adding project member:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
+    try {
+      const { projectId, userId } = req.params;
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Verify project exists and belongs to tenant
+      if (tenantId) {
+        const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
+        if (!project) {
+          return res.status(404).json({ error: "Project not found" });
+        }
+      }
+      
+      await storage.removeProjectMember(projectId, userId);
+      
+      // Emit membership change event
+      emitProjectUpdated(projectId, { membershipChanged: true } as any);
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing project member:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.put("/api/projects/:projectId/members", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { memberIds } = req.body;
+      const tenantId = getEffectiveTenantId(req);
+      
+      if (!Array.isArray(memberIds)) {
+        return res.status(400).json({ error: "memberIds must be an array" });
+      }
+      
+      // Verify project exists and belongs to tenant
+      if (tenantId) {
+        const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
+        if (!project) {
+          return res.status(404).json({ error: "Project not found" });
+        }
+        
+        // Validate all memberIds belong to same tenant
+        for (const memberId of memberIds) {
+          const user = await storage.getUserByIdAndTenant(memberId, tenantId);
+          if (!user) {
+            return res.status(400).json({ error: `User ${memberId} not found or does not belong to tenant` });
+          }
+        }
+      }
+      
+      await storage.setProjectMembers(projectId, memberIds);
+      
+      // Emit membership change event
+      emitProjectUpdated(projectId, { membershipChanged: true } as any);
+      
+      const members = await storage.getProjectMembers(projectId);
+      res.json(members);
+    } catch (error) {
+      console.error("Error updating project members:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

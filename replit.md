@@ -65,6 +65,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Chat Transcript Export**: JSON export of chat conversations to S3 for tenant admins.
 - **Chat Debugging**: Super Admin diagnostic tools with CHAT_DEBUG=true env flag enabling socket event logging, in-memory metrics, debug endpoints (/api/v1/super/debug/chat/*), and UI panel. Request IDs surface in error toasts for log correlation. See /docs/CHAT_DEBUGGING.md.
 - **Centralized Error Logging**: All 500+ server errors are automatically captured to `error_logs` table with request context, secret redaction, and requestId correlation. Super Admin UI panel for filtering/viewing errors with stack traces. See /docs/ERROR_LOGGING.md.
+- **Project Membership Model**: Projects require client assignment and track team membership. Employees see only projects they're members of; admins see all tenant projects. Project creators are automatically added as "owner" role members. Member management via ProjectDrawer with Overview and Team tabs.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
