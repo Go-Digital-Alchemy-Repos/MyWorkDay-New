@@ -49,12 +49,18 @@ import {
   type Tenant, type InsertTenant,
   type TenantSettings, type InsertTenantSettings,
   type PersonalTaskSection, type InsertPersonalTaskSection,
+  type ChatChannel, type InsertChatChannel,
+  type ChatChannelMember, type InsertChatChannelMember,
+  type ChatDmThread, type InsertChatDmThread,
+  type ChatDmMember, type InsertChatDmMember,
+  type ChatMessage, type InsertChatMessage,
   users, workspaces, workspaceMembers, teams, teamMembers,
   projects, projectMembers, sections, tasks, taskAssignees, taskWatchers,
   subtasks, tags, taskTags, comments, commentMentions, activityLog, taskAttachments,
   clients, clientContacts, clientInvites, clientUserAccess,
   timeEntries, activeTimers,
   invitations, appSettings, tenants, tenantSettings, personalTaskSections,
+  chatChannels, chatChannelMembers, chatDmThreads, chatDmMembers, chatMessages,
   UserRole,
   type CommentMention, type InsertCommentMention,
 } from "@shared/schema";
@@ -319,6 +325,33 @@ export interface IStorage {
   updatePersonalTaskSection(id: string, section: Partial<InsertPersonalTaskSection>): Promise<PersonalTaskSection | undefined>;
   deletePersonalTaskSection(id: string): Promise<void>;
   clearPersonalSectionFromTasks(sectionId: string): Promise<void>;
+
+  // Chat - Channels
+  getChatChannel(id: string): Promise<ChatChannel | undefined>;
+  getChatChannelsByTenant(tenantId: string): Promise<ChatChannel[]>;
+  createChatChannel(channel: InsertChatChannel): Promise<ChatChannel>;
+  updateChatChannel(id: string, channel: Partial<InsertChatChannel>): Promise<ChatChannel | undefined>;
+  deleteChatChannel(id: string): Promise<void>;
+
+  // Chat - Channel Members
+  getChatChannelMember(channelId: string, userId: string): Promise<ChatChannelMember | undefined>;
+  getChatChannelMembers(channelId: string): Promise<(ChatChannelMember & { user: User })[]>;
+  getUserChatChannels(tenantId: string, userId: string): Promise<(ChatChannelMember & { channel: ChatChannel })[]>;
+  addChatChannelMember(member: InsertChatChannelMember): Promise<ChatChannelMember>;
+  removeChatChannelMember(channelId: string, userId: string): Promise<void>;
+
+  // Chat - DM Threads
+  getChatDmThread(id: string): Promise<ChatDmThread | undefined>;
+  getChatDmThreadByMembers(tenantId: string, userIds: string[]): Promise<ChatDmThread | undefined>;
+  getUserChatDmThreads(tenantId: string, userId: string): Promise<(ChatDmThread & { members: (ChatDmMember & { user: User })[] })[]>;
+  createChatDmThread(thread: InsertChatDmThread, memberUserIds: string[]): Promise<ChatDmThread>;
+
+  // Chat - Messages
+  getChatMessage(id: string): Promise<ChatMessage | undefined>;
+  getChatMessages(targetType: 'channel' | 'dm', targetId: string, limit?: number, before?: Date): Promise<(ChatMessage & { author: User })[]>;
+  createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
+  updateChatMessage(id: string, updates: Partial<InsertChatMessage>): Promise<ChatMessage | undefined>;
+  deleteChatMessage(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2341,6 +2374,206 @@ export class DatabaseStorage implements IStorage {
         userCount: userCountMap.get(tenant.id) || 0,
       };
     });
+  }
+
+  // =============================================================================
+  // CHAT - CHANNELS
+  // =============================================================================
+
+  async getChatChannel(id: string): Promise<ChatChannel | undefined> {
+    const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id));
+    return channel || undefined;
+  }
+
+  async getChatChannelsByTenant(tenantId: string): Promise<ChatChannel[]> {
+    return db.select().from(chatChannels).where(eq(chatChannels.tenantId, tenantId)).orderBy(asc(chatChannels.name));
+  }
+
+  async createChatChannel(channel: InsertChatChannel): Promise<ChatChannel> {
+    const [newChannel] = await db.insert(chatChannels).values(channel).returning();
+    return newChannel;
+  }
+
+  async updateChatChannel(id: string, channel: Partial<InsertChatChannel>): Promise<ChatChannel | undefined> {
+    const [updated] = await db.update(chatChannels).set(channel).where(eq(chatChannels.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deleteChatChannel(id: string): Promise<void> {
+    await db.delete(chatMessages).where(eq(chatMessages.channelId, id));
+    await db.delete(chatChannelMembers).where(eq(chatChannelMembers.channelId, id));
+    await db.delete(chatChannels).where(eq(chatChannels.id, id));
+  }
+
+  // =============================================================================
+  // CHAT - CHANNEL MEMBERS
+  // =============================================================================
+
+  async getChatChannelMember(channelId: string, userId: string): Promise<ChatChannelMember | undefined> {
+    const [member] = await db.select().from(chatChannelMembers).where(
+      and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId))
+    );
+    return member || undefined;
+  }
+
+  async getChatChannelMembers(channelId: string): Promise<(ChatChannelMember & { user: User })[]> {
+    const members = await db.select().from(chatChannelMembers).where(eq(chatChannelMembers.channelId, channelId));
+    if (members.length === 0) return [];
+
+    const userIds = members.map(m => m.userId);
+    const userRows = await db.select().from(users).where(inArray(users.id, userIds));
+    const userMap = new Map(userRows.map(u => [u.id, u]));
+
+    return members.map(m => ({
+      ...m,
+      user: userMap.get(m.userId)!,
+    })).filter(m => m.user);
+  }
+
+  async getUserChatChannels(tenantId: string, userId: string): Promise<(ChatChannelMember & { channel: ChatChannel })[]> {
+    const memberships = await db.select().from(chatChannelMembers).where(
+      and(eq(chatChannelMembers.tenantId, tenantId), eq(chatChannelMembers.userId, userId))
+    );
+    if (memberships.length === 0) return [];
+
+    const channelIds = memberships.map(m => m.channelId);
+    const channelRows = await db.select().from(chatChannels).where(inArray(chatChannels.id, channelIds));
+    const channelMap = new Map(channelRows.map(c => [c.id, c]));
+
+    return memberships.map(m => ({
+      ...m,
+      channel: channelMap.get(m.channelId)!,
+    })).filter(m => m.channel);
+  }
+
+  async addChatChannelMember(member: InsertChatChannelMember): Promise<ChatChannelMember> {
+    const [newMember] = await db.insert(chatChannelMembers).values(member).returning();
+    return newMember;
+  }
+
+  async removeChatChannelMember(channelId: string, userId: string): Promise<void> {
+    await db.delete(chatChannelMembers).where(
+      and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId))
+    );
+  }
+
+  // =============================================================================
+  // CHAT - DM THREADS
+  // =============================================================================
+
+  async getChatDmThread(id: string): Promise<ChatDmThread | undefined> {
+    const [thread] = await db.select().from(chatDmThreads).where(eq(chatDmThreads.id, id));
+    return thread || undefined;
+  }
+
+  async getChatDmThreadByMembers(tenantId: string, userIds: string[]): Promise<ChatDmThread | undefined> {
+    if (userIds.length < 2) return undefined;
+
+    const sortedUserIds = [...userIds].sort();
+    const threads = await db.select().from(chatDmThreads).where(eq(chatDmThreads.tenantId, tenantId));
+
+    for (const thread of threads) {
+      const members = await db.select().from(chatDmMembers).where(eq(chatDmMembers.dmThreadId, thread.id));
+      const memberUserIds = members.map(m => m.userId).sort();
+      
+      if (memberUserIds.length === sortedUserIds.length && memberUserIds.every((id, i) => id === sortedUserIds[i])) {
+        return thread;
+      }
+    }
+    return undefined;
+  }
+
+  async getUserChatDmThreads(tenantId: string, userId: string): Promise<(ChatDmThread & { members: (ChatDmMember & { user: User })[] })[]> {
+    const memberships = await db.select().from(chatDmMembers).where(
+      and(eq(chatDmMembers.tenantId, tenantId), eq(chatDmMembers.userId, userId))
+    );
+    if (memberships.length === 0) return [];
+
+    const threadIds = memberships.map(m => m.dmThreadId);
+    const threads = await db.select().from(chatDmThreads).where(inArray(chatDmThreads.id, threadIds));
+
+    const allMembers = await db.select().from(chatDmMembers).where(inArray(chatDmMembers.dmThreadId, threadIds));
+    const allUserIds = [...new Set(allMembers.map(m => m.userId))];
+    const userRows = await db.select().from(users).where(inArray(users.id, allUserIds));
+    const userMap = new Map(userRows.map(u => [u.id, u]));
+
+    return threads.map(thread => ({
+      ...thread,
+      members: allMembers
+        .filter(m => m.dmThreadId === thread.id)
+        .map(m => ({ ...m, user: userMap.get(m.userId)! }))
+        .filter(m => m.user),
+    }));
+  }
+
+  async createChatDmThread(thread: InsertChatDmThread, memberUserIds: string[]): Promise<ChatDmThread> {
+    const [newThread] = await db.insert(chatDmThreads).values(thread).returning();
+    
+    for (const userId of memberUserIds) {
+      await db.insert(chatDmMembers).values({
+        tenantId: thread.tenantId,
+        dmThreadId: newThread.id,
+        userId,
+      });
+    }
+    
+    return newThread;
+  }
+
+  // =============================================================================
+  // CHAT - MESSAGES
+  // =============================================================================
+
+  async getChatMessage(id: string): Promise<ChatMessage | undefined> {
+    const [message] = await db.select().from(chatMessages).where(eq(chatMessages.id, id));
+    return message || undefined;
+  }
+
+  async getChatMessages(targetType: 'channel' | 'dm', targetId: string, limit = 50, before?: Date): Promise<(ChatMessage & { author: User })[]> {
+    let query = db.select().from(chatMessages);
+
+    if (targetType === 'channel') {
+      query = query.where(
+        before 
+          ? and(eq(chatMessages.channelId, targetId), lte(chatMessages.createdAt, before))
+          : eq(chatMessages.channelId, targetId)
+      ) as typeof query;
+    } else {
+      query = query.where(
+        before 
+          ? and(eq(chatMessages.dmThreadId, targetId), lte(chatMessages.createdAt, before))
+          : eq(chatMessages.dmThreadId, targetId)
+      ) as typeof query;
+    }
+
+    const messages = await query.orderBy(desc(chatMessages.createdAt)).limit(limit);
+    if (messages.length === 0) return [];
+
+    const authorIds = [...new Set(messages.map(m => m.authorUserId))];
+    const authorRows = await db.select().from(users).where(inArray(users.id, authorIds));
+    const authorMap = new Map(authorRows.map(u => [u.id, u]));
+
+    return messages
+      .map(m => ({ ...m, author: authorMap.get(m.authorUserId)! }))
+      .filter(m => m.author)
+      .reverse();
+  }
+
+  async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
+    const [newMessage] = await db.insert(chatMessages).values(message).returning();
+    return newMessage;
+  }
+
+  async updateChatMessage(id: string, updates: Partial<InsertChatMessage>): Promise<ChatMessage | undefined> {
+    const [updated] = await db.update(chatMessages).set({
+      ...updates,
+      editedAt: new Date(),
+    }).where(eq(chatMessages.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deleteChatMessage(id: string): Promise<void> {
+    await db.update(chatMessages).set({ deletedAt: new Date() }).where(eq(chatMessages.id, id));
   }
 }
 
