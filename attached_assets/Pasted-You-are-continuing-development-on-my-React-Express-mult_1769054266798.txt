@@ -1,0 +1,132 @@
+You are continuing development on my React + Express multi-tenant app (single codebase).
+MINI PROMPT: Error Envelope Standardization (Non-breaking, additive-only)
+
+Goal:
+Standardize error handling across the API so errors are consistent and easier to debug,
+WITHOUT changing existing endpoint paths or breaking existing clients.
+This should complement the Super Admin Error Log + RequestId correlation.
+
+CRITICAL CONSTRAINT:
+We must NOT change existing error response shapes that the frontend already depends on.
+Therefore, this mini-prompt uses an additive “envelope” approach:
+- keep existing top-level fields as-is
+- add optional standardized fields only where safe
+- always include requestId via headers
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change endpoint paths.
+- Do NOT remove or rename any existing error JSON fields used by the client.
+- Do NOT expose secrets or stack traces to tenant users.
+- Do NOT change auth/tenancy enforcement behavior.
+- No schema changes required for this prompt.
+
+===============================================================================
+TARGET STANDARD (ADDITIVE)
+===============================================================================
+1) Every error response MUST include:
+- X-Request-Id header (already required elsewhere)
+
+2) Error JSON: keep existing response body fields, but allow adding:
+- code: string            (e.g., "VALIDATION_ERROR", "TENANT_REQUIRED", "FORBIDDEN", "NOT_FOUND", "INTERNAL")
+- message: string         (human-readable; keep existing "error" field too if present)
+- details?: object        (validation issues, safe metadata)
+- requestId?: string      (optional duplication of header; only add if it will not break)
+- status?: number         (optional)
+
+IMPORTANT:
+- If an endpoint currently returns { "error": "..." } only, keep that intact.
+- Add new fields only if they do not break the UI; prefer header-based requestId.
+
+===============================================================================
+IMPLEMENTATION
+===============================================================================
+A) Create a single shared error helper:
+- server/utils/errors.ts (or server/lib/errors.ts)
+Exports:
+- AppError class { status, code, message, details?, exposeToClient? }
+- toErrorResponse(err, requestId) → object
+Rules:
+- For AppError with exposeToClient=true: return safe message + code + details
+- For unknown errors: return existing generic message (e.g., { error: "Internal Server Error" } or whatever current behavior is)
+- Never include stack traces in JSON
+
+B) Create a single Express error middleware:
+- server/middleware/errorHandler.ts
+Responsibilities:
+- Ensure X-Request-Id header is present
+- Map known error types to standardized codes/status
+- Preserve legacy shapes per route if required:
+  - If route previously returned { error: "Failed to create tenant" }, keep it exactly, but optionally add code if safe.
+- Log the full error server-side with requestId
+
+C) Standardize validation handling
+- Adopt zod (or existing validator) in routes where missing
+- Convert validation failures to AppError(400, "VALIDATION_ERROR")
+- details should include field paths and messages (safe)
+
+D) Standardize tenancy/auth errors
+- Missing tenant context → AppError(400 or 403 as per current logic) with code "TENANT_REQUIRED"
+- Forbidden → code "FORBIDDEN"
+- Not found → code "NOT_FOUND"
+Keep current HTTP statuses if already established; do not change unless clearly wrong AND covered by tests.
+
+E) Make route handlers consistent
+- Ensure routes use next(err) rather than throwing unhandled exceptions
+- Remove “throw err” patterns that cascade
+- Keep refactors minimal and test-backed
+
+===============================================================================
+COMPATIBILITY STRATEGY (VERY IMPORTANT)
+===============================================================================
+1) Identify endpoints where the frontend parses specific error shapes.
+- Create a small “error-shape compatibility map”:
+  - auth endpoints
+  - tenant creation
+  - task creation
+  - upload errors
+For these, DO NOT add/alter fields in a way that breaks parsing.
+
+2) Prefer requestId via headers:
+- UI shows requestId from X-Request-Id consistently.
+
+===============================================================================
+TESTS (MANDATORY MINIMUM)
+===============================================================================
+1) errors_include_request_id_header.test.ts
+- several endpoints return X-Request-Id on error
+
+2) validation_error_has_code_and_details.test.ts
+- example route returns code="VALIDATION_ERROR" and safe details
+
+3) legacy_error_shapes_preserved.test.ts
+- tenant create failure still returns exactly {"error":"Failed to create tenant"} (no breaking changes)
+
+4) forbidden_not_found_standard_codes.test.ts
+- codes present and statuses unchanged from current behavior
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+- /docs/ERROR_HANDLING.md:
+  - AppError usage
+  - standard codes list
+  - requestId troubleshooting workflow
+  - “legacy shape preserved” notes
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Errors across the API follow consistent handling internally.
+- RequestId is always available via header.
+- No existing client parsing breaks.
+- Tests pass and confirm legacy shapes remain intact.
+- No secrets or stack traces exposed to tenant users.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- List of standardized error codes implemented
+- Which endpoints had legacy shapes preserved
+- Files changed + tests added

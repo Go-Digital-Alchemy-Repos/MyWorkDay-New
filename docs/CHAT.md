@@ -200,3 +200,54 @@ Client time is never used for ordering.
 1. Should be prevented by `seenMessageIds` guard
 2. If occurring, check for multiple socket connections (multiple tabs)
 3. Verify socket event handlers are properly cleaned up on unmount
+
+## UX Guidelines
+
+### Conversation List Sidebar
+
+- **Last Message Preview**: Each channel/DM shows truncated last message (30 chars max)
+- **Relative Timestamps**: Shows "now", "5m", "2h", "3d", or "Jan 15" format
+- **Unread Badge**: Red badge with count, caps at "99+" for large counts
+- **Active Highlight**: Selected conversation has `bg-sidebar-accent` background
+- **Empty States**: 
+  - Channels: Shows "No channels yet" with "Create Channel" CTA button
+  - DMs: Shows "No conversations yet" with "Start New Chat" CTA button
+
+### Conversation Header
+
+- **Channel Name + Member Count**: Shows "#channel-name 5 members"
+- **Members Button**: Opens member management drawer with text label
+- **DM Name + Count**: Shows participant names and member count
+- **Connection Status**: Shows "Reconnecting..." indicator when offline
+
+### Message Composer
+
+- **Enter to Send**: Press Enter to send message immediately
+- **Shift+Enter for Newline**: Creates new line in the message (uses auto-sizing Textarea)
+- **Disabled When Empty**: Send button disabled when message is empty and no attachments
+- **Auto-Focus**: Message input automatically focuses when conversation is selected
+- **Sending Indicator**: Pending messages show "Sending..." with spinner icon
+
+### Loading States
+
+- **Skeleton Loaders**: 
+  - Channels list: 3 skeleton items with icon + text placeholders
+  - DMs list: 3 skeleton items with avatar + text placeholders
+  - Messages: 3 skeleton items with avatar + message content placeholders
+- **Error States**: Show error icon, message, and "Retry" button
+- **Empty Messages**: Shows welcome icon and "Be the first to send a message!" text
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Enter` | Send message |
+| `Shift+Enter` | New line in message |
+| `Escape` | Cancel editing |
+
+### Accessibility
+
+- All interactive elements have `data-testid` attributes for testing
+- Buttons have appropriate aria labels
+- Loading states announce via skeleton animations
+- Error messages are visible and actionable

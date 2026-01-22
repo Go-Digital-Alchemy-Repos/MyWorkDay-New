@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSocket, joinChatRoom, leaveChatRoom, onConnectionChange, isSocketConnected } from "@/lib/realtime/socket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
@@ -88,6 +89,12 @@ interface ChatChannel {
   createdBy: string;
   createdAt: Date;
   unreadCount?: number;
+  lastMessage?: {
+    body: string;
+    createdAt: Date;
+    authorName?: string;
+  };
+  memberCount?: number;
 }
 
 interface ChatAttachment {
@@ -132,6 +139,11 @@ interface ChatDmThread {
   tenantId: string;
   createdAt: Date;
   unreadCount?: number;
+  lastMessage?: {
+    body: string;
+    createdAt: Date;
+    authorName?: string;
+  };
   members: Array<{
     id: string;
     userId: string;
@@ -167,7 +179,7 @@ export default function ChatPage() {
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
-  const messageInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Team panel state
   const [sidebarTab, setSidebarTab] = useState<"chats" | "team">("chats");
@@ -236,11 +248,11 @@ export default function ChatPage() {
     author: { id: string; email: string; displayName: string };
   }
 
-  const { data: channels = [] } = useQuery<ChatChannel[]>({
+  const { data: channels = [], isLoading: isLoadingChannels, isError: isChannelsError, refetch: refetchChannels } = useQuery<ChatChannel[]>({
     queryKey: ["/api/v1/chat/channels"],
   });
 
-  const { data: dmThreads = [] } = useQuery<ChatDmThread[]>({
+  const { data: dmThreads = [], isLoading: isLoadingDmThreads, isError: isDmThreadsError, refetch: refetchDmThreads } = useQuery<ChatDmThread[]>({
     queryKey: ["/api/v1/chat/dm"],
   });
 
@@ -659,6 +671,17 @@ export default function ChatPage() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Auto-focus message input when conversation is selected
+  useEffect(() => {
+    if ((selectedChannel || selectedDm) && messageInputRef.current) {
+      // Small delay to ensure the input is mounted
+      const timer = setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedChannel?.id, selectedDm?.id]);
 
   // Track connection status for UI feedback
   useEffect(() => {
@@ -1150,11 +1173,12 @@ export default function ChatPage() {
   };
 
   // Handle keyboard shortcuts for message input (Enter to send, Shift+Enter for newline)
-  const handleMessageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleMessageKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
+    // Shift+Enter allows default behavior (newline in textarea)
   };
 
   const getInitials = (name: string) => {
@@ -1180,6 +1204,28 @@ export default function ChatPage() {
 
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const formatRelativeTime = (date: Date) => {
+    const now = new Date();
+    const msgDate = new Date(date);
+    const diffMs = now.getTime() - msgDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return "now";
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    if (diffDays < 7) return `${diffDays}d`;
+    return msgDate.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
+  const truncateMessage = (body: string, maxLength: number = 30) => {
+    if (!body) return "";
+    const cleaned = body.replace(/\n/g, " ").trim();
+    if (cleaned.length <= maxLength) return cleaned;
+    return cleaned.substring(0, maxLength) + "...";
   };
 
   const getDmDisplayName = (dm: ChatDmThread) => {
@@ -1230,74 +1276,164 @@ export default function ChatPage() {
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
-              <ScrollArea className="h-40">
-                {channels.map((channel) => (
-                  <button
-                    key={channel.id}
-                    onClick={() => handleSelectChannel(channel)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover-elevate ${
-                      selectedChannel?.id === channel.id
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground"
-                    }`}
-                    data-testid={`channel-item-${channel.id}`}
-                  >
-                    {channel.isPrivate ? (
-                      <Lock className="h-4 w-4 flex-shrink-0" />
-                    ) : (
-                      <Hash className="h-4 w-4 flex-shrink-0" />
+              <ScrollArea className="h-48">
+                {isLoadingChannels ? (
+                  <div className="space-y-2 px-2" data-testid="channels-loading">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="animate-pulse flex items-start gap-2 p-2">
+                        <div className="h-4 w-4 bg-muted rounded flex-shrink-0" />
+                        <div className="flex-1 space-y-1">
+                          <div className="h-4 bg-muted rounded w-2/3" />
+                          <div className="h-3 bg-muted rounded w-full" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : isChannelsError ? (
+                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="channels-error">
+                    <AlertCircle className="h-6 w-6 text-destructive" />
+                    <p className="text-xs text-muted-foreground">Failed to load channels</p>
+                    <Button size="sm" variant="outline" onClick={() => refetchChannels()} data-testid="button-retry-channels">
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Retry
+                    </Button>
+                  </div>
+                ) : channels.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="channels-empty">
+                    <Hash className="h-8 w-8 text-muted-foreground opacity-50" />
+                    <p className="text-xs text-muted-foreground">No channels yet</p>
+                    <Button size="sm" variant="outline" onClick={() => setCreateChannelOpen(true)} data-testid="button-create-first-channel-sidebar">
+                      <Plus className="h-3 w-3 mr-1" />
+                      Create Channel
+                    </Button>
+                  </div>
+                ) : (
+                  channels.map((channel) => (
+                    <button
+                      key={channel.id}
+                      onClick={() => handleSelectChannel(channel)}
+                      className={`w-full flex items-start gap-2 px-2 py-2 rounded text-left text-sm hover-elevate ${
+                        selectedChannel?.id === channel.id
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground"
+                      }`}
+                      data-testid={`channel-item-${channel.id}`}
+                    >
+                      <div className="flex-shrink-0 mt-0.5">
+                        {channel.isPrivate ? (
+                          <Lock className="h-4 w-4" />
+                        ) : (
+                          <Hash className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate font-medium">{channel.name}</span>
+                          {channel.lastMessage && (
+                            <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
+                              {formatRelativeTime(channel.lastMessage.createdAt)}
+                            </span>
+                          )}
+                        </div>
+                        {channel.lastMessage && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {channel.lastMessage.authorName ? `${channel.lastMessage.authorName}: ` : ""}
+                            {truncateMessage(channel.lastMessage.body)}
+                          </p>
+                        )}
+                      </div>
+                      {channel.unreadCount && channel.unreadCount > 0 && (
+                        <span 
+                          className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full flex-shrink-0"
+                          data-testid={`channel-unread-${channel.id}`}
+                        >
+                          {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  ))
                 )}
-                <span className="truncate flex-1">{channel.name}</span>
-                {channel.unreadCount && channel.unreadCount > 0 && (
-                  <span 
-                    className="ml-auto px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full"
-                    data-testid={`channel-unread-${channel.id}`}
-                  >
-                    {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
-                  </span>
-                )}
-              </button>
-            ))}
-            {channels.length === 0 && (
-              <p className="text-sm text-muted-foreground px-2">No channels yet</p>
-            )}
-          </ScrollArea>
+              </ScrollArea>
             </div>
 
             <div className="p-4 flex-1">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-semibold text-sidebar-foreground">Direct Messages</h2>
               </div>
-              <ScrollArea className="h-40">
-                {dmThreads.map((dm) => (
-                  <button
-                    key={dm.id}
-                    onClick={() => handleSelectDm(dm)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover-elevate ${
-                      selectedDm?.id === dm.id
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground"
-                    }`}
-                    data-testid={`dm-item-${dm.id}`}
-                  >
-                    <Avatar className="h-6 w-6">
-                      <AvatarFallback className="text-xs">
-                        {getInitials(getDmDisplayName(dm))}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="truncate flex-1">{getDmDisplayName(dm)}</span>
-                    {dm.unreadCount && dm.unreadCount > 0 && (
-                      <span 
-                        className="ml-auto px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full"
-                        data-testid={`dm-unread-${dm.id}`}
-                      >
-                        {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
-                      </span>
-                    )}
-                  </button>
-                ))}
-                {dmThreads.length === 0 && (
-                  <p className="text-sm text-muted-foreground px-2">No conversations yet</p>
+              <ScrollArea className="h-48">
+                {isLoadingDmThreads ? (
+                  <div className="space-y-2 px-2" data-testid="dms-loading">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="animate-pulse flex items-start gap-2 p-2">
+                        <div className="h-6 w-6 bg-muted rounded-full flex-shrink-0" />
+                        <div className="flex-1 space-y-1">
+                          <div className="h-4 bg-muted rounded w-2/3" />
+                          <div className="h-3 bg-muted rounded w-full" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : isDmThreadsError ? (
+                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="dms-error">
+                    <AlertCircle className="h-6 w-6 text-destructive" />
+                    <p className="text-xs text-muted-foreground">Failed to load conversations</p>
+                    <Button size="sm" variant="outline" onClick={() => refetchDmThreads()} data-testid="button-retry-dms">
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Retry
+                    </Button>
+                  </div>
+                ) : dmThreads.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="dms-empty">
+                    <MessageCircle className="h-8 w-8 text-muted-foreground opacity-50" />
+                    <p className="text-xs text-muted-foreground">No conversations yet</p>
+                    <Button size="sm" variant="outline" onClick={() => setStartChatDrawerOpen(true)} data-testid="button-start-first-dm">
+                      <UserPlus className="h-3 w-3 mr-1" />
+                      Start New Chat
+                    </Button>
+                  </div>
+                ) : (
+                  dmThreads.map((dm) => (
+                    <button
+                      key={dm.id}
+                      onClick={() => handleSelectDm(dm)}
+                      className={`w-full flex items-start gap-2 px-2 py-2 rounded text-left text-sm hover-elevate ${
+                        selectedDm?.id === dm.id
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground"
+                      }`}
+                      data-testid={`dm-item-${dm.id}`}
+                    >
+                      <Avatar className="h-6 w-6 flex-shrink-0 mt-0.5">
+                        <AvatarFallback className="text-xs">
+                          {getInitials(getDmDisplayName(dm))}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate font-medium">{getDmDisplayName(dm)}</span>
+                          {dm.lastMessage && (
+                            <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
+                              {formatRelativeTime(dm.lastMessage.createdAt)}
+                            </span>
+                          )}
+                        </div>
+                        {dm.lastMessage && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {dm.lastMessage.authorName ? `${dm.lastMessage.authorName}: ` : ""}
+                            {truncateMessage(dm.lastMessage.body)}
+                          </p>
+                        )}
+                      </div>
+                      {dm.unreadCount && dm.unreadCount > 0 && (
+                        <span 
+                          className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full flex-shrink-0"
+                          data-testid={`dm-unread-${dm.id}`}
+                        >
+                          {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  ))
                 )}
               </ScrollArea>
             </div>
@@ -1390,13 +1526,25 @@ export default function ChatPage() {
                     ) : (
                       <Hash className="h-5 w-5" />
                     )}
-                    <span className="font-semibold">{selectedChannel.name}</span>
+                    <div>
+                      <span className="font-semibold">{selectedChannel.name}</span>
+                      {selectedChannel.memberCount !== undefined && selectedChannel.memberCount > 0 && (
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {selectedChannel.memberCount} member{selectedChannel.memberCount !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
                   </>
                 )}
                 {selectedDm && (
                   <>
                     <MessageCircle className="h-5 w-5" />
-                    <span className="font-semibold">{getDmDisplayName(selectedDm)}</span>
+                    <div>
+                      <span className="font-semibold">{getDmDisplayName(selectedDm)}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {selectedDm.members.length} member{selectedDm.members.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
                   </>
                 )}
               </div>
@@ -1414,11 +1562,13 @@ export default function ChatPage() {
                 {selectedChannel && (
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="sm"
                     onClick={() => setMembersDrawerOpen(true)}
+                    className="gap-1"
                     data-testid="button-channel-members"
                   >
                     <Users className="h-4 w-4" />
+                    <span className="text-xs">Members</span>
                   </Button>
                 )}
                 <Button
@@ -1711,13 +1861,15 @@ export default function ChatPage() {
                   )}
                 </Button>
                 <div className="relative flex-1">
-                  <Input
+                  <Textarea
                     ref={messageInputRef}
                     value={messageInput}
-                    onChange={handleMessageInputChange}
+                    onChange={(e) => handleMessageInputChange(e as any)}
                     onKeyDown={handleMessageKeyDown}
                     placeholder={`Message ${selectedChannel ? "#" + selectedChannel.name : getDmDisplayName(selectedDm!)}`}
                     disabled={sendMessageMutation.isPending}
+                    className="resize-none min-h-[40px] max-h-[120px]"
+                    rows={1}
                     data-testid="input-message"
                   />
                   {mentionOpen && mentionableUsersQuery.data && mentionableUsersQuery.data.length > 0 && (
