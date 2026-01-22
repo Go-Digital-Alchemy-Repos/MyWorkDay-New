@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SortableTaskCard } from "@/components/sortable-task-card";
+import { SortableTaskCard } from "./sortable-task-card";
 import { cn } from "@/lib/utils";
 import type { SectionWithTasks, TaskWithRelations } from "@shared/schema";
 

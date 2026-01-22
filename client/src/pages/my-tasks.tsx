@@ -86,8 +86,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SortableTaskCard } from "@/components/sortable-task-card";
-import { TaskDetailDrawer } from "@/components/task-detail-drawer";
+import { SortableTaskCard, TaskDetailDrawer } from "@/features/tasks";
 import { isToday, isPast, isFuture } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";

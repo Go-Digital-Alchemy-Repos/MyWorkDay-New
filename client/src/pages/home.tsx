@@ -12,9 +12,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TaskCard } from "@/components/task-card";
-import { TaskDetailDrawer } from "@/components/task-detail-drawer";
-import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { TaskCard, TaskDetailDrawer } from "@/features/tasks";
+import { CreateProjectDialog } from "@/features/projects";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Project, TaskWithRelations, Team, Workspace, Client } from "@shared/schema";
 

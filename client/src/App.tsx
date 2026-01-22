@@ -45,7 +45,7 @@ import ResetPasswordPage from "@/pages/reset-password";
 import ChatPage from "@/pages/chat";
 import { Loader2, MessageCircle } from "lucide-react";
 import { useEffect } from "react";
-import { GlobalActiveTimer } from "@/components/global-active-timer";
+import { GlobalActiveTimer } from "@/features/timer";
 import { ChatDrawerProvider, useChatDrawer } from "@/contexts/chat-drawer-context";
 import { GlobalChatDrawer } from "@/components/global-chat-drawer";
 import { Button } from "@/components/ui/button";

@@ -59,8 +59,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { TaskSelectorWithCreate } from "@/components/task-selector-with-create";
-import { StartTimerDrawer } from "@/components/start-timer-drawer";
+import { TaskSelectorWithCreate } from "@/features/tasks";
+import { StartTimerDrawer } from "@/features/timer";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO } from "date-fns";
 
 type ActiveTimer = {

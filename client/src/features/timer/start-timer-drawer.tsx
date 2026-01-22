@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TaskSelectorWithCreate } from "@/components/task-selector-with-create";
+import { TaskSelectorWithCreate } from "@/features/tasks";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 

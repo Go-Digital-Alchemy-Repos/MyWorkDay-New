@@ -39,7 +39,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { CreateProjectDialog } from "@/features/projects";
 import { Badge } from "@/components/ui/badge";
 import type { Project, Team, Workspace, Client, ClientDivision } from "@shared/schema";
 

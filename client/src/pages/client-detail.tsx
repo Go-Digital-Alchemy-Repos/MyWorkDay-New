@@ -64,8 +64,8 @@ import {
   Users,
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { StartTimerDrawer } from "@/components/start-timer-drawer";
-import { DivisionDrawer } from "@/components/division-drawer";
+import { StartTimerDrawer } from "@/features/timer";
+import { DivisionDrawer } from "@/features/clients";
 import { useToast } from "@/hooks/use-toast";
 import type { ClientWithContacts, Project, ClientContact, ClientDivision } from "@shared/schema";
 

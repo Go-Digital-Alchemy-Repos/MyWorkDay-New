@@ -44,7 +44,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { ProjectDrawer } from "@/components/project-drawer";
+import { ProjectDrawer } from "@/features/projects";
 import type { Project, Team, Workspace } from "@shared/schema";
 
 const mainNavItems = [

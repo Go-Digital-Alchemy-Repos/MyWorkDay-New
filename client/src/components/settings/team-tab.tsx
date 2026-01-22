@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { UserDrawer } from "@/components/user-drawer";
-import { TeamDrawer } from "@/components/team-drawer";
+import { TeamDrawer } from "@/features/teams";
 import {
   Table,
   TableBody,

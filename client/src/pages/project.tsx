@@ -29,14 +29,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SectionColumn } from "@/components/section-column";
-import { TaskCard } from "@/components/task-card";
-import { TaskDetailDrawer } from "@/components/task-detail-drawer";
-import { TaskCreateDrawer } from "@/components/task-create-drawer";
-import { ProjectCalendar } from "@/components/project-calendar";
-import { ProjectSettingsSheet } from "@/components/project-settings-sheet";
-import { StartTimerDrawer } from "@/components/start-timer-drawer";
-import { ProjectActivityFeed } from "@/components/project-activity-feed";
+import { SectionColumn, TaskCard, TaskDetailDrawer, TaskCreateDrawer } from "@/features/tasks";
+import { ProjectCalendar, ProjectSettingsSheet, ProjectActivityFeed } from "@/features/projects";
+import { StartTimerDrawer } from "@/features/timer";
 import {
   Sheet,
   SheetContent,

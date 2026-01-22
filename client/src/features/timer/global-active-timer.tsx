@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TaskSelectorWithCreate } from "@/components/task-selector-with-create";
+import { TaskSelectorWithCreate } from "@/features/tasks";
 import { useAuth } from "@/lib/auth";
 
 type ActiveTimer = {
