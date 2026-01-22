@@ -25,7 +25,6 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FolderKanban, Search, Filter, Calendar, Users, CheckSquare, AlertTriangle, Clock, CircleOff, DollarSign, Plus, Pencil } from "lucide-react";
 import { ProjectDetailDrawer } from "@/components/project-detail-drawer";
-import { CreateProjectDialog } from "@/components/create-project-dialog";
 import { ProjectDrawer } from "@/components/project-drawer";
 import { useToast } from "@/hooks/use-toast";
 import type { Project, Client, Team } from "@shared/schema";
@@ -115,8 +114,8 @@ export default function ProjectsDashboard() {
     },
   });
 
-  const handleCreateProject = (data: any) => {
-    createProjectMutation.mutate(data);
+  const handleCreateProject = async (data: any) => {
+    await createProjectMutation.mutateAsync(data);
   };
 
   const updateProjectMutation = useMutation({
@@ -127,9 +126,10 @@ export default function ProjectsDashboard() {
         await apiRequest("PUT", `/api/projects/${projectId}/members`, { memberIds });
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/projects"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", variables.projectId, "members"] });
       setEditProjectOpen(false);
       setEditingProject(null);
       toast({ title: "Project updated successfully" });
@@ -550,12 +550,12 @@ export default function ProjectsDashboard() {
         mode="edit"
       />
 
-      <CreateProjectDialog
+      <ProjectDrawer
         open={createProjectOpen}
         onOpenChange={setCreateProjectOpen}
         onSubmit={handleCreateProject}
-        teams={teams}
-        isPending={createProjectMutation.isPending}
+        isLoading={createProjectMutation.isPending}
+        mode="create"
       />
     </div>
   );

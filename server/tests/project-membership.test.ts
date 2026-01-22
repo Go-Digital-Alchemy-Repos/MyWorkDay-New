@@ -1,12 +1,17 @@
 /**
  * @module server/tests/project-membership.test.ts
- * @description Tests for project membership, visibility scoping, and required client assignment
+ * @description Storage-level integration tests for project membership, visibility scoping, and client validation.
+ * 
+ * These tests verify the storage layer methods that support the project membership model.
+ * Route-level enforcement (auto-add creator, clientId required) is handled in server/routes.ts
+ * and uses these storage methods internally.
  * 
  * Tests:
- * 1. tenant_admin_can_create_project_requires_client
- * 2. employee_can_create_project_and_is_member
- * 3. project_list_scoped_for_employee
- * 4. cannot_assign_project_to_client_from_other_tenant
+ * 1. tenant_admin_can_create_project_requires_client - storage allows creation with clientId
+ * 2. employee_can_create_project_and_is_member - storage addProjectMember works correctly
+ * 3. project_list_scoped_for_employee - getProjectsForUser scopes by membership for employees
+ * 4. cannot_assign_project_to_client_from_other_tenant - tenant isolation via getClientByIdAndTenant
+ * 5. project member management - add, remove, set, isProjectMember operations
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
