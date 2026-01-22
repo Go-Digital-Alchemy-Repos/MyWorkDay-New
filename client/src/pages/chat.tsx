@@ -25,7 +25,7 @@ import {
   Users,
   Lock,
 } from "lucide-react";
-import { CHAT_EVENTS, ChatNewMessagePayload } from "@shared/events";
+import { CHAT_EVENTS, CHAT_ROOM_EVENTS, ChatNewMessagePayload } from "@shared/events";
 
 interface ChatChannel {
   id: string;
@@ -113,6 +113,41 @@ export default function ChatPage() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Join/leave socket rooms when selection changes
+  // Note: userId/tenantId are derived server-side from authenticated session for security
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket || !user) return;
+
+    // Join the appropriate room (server validates access using session data)
+    if (selectedChannel) {
+      socket.emit(CHAT_ROOM_EVENTS.JOIN as any, {
+        targetType: 'channel',
+        targetId: selectedChannel.id,
+      });
+    } else if (selectedDm) {
+      socket.emit(CHAT_ROOM_EVENTS.JOIN as any, {
+        targetType: 'dm',
+        targetId: selectedDm.id,
+      });
+    }
+
+    // Leave the room on cleanup or selection change
+    return () => {
+      if (selectedChannel) {
+        socket.emit(CHAT_ROOM_EVENTS.LEAVE as any, {
+          targetType: 'channel',
+          targetId: selectedChannel.id,
+        });
+      } else if (selectedDm) {
+        socket.emit(CHAT_ROOM_EVENTS.LEAVE as any, {
+          targetType: 'dm',
+          targetId: selectedDm.id,
+        });
+      }
+    };
+  }, [selectedChannel, selectedDm, user]);
 
   useEffect(() => {
     const socket = getSocket();

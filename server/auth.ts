@@ -61,6 +61,20 @@ declare module "express-session" {
   }
 }
 
+// Singleton session middleware for reuse in Socket.IO
+let sessionMiddlewareInstance: ReturnType<typeof session> | null = null;
+
+/**
+ * Get the session middleware instance (for use in Socket.IO).
+ * Must call setupAuth first.
+ */
+export function getSessionMiddleware(): ReturnType<typeof session> {
+  if (!sessionMiddlewareInstance) {
+    throw new Error("Session middleware not initialized. Call setupAuth first.");
+  }
+  return sessionMiddlewareInstance;
+}
+
 export function setupAuth(app: Express): void {
   const PgSession = connectPgSimple(session);
   const pool = new Pool({
@@ -78,7 +92,7 @@ export function setupAuth(app: Express): void {
     CREATE INDEX IF NOT EXISTS "IDX_user_sessions_expire" ON "user_sessions" ("expire");
   `).catch(err => console.error("Session table creation error:", err));
 
-  const sessionMiddleware = session({
+  sessionMiddlewareInstance = session({
     store: new PgSession({
       pool,
       tableName: "user_sessions",
@@ -95,7 +109,7 @@ export function setupAuth(app: Express): void {
     },
   });
 
-  app.use(sessionMiddleware);
+  app.use(sessionMiddlewareInstance);
   app.use(passport.initialize());
   app.use(passport.session());
 

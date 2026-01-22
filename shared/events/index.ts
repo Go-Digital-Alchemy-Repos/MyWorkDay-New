@@ -577,6 +577,7 @@ export interface ChatMemberJoinedPayload {
 export interface ChatJoinPayload {
   targetType: 'channel' | 'dm';
   targetId: string;
+  // Note: userId and tenantId are derived server-side from authenticated session
 }
 
 export interface ChatLeavePayload {

@@ -7,7 +7,7 @@ import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { validateBody } from "../middleware/validate";
 import { AppError } from "../lib/errors";
-import { emitToTenant } from "../realtime/socket";
+import { emitToTenant, emitToChatChannel, emitToChatDm } from "../realtime/socket";
 import { CHAT_EVENTS } from "@shared/events";
 
 function getCurrentTenantId(req: Request): string | null {
@@ -33,10 +33,18 @@ router.get(
   "/channels",
   asyncHandler(async (req: Request, res: Response) => {
     const tenantId = getCurrentTenantId(req);
+    const userId = getCurrentUserId(req);
     if (!tenantId) throw AppError.forbidden("Tenant context required");
 
-    const channels = await storage.getChatChannelsByTenant(tenantId);
-    res.json(channels);
+    const allChannels = await storage.getChatChannelsByTenant(tenantId);
+    const myMemberships = await storage.getUserChatChannels(tenantId, userId);
+    const myChannelIds = new Set(myMemberships.map(m => m.channelId));
+    
+    // Return public channels + private channels user is a member of
+    const visibleChannels = allChannels.filter(
+      ch => !ch.isPrivate || myChannelIds.has(ch.id)
+    );
+    res.json(visibleChannels);
   })
 );
 
@@ -254,7 +262,8 @@ router.post(
       },
     };
 
-    emitToTenant(tenantId, CHAT_EVENTS.NEW_MESSAGE, payload);
+    // Emit to the specific channel room for privacy
+    emitToChatChannel(channel.id, CHAT_EVENTS.NEW_MESSAGE, payload);
 
     res.status(201).json({ ...message, author });
   })
@@ -391,7 +400,8 @@ router.post(
       },
     };
 
-    emitToTenant(tenantId, CHAT_EVENTS.NEW_MESSAGE, payload);
+    // Emit to the specific DM room for privacy
+    emitToChatDm(thread.id, CHAT_EVENTS.NEW_MESSAGE, payload);
 
     res.status(201).json({ ...message, author });
   })
@@ -421,12 +431,19 @@ router.patch(
     const targetType = message.channelId ? "channel" : "dm";
     const targetId = message.channelId || message.dmThreadId!;
 
-    emitToTenant(tenantId, CHAT_EVENTS.MESSAGE_UPDATED, {
+    const updatePayload = {
       targetType,
       targetId,
       messageId: message.id,
       updates: { body: req.body.body, editedAt: updated?.editedAt },
-    });
+    };
+    
+    // Emit to the specific room for privacy
+    if (message.channelId) {
+      emitToChatChannel(message.channelId, CHAT_EVENTS.MESSAGE_UPDATED, updatePayload);
+    } else if (message.dmThreadId) {
+      emitToChatDm(message.dmThreadId, CHAT_EVENTS.MESSAGE_UPDATED, updatePayload);
+    }
 
     res.json(updated);
   })
@@ -453,11 +470,18 @@ router.delete(
     const targetType = message.channelId ? "channel" : "dm";
     const targetId = message.channelId || message.dmThreadId!;
 
-    emitToTenant(tenantId, CHAT_EVENTS.MESSAGE_DELETED, {
+    const deletePayload = {
       targetType,
       targetId,
       messageId: message.id,
-    });
+    };
+    
+    // Emit to the specific room for privacy
+    if (message.channelId) {
+      emitToChatChannel(message.channelId, CHAT_EVENTS.MESSAGE_DELETED, deletePayload);
+    } else if (message.dmThreadId) {
+      emitToChatDm(message.dmThreadId, CHAT_EVENTS.MESSAGE_DELETED, deletePayload);
+    }
 
     res.json({ message: "Message deleted" });
   })

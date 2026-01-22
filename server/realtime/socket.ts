@@ -8,9 +8,13 @@
  * - Clients join project rooms using 'room:join:project' event
  * - Room name format: 'project:{projectId}'
  * - All entity updates are broadcast to the relevant project room
+ * 
+ * Security:
+ * - Chat room joins are validated using authenticated session data
+ * - User identity is extracted from session cookies, not client-supplied
  */
 
-import { Server as HttpServer } from 'http';
+import { Server as HttpServer, IncomingMessage } from 'http';
 import { Server, Socket } from 'socket.io';
 import { 
   ServerToClientEvents, 
@@ -19,6 +23,14 @@ import {
   CHAT_ROOM_EVENTS
 } from '@shared/events';
 import { log } from '../index';
+import { getSessionMiddleware } from '../auth';
+import passport from 'passport';
+
+// Extended socket interface with authenticated user data
+interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
+  userId?: string;
+  tenantId?: string | null;
+}
 
 // Type-safe Socket.IO server instance
 let io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
@@ -35,6 +47,7 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     cors: {
       origin: '*', // In production, restrict to specific origins
       methods: ['GET', 'POST'],
+      credentials: true, // Enable credentials for session cookies
     },
     // Enable connection state recovery for brief disconnections
     connectionStateRecovery: {
@@ -43,9 +56,37 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     },
   });
 
+  // Add session middleware to Socket.IO for authentication
+  const sessionMiddleware = getSessionMiddleware();
+  io.use((socket, next) => {
+    // Wrap express session middleware for Socket.IO
+    const req = socket.request as any;
+    const res = { on: () => {}, end: () => {} } as any;
+    sessionMiddleware(req, res, (err?: any) => {
+      if (err) {
+        log(`Session middleware error: ${err}`, 'socket.io');
+        return next(new Error('Session error'));
+      }
+      // Initialize passport for this request
+      passport.initialize()(req, res, () => {
+        passport.session()(req, res, () => {
+          // Attach user data to socket for use in handlers
+          const authSocket = socket as AuthenticatedSocket;
+          if (req.user) {
+            authSocket.userId = req.user.id;
+            authSocket.tenantId = req.user.tenantId;
+            log(`Socket authenticated: ${socket.id} -> user: ${req.user.id}`, 'socket.io');
+          }
+          next();
+        });
+      });
+    });
+  });
+
   // Handle new client connections
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
-    log(`Client connected: ${socket.id}`, 'socket.io');
+    const authSocket = socket as AuthenticatedSocket;
+    log(`Client connected: ${socket.id} (userId: ${authSocket.userId || 'anonymous'})`, 'socket.io');
 
     // Handle joining a project room
     socket.on(ROOM_EVENTS.JOIN_PROJECT, ({ projectId }) => {
@@ -90,10 +131,39 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     });
 
     // Handle joining/leaving chat rooms (channels and DMs)
-    socket.on(CHAT_ROOM_EVENTS.JOIN, ({ targetType, targetId }) => {
+    // Authorization: Uses server-derived userId/tenantId from authenticated session (ignores client-supplied IDs)
+    socket.on(CHAT_ROOM_EVENTS.JOIN, async ({ targetType, targetId }) => {
       const roomName = `chat:${targetType}:${targetId}`;
-      socket.join(roomName);
-      log(`Client ${socket.id} joined chat room: ${roomName}`, 'socket.io');
+      
+      // Use authenticated user data from socket, not client-supplied
+      const serverUserId = authSocket.userId;
+      const serverTenantId = authSocket.tenantId;
+      
+      if (!serverUserId) {
+        log(`Client ${socket.id} denied chat room join: not authenticated`, 'socket.io');
+        return;
+      }
+      
+      // Validate chat room access using server-derived identity
+      try {
+        const { storage } = await import('../storage');
+        const hasAccess = await storage.validateChatRoomAccess(
+          targetType, 
+          targetId, 
+          serverUserId, 
+          serverTenantId || ''
+        );
+        
+        if (!hasAccess) {
+          log(`Client ${socket.id} denied access to chat room: ${roomName} (user: ${serverUserId}, tenant: ${serverTenantId})`, 'socket.io');
+          return;
+        }
+        
+        socket.join(roomName);
+        log(`Client ${socket.id} joined chat room: ${roomName}`, 'socket.io');
+      } catch (error) {
+        log(`Error validating chat room access for ${socket.id}: ${error}`, 'socket.io');
+      }
     });
 
     socket.on(CHAT_ROOM_EVENTS.LEAVE, ({ targetType, targetId }) => {

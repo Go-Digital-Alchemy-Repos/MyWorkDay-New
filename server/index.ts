@@ -17,9 +17,6 @@ const httpServer = createServer(app);
 // Trust the reverse proxy (needed for secure cookies in production)
 app.set("trust proxy", 1);
 
-// Initialize Socket.IO server for real-time updates
-initializeSocketIO(httpServer);
-
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -39,8 +36,11 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// Setup authentication middleware (session + passport)
+// Setup authentication middleware (session + passport) - must be before Socket.IO
 setupAuth(app);
+
+// Initialize Socket.IO server for real-time updates (after auth for session access)
+initializeSocketIO(httpServer);
 
 // Setup bootstrap endpoints (first-user registration)
 setupBootstrapEndpoints(app);

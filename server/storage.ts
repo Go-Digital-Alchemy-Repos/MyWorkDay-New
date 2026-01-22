@@ -339,6 +339,9 @@ export interface IStorage {
   getUserChatChannels(tenantId: string, userId: string): Promise<(ChatChannelMember & { channel: ChatChannel })[]>;
   addChatChannelMember(member: InsertChatChannelMember): Promise<ChatChannelMember>;
   removeChatChannelMember(channelId: string, userId: string): Promise<void>;
+  
+  // Chat - Access Validation
+  validateChatRoomAccess(targetType: 'channel' | 'dm', targetId: string, userId: string, tenantId: string): Promise<boolean>;
 
   // Chat - DM Threads
   getChatDmThread(id: string): Promise<ChatDmThread | undefined>;
@@ -2455,6 +2458,23 @@ export class DatabaseStorage implements IStorage {
     await db.delete(chatChannelMembers).where(
       and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId))
     );
+  }
+
+  async validateChatRoomAccess(targetType: 'channel' | 'dm', targetId: string, userId: string, tenantId: string): Promise<boolean> {
+    if (targetType === 'channel') {
+      const channel = await this.getChatChannel(targetId);
+      if (!channel || channel.tenantId !== tenantId) return false;
+      if (!channel.isPrivate) return true; // Public channels are accessible to all tenant users
+      const member = await this.getChatChannelMember(targetId, userId);
+      return !!member;
+    } else {
+      const thread = await this.getChatDmThread(targetId);
+      if (!thread || thread.tenantId !== tenantId) return false;
+      const members = await db.select().from(chatDmMembers).where(
+        and(eq(chatDmMembers.dmThreadId, targetId), eq(chatDmMembers.userId, userId))
+      );
+      return members.length > 0;
+    }
   }
 
   // =============================================================================
