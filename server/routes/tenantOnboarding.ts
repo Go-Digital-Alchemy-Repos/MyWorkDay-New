@@ -129,11 +129,20 @@ router.get("/context", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Tenant not found" });
     }
 
-    const tenantSettings = await storage.getTenantSettings(effectiveTenantId);
+    // Gracefully handle tenant settings - if table doesn't exist or query fails, use tenant name
+    let displayName = tenant.name;
+    try {
+      const tenantSettings = await storage.getTenantSettings(effectiveTenantId);
+      if (tenantSettings?.displayName) {
+        displayName = tenantSettings.displayName;
+      }
+    } catch (settingsError: any) {
+      console.warn("[tenant/context] Could not fetch tenant settings, using tenant name as fallback:", settingsError?.message);
+    }
 
     res.json({
       tenantId: tenant.id,
-      displayName: tenantSettings?.displayName || tenant.name,
+      displayName,
       status: tenant.status,
     });
   } catch (error: any) {
@@ -143,7 +152,7 @@ router.get("/context", requireAuth, async (req, res) => {
       userId: (req.user as any)?.id,
       tenantId: req.tenant?.effectiveTenantId,
     });
-    res.status(500).json({ error: "Failed to fetch tenant context" });
+    res.status(500).json({ error: "Failed to fetch tenant context", details: error?.message });
   }
 });
 
