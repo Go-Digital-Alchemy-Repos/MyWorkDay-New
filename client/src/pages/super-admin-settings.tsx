@@ -15,7 +15,7 @@ import { Redirect } from "wouter";
 import { 
   Loader2, Users, FileText, Palette, Settings, Shield, Save, Mail, HardDrive, Check, X, 
   Plus, Link, Copy, MoreHorizontal, UserCheck, UserX, Clock, AlertCircle, KeyRound, Image,
-  TestTube, Eye, EyeOff, Trash2, RefreshCw, Send, CreditCard, Archive, Globe
+  TestTube, Eye, EyeOff, Trash2, RefreshCw, Send, CreditCard, Archive, Globe, Cloud
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { S3Dropzone } from "@/components/common/S3Dropzone";
