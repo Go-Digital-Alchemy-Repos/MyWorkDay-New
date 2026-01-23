@@ -66,6 +66,7 @@ import {
 import { useLocation } from "wouter";
 import { StartTimerDrawer } from "@/features/timer";
 import { DivisionDrawer } from "@/features/clients";
+import { ClientPortalUsersTab } from "@/components/client-portal-users-tab";
 import { useToast } from "@/hooks/use-toast";
 import type { ClientWithContacts, Project, ClientContact, ClientDivision } from "@shared/schema";
 
@@ -612,6 +613,9 @@ export default function ClientDetailPage() {
               <TabsTrigger value="divisions" data-testid="tab-divisions">
                 Divisions ({divisions.length})
               </TabsTrigger>
+              <TabsTrigger value="portal" data-testid="tab-portal">
+                Portal Users
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -1073,6 +1077,10 @@ export default function ClientDetailPage() {
                 </Button>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="portal" className="p-6">
+            <ClientPortalUsersTab clientId={clientId || ""} />
           </TabsContent>
         </Tabs>
       </div>

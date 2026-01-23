@@ -1474,6 +1474,39 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getClientUserAccessByUserAndClient(userId: string, clientId: string): Promise<ClientUserAccess | undefined> {
+    // Get user and client to verify tenant isolation
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) {
+      return undefined;
+    }
+    
+    const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+    if (!client) {
+      return undefined;
+    }
+    
+    // Enforce strict tenant isolation for client portal access
+    // Both user and client must have tenantId set and they must match
+    if (!user.tenantId || !client.tenantId) {
+      console.warn("[storage] getClientUserAccessByUserAndClient: Missing tenantId", {
+        userId: user.id,
+        userTenantId: user.tenantId,
+        clientId: client.id,
+        clientTenantId: client.tenantId,
+      });
+      return undefined;
+    }
+    
+    if (user.tenantId !== client.tenantId) {
+      console.warn("[storage] getClientUserAccessByUserAndClient: Tenant mismatch", {
+        userId: user.id,
+        userTenantId: user.tenantId,
+        clientId: client.id,
+        clientTenantId: client.tenantId,
+      });
+      return undefined;
+    }
+    
     const [access] = await db.select()
       .from(clientUserAccess)
       .where(and(
@@ -1503,6 +1536,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getClientsForUser(userId: string): Promise<Array<{ client: Client; access: ClientUserAccess }>> {
+    // Get the user to verify tenant
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) {
+      return [];
+    }
+    
     const accessRecords = await db.select()
       .from(clientUserAccess)
       .where(eq(clientUserAccess.userId, userId));
@@ -1510,9 +1549,34 @@ export class DatabaseStorage implements IStorage {
     const result: Array<{ client: Client; access: ClientUserAccess }> = [];
     for (const access of accessRecords) {
       const [client] = await db.select().from(clients).where(eq(clients.id, access.clientId));
-      if (client) {
-        result.push({ client, access });
+      if (!client) {
+        continue;
       }
+      
+      // Enforce tenant isolation for cross-tenant security
+      // Both user and client should have matching tenantIds
+      // If either is missing tenantId, this is a data integrity issue - skip for safety
+      if (!user.tenantId || !client.tenantId) {
+        console.warn("[storage] getClientsForUser: Missing tenantId", {
+          userId: user.id,
+          userTenantId: user.tenantId,
+          clientId: client.id,
+          clientTenantId: client.tenantId,
+        });
+        continue;
+      }
+      
+      if (user.tenantId !== client.tenantId) {
+        console.warn("[storage] getClientsForUser: Tenant mismatch", {
+          userId: user.id,
+          userTenantId: user.tenantId,
+          clientId: client.id,
+          clientTenantId: client.tenantId,
+        });
+        continue;
+      }
+      
+      result.push({ client, access });
     }
     return result;
   }

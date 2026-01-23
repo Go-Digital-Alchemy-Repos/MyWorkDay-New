@@ -109,6 +109,7 @@ router.get("/dashboard", async (req, res) => {
     res.json({
       clients,
       projects: allProjects,
+      tasks: allTasks,
       stats,
       upcomingDeadlines,
     });
@@ -339,10 +340,11 @@ router.post("/tasks/:taskId/comments", async (req, res) => {
   try {
     const userId = req.user!.id;
     const { taskId } = req.params;
-    const { content } = req.body;
+    // Accept both 'body' (schema field name) and 'content' (legacy) for compatibility
+    const commentBody = req.body.body || req.body.content;
     
-    if (!content || typeof content !== "string" || content.trim().length === 0) {
-      return res.status(400).json({ error: "Comment content is required" });
+    if (!commentBody || typeof commentBody !== "string" || commentBody.trim().length === 0) {
+      return res.status(400).json({ error: "Comment body is required" });
     }
     
     const task = await storage.getTask(taskId);
@@ -368,7 +370,7 @@ router.post("/tasks/:taskId/comments", async (req, res) => {
     const comment = await storage.createComment({
       taskId,
       userId,
-      body: content.trim(),
+      body: commentBody.trim(),
     });
     
     const user = await storage.getUser(userId);
