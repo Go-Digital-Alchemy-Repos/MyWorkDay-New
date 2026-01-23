@@ -1082,6 +1082,14 @@ export const systemSettings = pgTable("system_settings", {
   stripeLastTestedAt: timestamp("stripe_last_tested_at"),
   // Chat retention settings (platform default)
   chatRetentionDays: integer("chat_retention_days").default(365), // Default 365 days
+  // AI Integration (OpenAI/ChatGPT) - Platform-wide for all tenants
+  aiEnabled: boolean("ai_enabled").default(false),
+  aiProvider: text("ai_provider").default("openai"), // "openai" for now, extensible later
+  aiModel: text("ai_model").default("gpt-4o-mini"), // Default to cost-effective model
+  aiApiKeyEncrypted: text("ai_api_key_encrypted"),
+  aiMaxTokens: integer("ai_max_tokens").default(2000),
+  aiTemperature: text("ai_temperature").default("0.7"), // Stored as text for precision
+  aiLastTestedAt: timestamp("ai_last_tested_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
