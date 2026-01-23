@@ -15,6 +15,7 @@ import { useLocation } from "wouter";
 
 function getRoleIcon(role: string) {
   switch (role) {
+    case "super_user":
     case "admin":
       return <Shield className="h-3 w-3" />;
     case "client":
@@ -26,10 +27,14 @@ function getRoleIcon(role: string) {
 
 function getRoleLabel(role: string) {
   switch (role) {
+    case "super_user":
+      return "Super Admin";
     case "admin":
       return "Admin";
     case "client":
       return "Client";
+    case "employee":
+      return "Employee";
     default:
       return "Employee";
   }

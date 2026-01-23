@@ -7,4 +7,5 @@ export { CreateTaskDialog } from "./create-task-dialog";
 export { TaskCard } from "./task-card";
 export { SortableTaskCard } from "./sortable-task-card";
 export { SectionColumn } from "./section-column";
+export { ListSectionDroppable } from "./list-section-droppable";
 export { TaskSelectorWithCreate } from "./task-selector-with-create";

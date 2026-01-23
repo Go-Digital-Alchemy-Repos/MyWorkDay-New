@@ -4,13 +4,13 @@ import { useRoute } from "wouter";
 import { useCreateTask, useCreateChildTask } from "@/hooks/use-create-task";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
   DragEndEvent,
-  DragOverEvent,
   DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -29,7 +29,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SectionColumn, TaskCard, TaskDetailDrawer, TaskCreateDrawer } from "@/features/tasks";
+import { SectionColumn, TaskCard, TaskDetailDrawer, TaskCreateDrawer, ListSectionDroppable } from "@/features/tasks";
 import { ProjectCalendar, ProjectSettingsSheet, ProjectActivityFeed } from "@/features/projects";
 import { StartTimerDrawer } from "@/features/timer";
 import {
@@ -90,6 +90,10 @@ export default function ProjectPage() {
   });
 
   const displaySections = localSections || sections;
+
+  const activeTask = activeTaskId
+    ? displaySections?.flatMap((s) => s.tasks || []).find((t) => t.id === activeTaskId)
+    : null;
 
   const createTaskMutation = useCreateTask();
 
@@ -226,7 +230,8 @@ export default function ProjectPage() {
       const { active, over } = event;
       setActiveTaskId(null);
 
-      if (!over || !sections) return;
+      const currentSections = displaySections;
+      if (!over || !currentSections) return;
 
       const activeId = active.id as string;
       const overId = over.id as string;
@@ -240,54 +245,83 @@ export default function ProjectPage() {
       const fromSectionId = activeTask.sectionId;
 
       let toSectionId: string;
-      let toIndex: number;
+      let overIndex: number;
 
       if (overData?.type === "section") {
         toSectionId = overId;
-        toIndex = 0;
+        const targetSection = currentSections.find((s) => s.id === toSectionId);
+        overIndex = targetSection?.tasks?.length ?? 0;
       } else if (overData?.type === "task") {
         const overTask = overData.task!;
         toSectionId = overTask.sectionId!;
-        const targetSection = sections.find((s) => s.id === toSectionId);
+        const targetSection = currentSections.find((s) => s.id === toSectionId);
         if (!targetSection) return;
-        toIndex = targetSection.tasks?.findIndex((t) => t.id === overId) ?? 0;
+        overIndex = targetSection.tasks?.findIndex((t) => t.id === overId) ?? 0;
       } else {
         return;
       }
 
       if (fromSectionId === toSectionId && activeId === overId) return;
 
-      const newSections = sections.map((section) => {
-        const newTasks = [...(section.tasks || [])];
+      const fromSection = currentSections.find((s) => s.id === fromSectionId);
+      const fromIndex = fromSection?.tasks?.findIndex((t) => t.id === activeId) ?? -1;
 
-        if (section.id === fromSectionId) {
-          const taskIndex = newTasks.findIndex((t) => t.id === activeId);
-          if (taskIndex !== -1) {
-            newTasks.splice(taskIndex, 1);
+      if (fromSectionId === toSectionId) {
+        if (fromIndex === -1 || fromIndex === overIndex) return;
+        const sectionTasks = [...(fromSection?.tasks || [])];
+        const reorderedTasks = arrayMove(sectionTasks, fromIndex, overIndex);
+        
+        const newSections = currentSections.map((section) => {
+          if (section.id === fromSectionId) {
+            return { ...section, tasks: reorderedTasks };
           }
+          return section;
+        });
+
+        setLocalSections(newSections);
+
+        reorderMutation.mutate([
+          {
+            itemType: "task",
+            taskId: activeId,
+            toSectionId,
+            toIndex: overIndex,
+          },
+        ]);
+      } else {
+        const newSections = currentSections.map((section) => {
+          if (section.id === fromSectionId) {
+            const newTasks = [...(section.tasks || [])];
+            const taskIndex = newTasks.findIndex((t) => t.id === activeId);
+            if (taskIndex !== -1) {
+              newTasks.splice(taskIndex, 1);
+            }
+            return { ...section, tasks: newTasks };
+          }
+          return section;
+        });
+
+        const targetSectionIndex = newSections.findIndex((s) => s.id === toSectionId);
+        if (targetSectionIndex !== -1) {
+          const newTasks = [...(newSections[targetSectionIndex].tasks || [])];
+          const updatedTask = { ...activeTask, sectionId: toSectionId };
+          newTasks.splice(overIndex, 0, updatedTask);
+          newSections[targetSectionIndex] = { ...newSections[targetSectionIndex], tasks: newTasks };
         }
 
-        return { ...section, tasks: newTasks };
-      });
+        setLocalSections(newSections);
 
-      const targetSectionIndex = newSections.findIndex((s) => s.id === toSectionId);
-      if (targetSectionIndex !== -1) {
-        const updatedTask = { ...activeTask, sectionId: toSectionId };
-        newSections[targetSectionIndex].tasks!.splice(toIndex, 0, updatedTask);
+        reorderMutation.mutate([
+          {
+            itemType: "task",
+            taskId: activeId,
+            toSectionId,
+            toIndex: overIndex,
+          },
+        ]);
       }
-
-      setLocalSections(newSections);
-
-      reorderMutation.mutate([
-        {
-          itemType: "task",
-          taskId: activeId,
-          toSectionId,
-          toIndex,
-        },
-      ]);
     },
-    [sections, reorderMutation]
+    [displaySections, reorderMutation]
   );
 
   const refetchSelectedTask = async () => {
@@ -482,55 +516,55 @@ export default function ProjectPage() {
                 </Button>
               </div>
             </div>
+            <DragOverlay>
+              {activeTask && (
+                <TaskCard
+                  task={activeTask}
+                  view="board"
+                  isDragging
+                />
+              )}
+            </DragOverlay>
           </DndContext>
         )}
 
         {view === "list" && (
-          <div className="p-6">
-            {sections?.map((section) => (
-              <div key={section.id} className="mb-6">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-sm font-medium">{section.name}</h3>
-                  <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                    {section.tasks?.length || 0}
-                  </span>
-                </div>
-                <div className="border border-border rounded-lg overflow-hidden">
-                  {section.tasks?.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      view="list"
-                      onSelect={() => handleTaskSelect(task)}
-                      onStatusChange={(completed) => handleStatusChange(task.id, completed)}
-                    />
-                  ))}
-                  {(!section.tasks || section.tasks.length === 0) && (
-                    <div className="flex items-center justify-center py-8 text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleAddTask(section.id)}
-                        data-testid={`button-add-task-list-${section.id}`}
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add task
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              className="w-full h-12 border-dashed justify-center"
-              onClick={handleAddSection}
-              data-testid="button-add-section-list"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Section
-            </Button>
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="p-6">
+              {displaySections?.map((section) => (
+                <ListSectionDroppable
+                  key={section.id}
+                  section={section}
+                  onAddTask={() => handleAddTask(section.id)}
+                  onTaskSelect={handleTaskSelect}
+                  onTaskStatusChange={handleStatusChange}
+                />
+              ))}
+              <Button
+                variant="outline"
+                className="w-full h-12 border-dashed justify-center"
+                onClick={handleAddSection}
+                data-testid="button-add-section-list"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Section
+              </Button>
+            </div>
+            <DragOverlay>
+              {activeTask && (
+                <TaskCard
+                  task={activeTask}
+                  view="list"
+                  isDragging
+                />
+              )}
+            </DragOverlay>
+          </DndContext>
         )}
 
         {view === "calendar" && projectId && sections && (
