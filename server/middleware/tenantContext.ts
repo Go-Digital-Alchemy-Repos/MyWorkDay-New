@@ -34,6 +34,7 @@ declare global {
 
 export async function tenantContextMiddleware(req: Request, res: Response, next: NextFunction) {
   const user = req.user as any;
+  const session = req.session as any;
 
   if (!user) {
     req.tenant = {
@@ -47,11 +48,19 @@ export async function tenantContextMiddleware(req: Request, res: Response, next:
   const isSuperUser = user.role === UserRole.SUPER_USER;
 
   if (isSuperUser) {
+    // Priority order for effective tenant:
+    // 1. X-Tenant-Id header (explicit override)
+    // 2. User impersonation session (impersonatedTenantId)
+    // 3. Tenant impersonation session (actingAsTenantId)
     const headerTenantId = req.headers["x-tenant-id"] as string | undefined;
+    const impersonatedTenantId = session?.impersonatedTenantId as string | undefined;
+    const actingAsTenantId = session?.actingAsTenantId as string | undefined;
     
-    if (headerTenantId) {
+    const effectiveTenantId = headerTenantId || impersonatedTenantId || actingAsTenantId || null;
+    
+    if (effectiveTenantId) {
       // Super users can access any tenant (active or inactive) for pre-provisioning
-      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, headerTenantId));
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, effectiveTenantId));
       if (!tenant) {
         return res.status(404).json({ error: "Tenant not found" });
       }
@@ -60,7 +69,7 @@ export async function tenantContextMiddleware(req: Request, res: Response, next:
     
     req.tenant = {
       tenantId: user.tenantId || null,
-      effectiveTenantId: headerTenantId || null,
+      effectiveTenantId: effectiveTenantId,
       isSuperUser: true,
     };
   } else {
