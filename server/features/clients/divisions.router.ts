@@ -31,11 +31,12 @@ router.get("/clients/:clientId/divisions", async (req, res) => {
     
     const userId = getCurrentUserId(req);
     const user = await storage.getUser(userId);
-    const isAdmin = user?.role === 'admin' || user?.role === 'super_user';
+    // Allow super users, tenant admins, and tenant employees to see all divisions
+    const canSeeAll = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
     let divisions = await storage.getClientDivisionsByClient(clientId, tenantId);
     
-    if (!isAdmin) {
+    if (!canSeeAll) {
       const userDivisions = await storage.getUserDivisions(userId, tenantId);
       const userDivisionIds = new Set(userDivisions.map(d => d.id));
       divisions = divisions.filter(d => userDivisionIds.has(d.id));
