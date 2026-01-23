@@ -108,6 +108,13 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     };
     socket.emit(CONNECTION_EVENTS.CONNECTED, connectedPayload);
 
+    // Automatically join user's personal notification room
+    if (authSocket.userId) {
+      const userRoom = `user:${authSocket.userId}`;
+      socket.join(userRoom);
+      log(`Client ${socket.id} joined personal room: ${userRoom}`, 'socket.io');
+    }
+
     // Handle joining a project room
     socket.on(ROOM_EVENTS.JOIN_PROJECT, ({ projectId }) => {
       const roomName = `project:${projectId}`;
@@ -336,5 +343,14 @@ export function emitToChatDm(
   payload: unknown
 ): void {
   const roomName = `chat:dm:${dmThreadId}`;
+  getIO().to(roomName).emit(event as any, payload);
+}
+
+export function emitToUser(
+  userId: string,
+  event: string,
+  payload: unknown
+): void {
+  const roomName = `user:${userId}`;
   getIO().to(roomName).emit(event as any, payload);
 }

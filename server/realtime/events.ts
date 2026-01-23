@@ -531,3 +531,53 @@ export function emitMyTaskDeleted(userId: string, taskId: string, workspaceId: s
   emitToWorkspace(workspaceId, MY_TASK_EVENTS.DELETED, payload);
   log(`Emitted ${MY_TASK_EVENTS.DELETED} for personal task ${taskId}`, 'events');
 }
+
+// =============================================================================
+// NOTIFICATION EVENTS
+// =============================================================================
+
+import { 
+  NOTIFICATION_EVENTS,
+  NotificationNewPayload,
+  NotificationReadPayload,
+  NotificationAllReadPayload,
+  NotificationDeletedPayload,
+  NotificationPayload,
+} from '@shared/events';
+import { emitToUser } from './socket';
+
+/**
+ * Emit a new notification to a user.
+ */
+export function emitNotificationNew(userId: string, notification: NotificationPayload): void {
+  const payload: NotificationNewPayload = { notification };
+  emitToUser(userId, NOTIFICATION_EVENTS.NEW, payload);
+  log(`Emitted ${NOTIFICATION_EVENTS.NEW} to user ${userId}`, 'events');
+}
+
+/**
+ * Emit when a notification is marked as read.
+ */
+export function emitNotificationRead(userId: string, notificationId: string): void {
+  const payload: NotificationReadPayload = { notificationId, userId };
+  emitToUser(userId, NOTIFICATION_EVENTS.READ, payload);
+  log(`Emitted ${NOTIFICATION_EVENTS.READ} for notification ${notificationId}`, 'events');
+}
+
+/**
+ * Emit when all notifications are marked as read.
+ */
+export function emitNotificationAllRead(userId: string): void {
+  const payload: NotificationAllReadPayload = { userId };
+  emitToUser(userId, NOTIFICATION_EVENTS.ALL_READ, payload);
+  log(`Emitted ${NOTIFICATION_EVENTS.ALL_READ} for user ${userId}`, 'events');
+}
+
+/**
+ * Emit when a notification is deleted.
+ */
+export function emitNotificationDeleted(userId: string, notificationId: string): void {
+  const payload: NotificationDeletedPayload = { notificationId, userId };
+  emitToUser(userId, NOTIFICATION_EVENTS.DELETED, payload);
+  log(`Emitted ${NOTIFICATION_EVENTS.DELETED} for notification ${notificationId}`, 'events');
+}

@@ -645,6 +645,47 @@ export interface ChatSendPayload {
 }
 
 // =============================================================================
+// NOTIFICATION EVENTS
+// =============================================================================
+
+export const NOTIFICATION_EVENTS = {
+  NEW: 'notification:new',
+  READ: 'notification:read',
+  ALL_READ: 'notification:allRead',
+  DELETED: 'notification:deleted',
+} as const;
+
+export interface NotificationPayload {
+  id: string;
+  tenantId: string | null;
+  userId: string;
+  type: string;
+  title: string;
+  message: string | null;
+  payloadJson: any;
+  readAt: Date | null;
+  createdAt: Date;
+}
+
+export interface NotificationNewPayload {
+  notification: NotificationPayload;
+}
+
+export interface NotificationReadPayload {
+  notificationId: string;
+  userId: string;
+}
+
+export interface NotificationAllReadPayload {
+  userId: string;
+}
+
+export interface NotificationDeletedPayload {
+  notificationId: string;
+  userId: string;
+}
+
+// =============================================================================
 // ALL EVENTS TYPE (for type-safe event handling)
 // =============================================================================
 
@@ -702,6 +743,11 @@ export type ServerToClientEvents = {
   [CHAT_EVENTS.CONVERSATION_READ]: (payload: ChatConversationReadPayload) => void;
   // Connection events
   [CONNECTION_EVENTS.CONNECTED]: (payload: ConnectionConnectedPayload) => void;
+  // Notification events
+  [NOTIFICATION_EVENTS.NEW]: (payload: NotificationNewPayload) => void;
+  [NOTIFICATION_EVENTS.READ]: (payload: NotificationReadPayload) => void;
+  [NOTIFICATION_EVENTS.ALL_READ]: (payload: NotificationAllReadPayload) => void;
+  [NOTIFICATION_EVENTS.DELETED]: (payload: NotificationDeletedPayload) => void;
 };
 
 export type ClientToServerEvents = {
