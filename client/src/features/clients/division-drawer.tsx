@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -87,28 +87,40 @@ export function DivisionDrawer({
   });
   
   const currentMembers = membersData?.members || [];
+  const initializedRef = useRef(false);
 
+  // Reset form only when drawer opens (not on every render/data change)
   useEffect(() => {
-    if (open && division && mode === "edit") {
-      form.reset({
-        name: division.name,
-        description: division.description || "",
-        color: division.color || "#3B82F6",
-        isActive: division.isActive ?? true,
-      });
+    if (open) {
+      if (division && mode === "edit") {
+        form.reset({
+          name: division.name,
+          description: division.description || "",
+          color: division.color || "#3B82F6",
+          isActive: division.isActive ?? true,
+        });
+      } else if (mode === "create") {
+        form.reset({
+          name: "",
+          description: "",
+          color: "#3B82F6",
+          isActive: true,
+        });
+        setSelectedUserIds(new Set());
+      }
+      setSelectedTab("details");
+      initializedRef.current = false;
+    }
+  }, [open, division?.id, mode]);
+
+  // Update selected members only once when member data first loads
+  useEffect(() => {
+    if (open && mode === "edit" && currentMembers.length > 0 && !initializedRef.current) {
       const memberIds = new Set(currentMembers.map(m => m.userId));
       setSelectedUserIds(memberIds);
-    } else if (open && mode === "create") {
-      form.reset({
-        name: "",
-        description: "",
-        color: "#3B82F6",
-        isActive: true,
-      });
-      setSelectedUserIds(new Set());
+      initializedRef.current = true;
     }
-    setSelectedTab("details");
-  }, [open, division, mode, form, currentMembers]);
+  }, [open, mode, currentMembers]);
 
   useEffect(() => {
     const subscription = form.watch(() => {
