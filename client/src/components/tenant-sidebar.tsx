@@ -16,6 +16,7 @@ import {
   Cog,
   UserCog,
   MessageCircle,
+  UsersRound,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -50,6 +51,7 @@ const mainNavItems = [
   { title: "Clients", url: "/clients", icon: Briefcase },
   { title: "Time Tracking", url: "/time-tracking", icon: Clock },
   { title: "Chat", url: "/chat", icon: MessageCircle },
+  { title: "User Manager", url: "/user-manager", icon: UsersRound, adminOnly: true },
 ];
 
 export function TenantSidebar() {
@@ -137,11 +139,13 @@ export function TenantSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {mainNavItems
+                .filter((item) => !item.adminOnly || isAdmin || isSuperUser)
+                .map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    isActive={location === item.url}
+                    isActive={location === item.url || (item.url !== "/" && location.startsWith(item.url))}
                   >
                     <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
                       <item.icon className="h-4 w-4" />

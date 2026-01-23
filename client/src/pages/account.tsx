@@ -3,11 +3,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/lib/auth";
 import { Redirect } from "wouter";
-import { Building2, Palette, Plug, Users } from "lucide-react";
+import { Building2, Palette, Plug } from "lucide-react";
 import { ProfileTab } from "@/components/settings/profile-tab";
 import { BrandingTab } from "@/components/settings/branding-tab";
 import { IntegrationsTab } from "@/components/settings/integrations-tab";
-import { TeamTab } from "@/components/settings/team-tab";
 
 export default function AccountPage() {
   const [location, setLocation] = useLocation();
@@ -47,7 +46,7 @@ export default function AccountPage() {
         </div>
 
         <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
             <TabsTrigger value="profile" className="gap-2" data-testid="tab-profile">
               <Building2 className="h-4 w-4" />
               <span className="hidden sm:inline">Profile</span>
@@ -59,10 +58,6 @@ export default function AccountPage() {
             <TabsTrigger value="integrations" className="gap-2" data-testid="tab-integrations">
               <Plug className="h-4 w-4" />
               <span className="hidden sm:inline">Integrations</span>
-            </TabsTrigger>
-            <TabsTrigger value="users" className="gap-2" data-testid="tab-users">
-              <Users className="h-4 w-4" />
-              <span className="hidden sm:inline">Users & Teams</span>
             </TabsTrigger>
           </TabsList>
 
@@ -76,10 +71,6 @@ export default function AccountPage() {
 
           <TabsContent value="integrations" className="mt-6">
             <IntegrationsTab />
-          </TabsContent>
-
-          <TabsContent value="users" className="mt-6">
-            <TeamTab />
           </TabsContent>
         </Tabs>
       </div>

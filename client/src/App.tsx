@@ -36,6 +36,7 @@ import SuperAdminDocsPage from "@/pages/super-admin-docs";
 import SuperChatMonitoringPage from "@/pages/super-chat-monitoring";
 import TenantOnboardingPage from "@/pages/tenant-onboarding";
 import AccountPage from "@/pages/account";
+import UserManagerPage from "@/pages/user-manager";
 import UserProfilePage from "@/pages/user-profile";
 import AcceptTermsPage from "@/pages/accept-terms";
 import PlatformInvitePage from "@/pages/platform-invite";
@@ -273,6 +274,9 @@ function TenantRouter() {
       </Route>
       <Route path="/account/:tab">
         {() => <TenantRouteGuard component={AccountPage} />}
+      </Route>
+      <Route path="/user-manager">
+        {() => <TenantRouteGuard component={UserManagerPage} />}
       </Route>
       <Route path="/profile">
         {() => <TenantRouteGuard component={UserProfilePage} />}
