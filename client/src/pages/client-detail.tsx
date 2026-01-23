@@ -670,6 +670,57 @@ export default function ClientDetailPage() {
               </Card>
             </div>
 
+            {/* Divisions Section */}
+            {divisions.length > 0 && (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                  <CardTitle className="text-base">Divisions</CardTitle>
+                  <Badge variant="secondary">{divisions.length}</Badge>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {divisions.map((division) => (
+                      <Card
+                        key={division.id}
+                        className="hover-elevate cursor-pointer"
+                        onClick={() => {
+                          setEditingDivision(division);
+                          setDivisionMode("edit");
+                          setDivisionDrawerOpen(true);
+                        }}
+                        data-testid={`division-card-${division.id}`}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="h-3 w-3 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: division.color || "#3B82F6" }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{division.name}</p>
+                              {division.description && (
+                                <p className="text-xs text-muted-foreground truncate">{division.description}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Users className="h-3 w-3" />
+                              {division.memberCount} members
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <FolderKanban className="h-3 w-3" />
+                              {division.projectCount} projects
+                            </span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {client.notes && (
               <Card>
                 <CardHeader>
