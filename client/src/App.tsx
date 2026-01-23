@@ -49,6 +49,7 @@ import { GlobalActiveTimer } from "@/features/timer";
 import { ChatDrawerProvider, useChatDrawer } from "@/contexts/chat-drawer-context";
 import { GlobalChatDrawer } from "@/components/global-chat-drawer";
 import { Button } from "@/components/ui/button";
+import { NotificationCenter } from "@/components/notification-center";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -246,6 +247,7 @@ function SuperLayout() {
               <TenantSwitcher />
             </div>
             <div className="flex items-center gap-2">
+              <NotificationCenter />
               <ThemeToggle />
               <UserMenu />
             </div>
@@ -310,6 +312,7 @@ function TenantLayout() {
                   <div className="flex items-center gap-2">
                     <GlobalActiveTimer />
                     <ChatToggleButton />
+                    <NotificationCenter />
                     <ThemeToggle />
                     <UserMenu />
                   </div>
