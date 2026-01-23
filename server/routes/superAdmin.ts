@@ -32,7 +32,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory, clients, clientContacts, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents, workspaceMembers, teamMembers, projectMembers, divisionMembers, activityLog, comments, passwordResetTokens } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantAuditEvents, NoteCategory, clients, clientContacts, clientDivisions, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents, workspaceMembers, teamMembers, projectMembers, divisionMembers, activityLog, comments, passwordResetTokens, chatReads, chatMessages, chatChannelMembers, chatChannels, notifications, notificationPreferences, activeTimers, clientUserAccess, clientInvites, tenantIntegrations, appSettings, errorLogs, emailOutbox, sections, taskAssignees, taskWatchers, personalTaskSections, subtasks, tags, taskTags, taskAttachments, commentMentions, chatDmThreads, chatDmMembers, chatAttachments, chatMentions, tenancyWarnings } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
@@ -507,6 +507,146 @@ router.post("/tenants/:tenantId/deactivate", requireSuperUser, async (req, res) 
   } catch (error) {
     console.error("Error deactivating tenant:", error);
     res.status(500).json({ error: "Failed to deactivate tenant" });
+  }
+});
+
+// DELETE /api/v1/super/tenants/:tenantId - Permanently delete a tenant and all its data
+router.delete("/tenants/:tenantId", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    // Safety check: Tenant must be suspended or inactive before deletion
+    if (tenant.status === TenantStatus.ACTIVE) {
+      return res.status(400).json({ 
+        error: "Cannot delete an active tenant",
+        details: "Suspend or deactivate the tenant first before deleting."
+      });
+    }
+
+    const superUser = req.user as any;
+    console.log(`[SuperAdmin] Deleting tenant ${tenantId} (${tenant.name}) by super user ${superUser?.email}`);
+
+    // Wrap all deletions in a transaction for atomicity
+    await db.transaction(async (tx) => {
+      // Delete all tenant data in order (respecting foreign key constraints)
+      // Order matters: delete children before parents
+      
+      // Chat system (delete children first)
+      await tx.delete(chatMentions).where(eq(chatMentions.tenantId, tenantId));
+      await tx.delete(chatAttachments).where(eq(chatAttachments.tenantId, tenantId));
+      await tx.delete(chatReads).where(eq(chatReads.tenantId, tenantId));
+      await tx.delete(chatMessages).where(eq(chatMessages.tenantId, tenantId));
+      await tx.delete(chatDmMembers).where(eq(chatDmMembers.tenantId, tenantId));
+      await tx.delete(chatDmThreads).where(eq(chatDmThreads.tenantId, tenantId));
+      await tx.delete(chatChannelMembers).where(eq(chatChannelMembers.tenantId, tenantId));
+      await tx.delete(chatChannels).where(eq(chatChannels.tenantId, tenantId));
+      
+      // Notifications
+      await tx.delete(notifications).where(eq(notifications.tenantId, tenantId));
+      await tx.delete(notificationPreferences).where(eq(notificationPreferences.tenantId, tenantId));
+      
+      // Time tracking
+      await tx.delete(activeTimers).where(eq(activeTimers.tenantId, tenantId));
+      await tx.delete(timeEntries).where(eq(timeEntries.tenantId, tenantId));
+      
+      // Comments and mentions (delete children first)
+      await tx.delete(commentMentions).where(eq(commentMentions.commentId, sql`ANY(SELECT id FROM comments WHERE tenant_id = ${tenantId})`));
+      await tx.delete(comments).where(eq(comments.tenantId, tenantId));
+      
+      // Task-related (delete children before tasks)
+      await tx.delete(taskAttachments).where(eq(taskAttachments.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
+      await tx.delete(taskTags).where(eq(taskTags.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
+      await tx.delete(subtasks).where(eq(subtasks.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
+      await tx.delete(taskWatchers).where(eq(taskWatchers.tenantId, tenantId));
+      await tx.delete(taskAssignees).where(eq(taskAssignees.tenantId, tenantId));
+      await tx.delete(activityLog).where(eq(activityLog.tenantId, tenantId));
+      await tx.delete(tasks).where(eq(tasks.tenantId, tenantId));
+      
+      // Tags (after taskTags deleted)
+      await tx.delete(tags).where(eq(tags.workspaceId, sql`ANY(SELECT id FROM workspaces WHERE tenant_id = ${tenantId})`));
+      
+      // Personal task sections
+      await tx.delete(personalTaskSections).where(eq(personalTaskSections.tenantId, tenantId));
+      
+      // Project sections (after tasks deleted)
+      await tx.delete(sections).where(eq(sections.projectId, sql`ANY(SELECT id FROM projects WHERE tenant_id = ${tenantId})`));
+      
+      // Projects
+      await tx.delete(projectMembers).where(eq(projectMembers.tenantId, tenantId));
+      await tx.delete(projects).where(eq(projects.tenantId, tenantId));
+      
+      // Client portal
+      await tx.delete(clientUserAccess).where(eq(clientUserAccess.tenantId, tenantId));
+      await tx.delete(clientInvites).where(eq(clientInvites.tenantId, tenantId));
+      
+      // Divisions
+      await tx.delete(divisionMembers).where(eq(divisionMembers.tenantId, tenantId));
+      await tx.delete(clientDivisions).where(eq(clientDivisions.tenantId, tenantId));
+      
+      // Clients
+      await tx.delete(clientContacts).where(eq(clientContacts.tenantId, tenantId));
+      await tx.delete(clients).where(eq(clients.tenantId, tenantId));
+      
+      // Teams
+      await tx.delete(teamMembers).where(eq(teamMembers.tenantId, tenantId));
+      await tx.delete(teams).where(eq(teams.tenantId, tenantId));
+      
+      // Workspaces (after tags deleted)
+      await tx.delete(workspaceMembers).where(eq(workspaceMembers.tenantId, tenantId));
+      await tx.delete(workspaces).where(eq(workspaces.tenantId, tenantId));
+      
+      // Invitations and auth
+      await tx.delete(invitations).where(eq(invitations.tenantId, tenantId));
+      
+      // Tenant config and settings
+      await tx.delete(tenantNotes).where(eq(tenantNotes.tenantId, tenantId));
+      await tx.delete(tenantAuditEvents).where(eq(tenantAuditEvents.tenantId, tenantId));
+      await tx.delete(tenantAgreementAcceptances).where(eq(tenantAgreementAcceptances.tenantId, tenantId));
+      await tx.delete(tenantAgreements).where(eq(tenantAgreements.tenantId, tenantId));
+      await tx.delete(tenantIntegrations).where(eq(tenantIntegrations.tenantId, tenantId));
+      await tx.delete(tenantSettings).where(eq(tenantSettings.tenantId, tenantId));
+      
+      // App settings
+      await tx.delete(appSettings).where(eq(appSettings.tenantId, tenantId));
+      
+      // Error logs (tenant-scoped)
+      await tx.delete(errorLogs).where(eq(errorLogs.tenantId, tenantId));
+      
+      // Email outbox (tenant-scoped)
+      await tx.delete(emailOutbox).where(eq(emailOutbox.tenantId, tenantId));
+      
+      // Tenancy warnings (data integrity warnings for this tenant)
+      await tx.delete(tenancyWarnings).where(eq(tenancyWarnings.tenantId, tenantId));
+      
+      // Users belonging to this tenant
+      await tx.delete(users).where(eq(users.tenantId, tenantId));
+      
+      // Finally delete the tenant itself
+      await tx.delete(tenants).where(eq(tenants.id, tenantId));
+    });
+
+    console.log(`[SuperAdmin] Tenant ${tenantId} (${tenant.name}) deleted successfully`);
+
+    // Record platform-level audit event (outside transaction as tenant audit table is already deleted)
+    await db.insert(platformAuditEvents).values({
+      eventType: "tenant_deleted",
+      message: `Tenant "${tenant.name}" (${tenantId}) permanently deleted`,
+      actorUserId: superUser?.id,
+      metadata: { tenantId, tenantName: tenant.name, tenantSlug: tenant.slug },
+    });
+
+    res.json({
+      success: true,
+      message: `Tenant "${tenant.name}" and all its data have been permanently deleted`,
+    });
+  } catch (error) {
+    console.error("Error deleting tenant:", error);
+    res.status(500).json({ error: "Failed to delete tenant" });
   }
 });
 

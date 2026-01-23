@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest, clearTenantScopedCaches } from "@/lib/queryClient";
 import { useAppMode } from "@/hooks/useAppMode";
 import { useLocation } from "wouter";
-import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Upload, Users, Download, PlayCircle, PauseCircle, Power, ExternalLink, Mail, FileText, Check, X, MoreHorizontal } from "lucide-react";
+import { Building2, Plus, Edit2, Shield, CheckCircle, XCircle, UserPlus, Clock, Copy, AlertTriangle, Loader2, Activity, Database, RefreshCw, Play, Settings, Upload, Users, Download, PlayCircle, PauseCircle, Power, ExternalLink, Mail, FileText, Check, X, MoreHorizontal, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { TenantDrawer } from "@/components/super-admin/tenant-drawer";
@@ -103,7 +103,7 @@ export default function SuperAdminPage() {
   const [importingTenant, setImportingTenant] = useState<Tenant | null>(null);
   const [csvUsers, setCsvUsers] = useState<CSVUser[]>([]);
   const [importResults, setImportResults] = useState<ImportResponse | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{ type: "activate" | "suspend" | "deactivate"; tenant: Tenant } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: "activate" | "suspend" | "delete"; tenant: Tenant } | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<TenantWithDetails | null>(null);
   const [isActingAsTenant, setIsActingAsTenant] = useState(false);
   const [, setLocation] = useLocation();
@@ -212,17 +212,22 @@ export default function SuperAdminPage() {
     },
   });
 
-  const deactivateTenantMutation = useMutation({
+  const deleteTenantMutation = useMutation({
     mutationFn: async (tenantId: string) => {
-      return apiRequest("POST", `/api/v1/super/tenants/${tenantId}/deactivate`);
+      const res = await apiRequest("DELETE", `/api/v1/super/tenants/${tenantId}`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || data.details || "Failed to delete tenant");
+      }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
       setConfirmAction(null);
-      toast({ title: "Tenant deactivated", description: "The tenant has been set to inactive" });
+      toast({ title: "Tenant deleted", description: "The tenant and all its data have been permanently deleted" });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to deactivate tenant", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to delete tenant", description: error.message, variant: "destructive" });
     },
   });
 
@@ -542,22 +547,24 @@ export default function SuperAdminPage() {
                         )}
                         
                         {tenant.status === "active" && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => setConfirmAction({ type: "suspend", tenant })}
-                              data-testid={`menu-suspend-tenant-${tenant.id}`}
-                            >
-                              <PauseCircle className="h-4 w-4 mr-2" />
-                              Suspend
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setConfirmAction({ type: "deactivate", tenant })}
-                              data-testid={`menu-deactivate-tenant-${tenant.id}`}
-                            >
-                              <Power className="h-4 w-4 mr-2" />
-                              Deactivate
-                            </DropdownMenuItem>
-                          </>
+                          <DropdownMenuItem
+                            onClick={() => setConfirmAction({ type: "suspend", tenant })}
+                            data-testid={`menu-suspend-tenant-${tenant.id}`}
+                          >
+                            <PauseCircle className="h-4 w-4 mr-2" />
+                            Suspend
+                          </DropdownMenuItem>
+                        )}
+                        
+                        {(tenant.status === "suspended" || tenant.status === "inactive") && (
+                          <DropdownMenuItem
+                            onClick={() => setConfirmAction({ type: "delete", tenant })}
+                            data-testid={`menu-delete-tenant-${tenant.id}`}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
                         )}
                         
                         {tenant.status === "suspended" && (
@@ -1194,14 +1201,14 @@ export default function SuperAdminPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Confirmation Dialog for Activate/Suspend/Deactivate */}
+      {/* Confirmation Dialog for Activate/Suspend/Delete */}
       <Dialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {confirmAction?.type === "activate" && "Activate Tenant"}
               {confirmAction?.type === "suspend" && "Suspend Tenant"}
-              {confirmAction?.type === "deactivate" && "Deactivate Tenant"}
+              {confirmAction?.type === "delete" && "Delete Tenant"}
             </DialogTitle>
             <DialogDescription>
               {confirmAction?.type === "activate" && (
@@ -1220,12 +1227,11 @@ export default function SuperAdminPage() {
                   Super admins can still access the tenant.
                 </>
               )}
-              {confirmAction?.type === "deactivate" && (
+              {confirmAction?.type === "delete" && (
                 <>
-                  Are you sure you want to deactivate <strong>{confirmAction?.tenant.name}</strong>?
+                  Are you sure you want to <strong className="text-destructive">permanently delete</strong> <strong>{confirmAction?.tenant.name}</strong>?
                   <br /><br />
-                  This will set the tenant back to inactive status. Users will need to complete onboarding
-                  or be re-activated by a super admin.
+                  <span className="text-destructive font-medium">This action cannot be undone.</span> All users, projects, tasks, time entries, and other data belonging to this tenant will be permanently deleted.
                 </>
               )}
             </DialogDescription>
@@ -1235,26 +1241,26 @@ export default function SuperAdminPage() {
               Cancel
             </Button>
             <Button
-              variant={confirmAction?.type === "suspend" || confirmAction?.type === "deactivate" ? "destructive" : "default"}
+              variant={confirmAction?.type === "suspend" || confirmAction?.type === "delete" ? "destructive" : "default"}
               onClick={() => {
                 if (!confirmAction) return;
                 if (confirmAction.type === "activate") {
                   activateTenantMutation.mutate(confirmAction.tenant.id);
                 } else if (confirmAction.type === "suspend") {
                   suspendTenantMutation.mutate(confirmAction.tenant.id);
-                } else if (confirmAction.type === "deactivate") {
-                  deactivateTenantMutation.mutate(confirmAction.tenant.id);
+                } else if (confirmAction.type === "delete") {
+                  deleteTenantMutation.mutate(confirmAction.tenant.id);
                 }
               }}
-              disabled={activateTenantMutation.isPending || suspendTenantMutation.isPending || deactivateTenantMutation.isPending}
+              disabled={activateTenantMutation.isPending || suspendTenantMutation.isPending || deleteTenantMutation.isPending}
               data-testid={`button-confirm-${confirmAction?.type}`}
             >
-              {(activateTenantMutation.isPending || suspendTenantMutation.isPending || deactivateTenantMutation.isPending) && (
+              {(activateTenantMutation.isPending || suspendTenantMutation.isPending || deleteTenantMutation.isPending) && (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
               {confirmAction?.type === "activate" && "Activate"}
               {confirmAction?.type === "suspend" && "Suspend"}
-              {confirmAction?.type === "deactivate" && "Deactivate"}
+              {confirmAction?.type === "delete" && "Delete Permanently"}
             </Button>
           </DialogFooter>
         </DialogContent>
