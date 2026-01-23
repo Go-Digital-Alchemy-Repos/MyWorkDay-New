@@ -247,4 +247,90 @@ router.delete("/divisions/:divisionId/members/:userId", async (req, res) => {
   }
 });
 
+// Get projects for a division
+router.get("/divisions/:divisionId/projects", async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(403).json({ error: "Tenant context required" });
+    }
+    
+    const { divisionId } = req.params;
+    
+    const division = await storage.getClientDivision(divisionId);
+    if (!division || division.tenantId !== tenantId) {
+      return res.status(404).json({ error: "Division not found" });
+    }
+    
+    const userId = getCurrentUserId(req);
+    const user = await storage.getUser(userId);
+    const canView = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
+    
+    if (!canView) {
+      const isMember = await storage.isDivisionMember(divisionId, userId);
+      if (!isMember) {
+        return res.status(403).json({ error: "You do not have access to this division" });
+      }
+    }
+    
+    // Get all projects in tenant and filter by divisionId
+    const allProjects = await storage.getProjectsByTenant(tenantId);
+    const divisionProjects = allProjects.filter((p: any) => p.divisionId === divisionId);
+    
+    res.json(divisionProjects);
+  } catch (error) {
+    console.error("Error fetching division projects:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get tasks for a division (from all projects in this division)
+router.get("/divisions/:divisionId/tasks", async (req, res) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) {
+      return res.status(403).json({ error: "Tenant context required" });
+    }
+    
+    const { divisionId } = req.params;
+    
+    const division = await storage.getClientDivision(divisionId);
+    if (!division || division.tenantId !== tenantId) {
+      return res.status(404).json({ error: "Division not found" });
+    }
+    
+    const userId = getCurrentUserId(req);
+    const user = await storage.getUser(userId);
+    const canView = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
+    
+    if (!canView) {
+      const isMember = await storage.isDivisionMember(divisionId, userId);
+      if (!isMember) {
+        return res.status(403).json({ error: "You do not have access to this division" });
+      }
+    }
+    
+    // Get all projects in this division
+    const allProjects = await storage.getProjectsByTenant(tenantId);
+    const divisionProjects = allProjects.filter((p: any) => p.divisionId === divisionId);
+    const projectIds = divisionProjects.map((p: any) => p.id);
+    
+    if (projectIds.length === 0) {
+      return res.json([]);
+    }
+    
+    // Use batch query to get tasks for all projects at once
+    const tasksByProject = await storage.getTasksByProjectIds(projectIds);
+    const allTasks: any[] = [];
+    tasksByProject.forEach((tasks) => {
+      allTasks.push(...tasks);
+    });
+    
+    res.json(allTasks);
+  } catch (error) {
+    console.error("Error fetching division tasks:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
