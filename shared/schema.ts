@@ -846,15 +846,54 @@ export const activityLog = pgTable("activity_log", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Notification type enum
+export const NotificationType = {
+  TASK_DEADLINE: "task_deadline",
+  TASK_ASSIGNED: "task_assigned",
+  TASK_COMPLETED: "task_completed",
+  COMMENT_ADDED: "comment_added",
+  COMMENT_MENTION: "comment_mention",
+  PROJECT_UPDATE: "project_update",
+  PROJECT_MEMBER_ADDED: "project_member_added",
+  TASK_STATUS_CHANGED: "task_status_changed",
+} as const;
+
 // Notifications table
 export const notifications = pgTable("notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   type: text("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message"),
   payloadJson: jsonb("payload_json"),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("notifications_user_idx").on(table.userId),
+  index("notifications_tenant_idx").on(table.tenantId),
+  index("notifications_created_idx").on(table.createdAt),
+]);
+
+// Notification preferences table
+export const notificationPreferences = pgTable("notification_preferences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  taskDeadline: boolean("task_deadline").default(true).notNull(),
+  taskAssigned: boolean("task_assigned").default(true).notNull(),
+  taskCompleted: boolean("task_completed").default(true).notNull(),
+  commentAdded: boolean("comment_added").default(true).notNull(),
+  commentMention: boolean("comment_mention").default(true).notNull(),
+  projectUpdate: boolean("project_update").default(true).notNull(),
+  projectMemberAdded: boolean("project_member_added").default(true).notNull(),
+  taskStatusChanged: boolean("task_status_changed").default(false).notNull(),
+  emailEnabled: boolean("email_enabled").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("notification_preferences_user_idx").on(table.userId),
+]);
 
 // Upload Status enum
 export const UploadStatus = {
@@ -1795,6 +1834,12 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   createdAt: true,
 });
 
+export const insertNotificationPreferencesSchema = createInsertSchema(notificationPreferences).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertTaskAttachmentSchema = createInsertSchema(taskAttachments).omit({
   id: true,
   createdAt: true,
@@ -2024,6 +2069,8 @@ export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type NotificationPreferences = typeof notificationPreferences.$inferSelect;
+export type InsertNotificationPreferences = z.infer<typeof insertNotificationPreferencesSchema>;
 
 export type TaskAttachment = typeof taskAttachments.$inferSelect;
 export type InsertTaskAttachment = z.infer<typeof insertTaskAttachmentSchema>;
