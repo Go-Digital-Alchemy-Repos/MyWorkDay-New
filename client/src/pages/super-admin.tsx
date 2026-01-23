@@ -112,6 +112,16 @@ export default function SuperAdminPage() {
     queryKey: ["/api/v1/super/tenants-detail"],
   });
 
+  // Sync selectedTenant with latest data from query to reflect status changes
+  useEffect(() => {
+    if (selectedTenant && tenants.length > 0) {
+      const updated = tenants.find(t => t.id === selectedTenant.id);
+      if (updated && updated.status !== selectedTenant.status) {
+        setSelectedTenant(updated);
+      }
+    }
+  }, [tenants, selectedTenant]);
+
   const { data: healthData, isLoading: healthLoading, isError: healthError, error: healthErrorDetails, refetch: refetchHealth } = useQuery<TenancyHealthResponse>({
     queryKey: ["/api/v1/super/tenancy/health"],
     enabled: activeTab === "health",
