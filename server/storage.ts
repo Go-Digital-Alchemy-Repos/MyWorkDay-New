@@ -792,6 +792,21 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  // Get tasks with due dates before the specified date (for deadline notifications)
+  async getTasksDueSoon(beforeDate: Date): Promise<Task[]> {
+    const now = new Date();
+    const tasksList = await db.select().from(tasks)
+      .where(and(
+        gte(tasks.dueDate, now),
+        lte(tasks.dueDate, beforeDate),
+        sql`${tasks.status} != 'completed'`,
+        eq(tasks.isPersonal, false)
+      ))
+      .orderBy(asc(tasks.dueDate));
+    
+    return tasksList;
+  }
+
   async getTasksByUser(userId: string): Promise<TaskWithRelations[]> {
     const assigneeRecords = await db.select().from(taskAssignees).where(eq(taskAssignees.userId, userId));
     const assignedTaskIds = new Set(assigneeRecords.map(a => a.taskId));

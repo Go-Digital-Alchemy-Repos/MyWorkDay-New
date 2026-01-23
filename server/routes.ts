@@ -73,6 +73,24 @@ function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
 }
 
+// Helper function to generate human-readable project update description
+function getProjectUpdateDescription(updates: Record<string, unknown>): string | null {
+  const descriptions: string[] = [];
+  
+  if ('name' in updates) descriptions.push('updated the project name');
+  if ('description' in updates) descriptions.push('updated the project description');
+  if ('status' in updates) descriptions.push(`changed the status to "${updates.status}"`);
+  if ('startDate' in updates || 'endDate' in updates) descriptions.push('updated the project timeline');
+  if ('budget' in updates || 'budgetHours' in updates) descriptions.push('updated the budget');
+  if ('clientId' in updates) descriptions.push('changed the client');
+  if ('divisionId' in updates) descriptions.push('changed the division');
+  if ('teamId' in updates) descriptions.push('changed the team assignment');
+  
+  if (descriptions.length === 0) return null;
+  if (descriptions.length === 1) return descriptions[0];
+  return descriptions.slice(0, -1).join(', ') + ' and ' + descriptions.slice(-1);
+}
+
 // Cache for tenant primary workspaces to avoid repeated DB lookups
 const tenantWorkspaceCache = new Map<string, { workspaceId: string; expiry: number }>();
 const WORKSPACE_CACHE_TTL = 60000; // 1 minute
@@ -206,6 +224,17 @@ import {
   emitMyTaskUpdated,
   emitMyTaskDeleted,
 } from "./realtime/events";
+
+import {
+  notifyTaskAssigned,
+  notifyTaskCompleted,
+  notifyTaskStatusChanged,
+  notifyCommentAdded,
+  notifyCommentMention,
+  notifyProjectMemberAdded,
+  notifyProjectUpdate,
+  startDeadlineChecker,
+} from "./features/notifications/notification.service";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -685,6 +714,26 @@ export async function registerRoutes(
       // Emit real-time event after successful DB operation
       emitProjectUpdated(project!.id, req.body);
 
+      // Send project update notifications to project members (fire and forget)
+      const currentUserId = getCurrentUserId(req);
+      const members = await storage.getProjectMembers(project!.id);
+      const updateDescription = getProjectUpdateDescription(req.body);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      if (updateDescription) {
+        for (const member of members) {
+          if (member.userId !== currentUserId) {
+            notifyProjectUpdate(
+              member.userId,
+              project!.id,
+              project!.name,
+              `${currentUser?.name || "Someone"} ${updateDescription}`,
+              { tenantId, excludeUserId: currentUserId }
+            ).catch(() => {});
+          }
+        }
+      }
+
       res.json(project);
     } catch (error) {
       console.error("Error updating project:", error);
@@ -788,6 +837,22 @@ export async function registerRoutes(
       
       // Emit membership change event
       emitProjectUpdated(projectId, { membershipChanged: true } as any);
+      
+      // Send notification to newly added member (fire and forget)
+      const currentUserId = getCurrentUserId(req);
+      if (userId !== currentUserId) {
+        const project = await storage.getProject(projectId);
+        const currentUser = await storage.getUser(currentUserId);
+        if (project) {
+          notifyProjectMemberAdded(
+            userId,
+            projectId,
+            project.name,
+            currentUser?.name || currentUser?.email || "Someone",
+            { tenantId, excludeUserId: currentUserId }
+          ).catch(() => {});
+        }
+      }
       
       res.status(201).json(member);
     } catch (error) {
@@ -1616,6 +1681,12 @@ export async function registerRoutes(
   app.patch("/api/tasks/:id", async (req, res) => {
     const requestId = (req as any).requestId || 'unknown';
     try {
+      const userId = getCurrentUserId(req);
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Get task before update for comparison
+      const taskBefore = await storage.getTaskWithRelations(req.params.id);
+      
       // If converting to personal task, force clear project ties
       const updateData = { ...req.body };
       if (updateData.isPersonal === true) {
@@ -1637,6 +1708,48 @@ export async function registerRoutes(
       } else if (task.projectId) {
         // Project task - emit to project room
         emitTaskUpdated(task.id, task.projectId, task.parentTaskId, req.body);
+      }
+
+      // Send notifications for task changes (fire and forget - don't block response)
+      if (taskBefore && !task.isPersonal) {
+        const currentUser = await storage.getUser(userId);
+        const currentUserName = currentUser?.name || currentUser?.email || "Someone";
+        const project = task.projectId ? await storage.getProject(task.projectId) : null;
+        const projectName = project?.name || "Unknown project";
+        const notificationContext = { tenantId, excludeUserId: userId };
+
+        // Check for status change to completed
+        if (updateData.status === "completed" && taskBefore.status !== "completed") {
+          const assignees = (taskWithRelations as any)?.assignees || [];
+          for (const assignee of assignees) {
+            if (assignee.id !== userId) {
+              notifyTaskCompleted(
+                assignee.id,
+                task.id,
+                task.title,
+                currentUserName,
+                notificationContext
+              ).catch(() => {});
+            }
+          }
+        }
+
+        // Check for status change (non-completion)
+        if (updateData.status && updateData.status !== taskBefore.status && updateData.status !== "completed") {
+          const assignees = (taskWithRelations as any)?.assignees || [];
+          for (const assignee of assignees) {
+            if (assignee.id !== userId) {
+              notifyTaskStatusChanged(
+                assignee.id,
+                task.id,
+                task.title,
+                updateData.status,
+                currentUserName,
+                notificationContext
+              ).catch(() => {});
+            }
+          }
+        }
       }
 
       res.json(taskWithRelations);
@@ -1714,11 +1827,43 @@ export async function registerRoutes(
 
   app.post("/api/tasks/:taskId/assignees", async (req, res) => {
     try {
-      const { userId } = req.body;
+      const { userId: assigneeUserId } = req.body;
+      const currentUserId = getCurrentUserId(req);
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Get task first to validate tenant context
+      const task = await storage.getTask(req.params.taskId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      
+      // Validate assignee belongs to same tenant (critical for multi-tenant isolation)
+      if (tenantId) {
+        const assigneeUser = await storage.getUser(assigneeUserId);
+        if (!assigneeUser || assigneeUser.tenantId !== tenantId) {
+          return res.status(403).json({ error: "User is not in the same organization" });
+        }
+      }
+      
       const assignee = await storage.addTaskAssignee({
         taskId: req.params.taskId,
-        userId,
+        userId: assigneeUserId,
       });
+      
+      // Send notification to new assignee (fire and forget)
+      if (assigneeUserId !== currentUserId && !task.isPersonal) {
+        const currentUser = await storage.getUser(currentUserId);
+        const project = task.projectId ? await storage.getProject(task.projectId) : null;
+        notifyTaskAssigned(
+          assigneeUserId,
+          task.id,
+          task.title,
+          currentUser?.name || currentUser?.email || "Someone",
+          project?.name || "a project",
+          { tenantId, excludeUserId: currentUserId }
+        ).catch(() => {});
+      }
+      
       res.status(201).json(assignee);
     } catch (error) {
       console.error("Error adding assignee:", error);
@@ -1995,6 +2140,16 @@ export async function registerRoutes(
           mentionedUserId: mention.userId,
         });
 
+        // Send in-app notification for mention (fire and forget)
+        notifyCommentMention(
+          mention.userId,
+          req.params.taskId,
+          task?.title || "a task",
+          commenter?.name || commenter?.email || "Someone",
+          data.body.replace(mentionRegex, '@$1'),
+          { tenantId, excludeUserId: currentUserId }
+        ).catch(() => {});
+
         // Send notification email if user has email
         if (mentionedUser.email && tenantId) {
           try {
@@ -2015,6 +2170,26 @@ export async function registerRoutes(
             });
           } catch (emailError) {
             console.error("Error sending mention notification:", emailError);
+          }
+        }
+      }
+
+      // Also notify task assignees about the new comment (except the commenter and mentioned users)
+      if (task) {
+        const taskWithRelations = await storage.getTaskWithRelations(req.params.taskId);
+        const assignees = (taskWithRelations as any)?.assignees || [];
+        const mentionedUserIds = new Set(mentions.map(m => m.userId));
+        
+        for (const assignee of assignees) {
+          if (assignee.id !== currentUserId && !mentionedUserIds.has(assignee.id)) {
+            notifyCommentAdded(
+              assignee.id,
+              req.params.taskId,
+              task.title,
+              commenter?.name || commenter?.email || "Someone",
+              data.body.replace(mentionRegex, '@$1'),
+              { tenantId, excludeUserId: currentUserId }
+            ).catch(() => {});
           }
         }
       }
@@ -4529,6 +4704,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to accept agreement" });
     }
   });
+
+  // Start the deadline notification checker (runs periodically)
+  startDeadlineChecker();
 
   return httpServer;
 }
