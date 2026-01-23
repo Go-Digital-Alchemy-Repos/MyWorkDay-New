@@ -61,9 +61,10 @@ import {
   Lock,
   RefreshCw,
   Trash2,
-  Edit2
+  Edit2,
+  Download
 } from "lucide-react";
-import { CsvImportPanel, type ParsedRow, type ImportResult } from "@/components/common/csv-import-panel";
+import { CsvImportPanel, type ParsedRow, type ImportResult, type CsvColumn } from "@/components/common/csv-import-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TenantUserDrawer } from "./tenant-user-drawer";
 import { ProvisionUserDrawer } from "./provision-user-drawer";
@@ -645,6 +646,8 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
   // Form state
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [editedName, setEditedName] = useState("");
+  const [editedSlug, setEditedSlug] = useState("");
+  const [hasUnsavedSlugChanges, setHasUnsavedSlugChanges] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteFirstName, setInviteFirstName] = useState("");
   const [inviteLastName, setInviteLastName] = useState("");
@@ -711,7 +714,9 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
   useEffect(() => {
     if (activeTenant) {
       setEditedName(activeTenant.name);
+      setEditedSlug(activeTenant.slug);
       setHasUnsavedChanges(false);
+      setHasUnsavedSlugChanges(false);
       // Load persisted tab for this specific tenant, or default to onboarding
       const storedTab = localStorage.getItem(getStorageKey(activeTenant.id));
       setActiveTab(storedTab || "onboarding");
@@ -1156,6 +1161,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants-detail"] });
       setHasUnsavedChanges(false);
+      setHasUnsavedSlugChanges(false);
       toast({ title: "Tenant updated successfully" });
       onTenantUpdated?.();
     },
@@ -1231,6 +1237,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
   const deleteClientMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("DELETE", `/api/v1/super/tenants/${activeTenant?.id}/clients/${id}`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to delete client");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -1240,7 +1250,11 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
       toast({ title: "Client deleted" });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to delete client", description: error.message, variant: "destructive" });
+      const message = error.message || "Failed to delete client";
+      const description = message.includes("foreign key") || message.includes("constraint") || message.includes("referenced")
+        ? "This client has projects or other data. Delete those first."
+        : message;
+      toast({ title: "Failed to delete client", description, variant: "destructive" });
     },
   });
 
@@ -1540,6 +1554,18 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
   const handleSaveName = () => {
     if (editedName !== activeTenant?.name) {
       updateTenantMutation.mutate({ name: editedName });
+    }
+  };
+
+  const handleSlugChange = (value: string) => {
+    const sanitized = value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    setEditedSlug(sanitized);
+    setHasUnsavedSlugChanges(sanitized !== activeTenant?.slug);
+  };
+
+  const handleSaveSlug = () => {
+    if (editedSlug !== activeTenant?.slug) {
+      updateTenantMutation.mutate({ slug: editedSlug });
     }
   };
 
@@ -2126,7 +2152,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid w-full grid-cols-9">
+          <TabsList className="grid w-full grid-cols-10">
             <TabsTrigger value="onboarding" data-testid="tab-onboarding">
               <Settings className="h-4 w-4 mr-2" />
               Setup
@@ -2158,6 +2184,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
             <TabsTrigger value="integrations" data-testid="tab-integrations">
               <HardDrive className="h-4 w-4 mr-2" />
               Integrations
+            </TabsTrigger>
+            <TabsTrigger value="data" data-testid="tab-data">
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Data
             </TabsTrigger>
             <TabsTrigger value="notes" data-testid="tab-notes">
               <MessageSquare className="h-4 w-4 mr-2" />
@@ -2193,8 +2223,33 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>URL Slug</Label>
-                  <div className="text-sm text-muted-foreground">/{activeTenant.slug}</div>
+                  <Label htmlFor="tenant-slug">URL Slug</Label>
+                  <div className="flex gap-2">
+                    <div className="flex items-center">
+                      <span className="text-muted-foreground mr-1">/</span>
+                      <Input
+                        id="tenant-slug"
+                        value={editedSlug}
+                        onChange={(e) => handleSlugChange(e.target.value)}
+                        placeholder="url-slug"
+                        className="w-48"
+                        data-testid="input-tenant-slug"
+                      />
+                    </div>
+                    {hasUnsavedSlugChanges && (
+                      <Button 
+                        onClick={handleSaveSlug} 
+                        disabled={updateTenantMutation.isPending || !editedSlug.trim()}
+                        data-testid="button-save-slug"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Only lowercase letters, numbers, and hyphens allowed
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-4">
                   <div className="space-y-1">
@@ -2572,6 +2627,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="data" className="space-y-6 mt-6">
+            <DataImportExportTab tenantId={activeTenant.id} tenantSlug={activeTenant.slug} />
           </TabsContent>
 
           <TabsContent value="notes" className="space-y-6 mt-6">
@@ -4553,3 +4612,247 @@ function TabLoadingSkeleton({ rows = 3 }: { rows?: number }) {
     </Card>
   );
 }
+
+/**
+ * DataImportExportTab - Import/export data for tenant provisioning
+ * Supports clients, team members, and time entries
+ */
+function DataImportExportTab({ tenantId, tenantSlug }: { tenantId: string; tenantSlug: string }) {
+  const { toast } = useToast();
+  const [activeSection, setActiveSection] = useState<"clients" | "users" | "time-entries">("clients");
+  const [isExporting, setIsExporting] = useState(false);
+  
+  const handleExport = async (type: "clients" | "users" | "time-entries") => {
+    setIsExporting(true);
+    try {
+      const response = await fetch(`/api/v1/super/tenants/${tenantId}/export/${type}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Export failed");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${tenantSlug}-${type}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast({
+        title: "Export Complete",
+        description: `${type} exported successfully.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: "Failed to export data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const clientColumns: CsvColumn[] = [
+    { key: "companyName", label: "Company Name", required: true },
+    { key: "displayName", label: "Display Name" },
+    { key: "industry", label: "Industry" },
+    { key: "website", label: "Website" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "status", label: "Status" },
+    { key: "notes", label: "Notes" },
+    { key: "addressLine1", label: "Address Line 1" },
+    { key: "city", label: "City" },
+    { key: "state", label: "State" },
+    { key: "postalCode", label: "Postal Code" },
+    { key: "country", label: "Country" },
+  ];
+
+  const timeEntryColumns: CsvColumn[] = [
+    { key: "userEmail", label: "User Email", required: true, aliases: ["email", "user"] },
+    { key: "clientName", label: "Client Name", aliases: ["client"] },
+    { key: "projectName", label: "Project Name", aliases: ["project"] },
+    { key: "description", label: "Description", aliases: ["notes", "task"] },
+    { key: "scope", label: "Scope", aliases: ["billable"] },
+    { key: "startTime", label: "Start Time", required: true, aliases: ["start", "date", "startDate"] },
+    { key: "endTime", label: "End Time", aliases: ["end", "endDate"] },
+    { key: "durationSeconds", label: "Duration (seconds)", aliases: ["duration", "seconds", "time"] },
+    { key: "isManual", label: "Is Manual", aliases: ["manual"] },
+  ];
+
+  const handleImportClients = async (rows: ParsedRow[], _options: Record<string, boolean>): Promise<{ created: number; skipped: number; errors: number; results: ImportResult[] }> => {
+    const response = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/import/clients`, { rows });
+    const data = await response.json();
+    queryClient.invalidateQueries({ queryKey: [`/api/v1/super/tenants/${tenantId}/clients`] });
+    return {
+      created: data.created,
+      skipped: data.skipped,
+      errors: data.errors,
+      results: data.results.map((r: { name: string; status: string; reason?: string }) => ({
+        name: r.name,
+        status: r.status as "created" | "skipped" | "error",
+        reason: r.reason,
+      })),
+    };
+  };
+
+  const handleImportTimeEntries = async (rows: ParsedRow[], _options: Record<string, boolean>): Promise<{ created: number; skipped: number; errors: number; results: ImportResult[] }> => {
+    const response = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/import/time-entries`, { rows });
+    const data = await response.json();
+    return {
+      created: data.created,
+      skipped: data.skipped,
+      errors: data.errors,
+      results: data.results.map((r: { name: string; status: string; reason?: string }) => ({
+        name: r.name,
+        status: r.status as "created" | "skipped" | "error",
+        reason: r.reason,
+      })),
+    };
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4" />
+            Data Import & Export
+          </CardTitle>
+          <CardDescription>
+            Import or export clients, team members, and time entries for bulk provisioning.
+            Useful for migrating data from other applications like DA Time Tracker.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 mb-6">
+            <Button
+              variant={activeSection === "clients" ? "default" : "outline"}
+              onClick={() => setActiveSection("clients")}
+              data-testid="button-section-clients"
+            >
+              <Briefcase className="h-4 w-4 mr-2" />
+              Clients
+            </Button>
+            <Button
+              variant={activeSection === "users" ? "default" : "outline"}
+              onClick={() => setActiveSection("users")}
+              data-testid="button-section-users"
+            >
+              <Users className="h-4 w-4 mr-2" />
+              Team Members
+            </Button>
+            <Button
+              variant={activeSection === "time-entries" ? "default" : "outline"}
+              onClick={() => setActiveSection("time-entries")}
+              data-testid="button-section-time-entries"
+            >
+              <Clock className="h-4 w-4 mr-2" />
+              Time Entries
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {activeSection === "clients" && (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Export Clients</CardTitle>
+              <CardDescription>Download all clients as a CSV file</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => handleExport("clients")} 
+                disabled={isExporting}
+                data-testid="button-export-clients"
+              >
+                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                Export Clients
+              </Button>
+            </CardContent>
+          </Card>
+
+          <CsvImportPanel
+            title="Import Clients"
+            description="Upload a CSV file to import clients. Existing clients with matching company names will be skipped."
+            columns={clientColumns}
+            templateFilename={`${tenantSlug}-clients-template.csv`}
+            onImport={handleImportClients}
+            nameField="companyName"
+          />
+        </>
+      )}
+
+      {activeSection === "users" && (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Export Team Members</CardTitle>
+              <CardDescription>Download all team members as a CSV file</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => handleExport("users")} 
+                disabled={isExporting}
+                data-testid="button-export-users"
+              >
+                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                Export Team Members
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Import Team Members</CardTitle>
+              <CardDescription>
+                Use the bulk CSV import on the Users tab for importing team members with invitations.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Navigate to the Users tab and use the CSV Import feature there to import team members.
+                This allows you to send invitation emails and configure roles.
+              </p>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {activeSection === "time-entries" && (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Export Time Entries</CardTitle>
+              <CardDescription>Download all time tracking entries as a CSV file</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => handleExport("time-entries")} 
+                disabled={isExporting}
+                data-testid="button-export-time-entries"
+              >
+                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                Export Time Entries
+              </Button>
+            </CardContent>
+          </Card>
+
+          <CsvImportPanel
+            title="Import Time Entries"
+            description="Upload a CSV file to import time tracking entries from DA Time Tracker or other apps. Users must exist in the system (matched by email). Clients and projects are matched by name if they exist."
+            columns={timeEntryColumns}
+            templateFilename={`${tenantSlug}-time-entries-template.csv`}
+            onImport={handleImportTimeEntries}
+            nameField="userEmail"
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
