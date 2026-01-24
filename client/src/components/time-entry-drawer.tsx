@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 interface TimeEntryData {
   id?: string;
+  title: string;
   description: string;
   durationHours: number;
   durationMinutes: number;
@@ -52,6 +53,7 @@ export function TimeEntryDrawer({
   projects = [],
 }: TimeEntryDrawerProps) {
   const [hasChanges, setHasChanges] = useState(false);
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [durationHours, setDurationHours] = useState(0);
   const [durationMinutes, setDurationMinutes] = useState(0);
@@ -63,6 +65,7 @@ export function TimeEntryDrawer({
 
   useEffect(() => {
     if (open && entry && mode === "edit") {
+      setTitle(entry.title || "");
       setDescription(entry.description || "");
       setDurationHours(entry.durationHours);
       setDurationMinutes(entry.durationMinutes);
@@ -72,6 +75,7 @@ export function TimeEntryDrawer({
       setScope(entry.scope);
       setDate(entry.date);
     } else if (open && mode === "create") {
+      setTitle("");
       setDescription("");
       setDurationHours(0);
       setDurationMinutes(0);
@@ -92,6 +96,7 @@ export function TimeEntryDrawer({
     try {
       await onSubmit({
         id: entry?.id,
+        title,
         description,
         durationHours,
         durationMinutes,
@@ -124,7 +129,7 @@ export function TimeEntryDrawer({
     <FullScreenDrawer
       open={open}
       onOpenChange={onOpenChange}
-      title={mode === "create" ? "Add Time Entry" : "Edit Time Entry"}
+      title={mode === "create" ? "Add Manual Entry" : "Edit Time Entry"}
       description={mode === "create" ? "Log time spent on a task" : "Update time entry details"}
       hasUnsavedChanges={hasChanges}
       onConfirmClose={handleClose}
@@ -134,7 +139,7 @@ export function TimeEntryDrawer({
           onCancel={handleCancel}
           onSave={handleSubmit}
           isLoading={isLoading}
-          saveLabel={mode === "create" ? "Add Entry" : "Save Changes"}
+          saveLabel={mode === "create" ? "Add Manual Entry" : "Save Changes"}
           saveDisabled={!isValid}
         />
       }
@@ -308,6 +313,20 @@ export function TimeEntryDrawer({
               Out of Scope (Billable)
             </button>
           </div>
+        </div>
+
+        <div>
+          <Label>Title</Label>
+          <Input
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              handleFieldChange();
+            }}
+            placeholder="Brief title for this time entry"
+            className="mt-2"
+            data-testid="input-title"
+          />
         </div>
 
         <div>

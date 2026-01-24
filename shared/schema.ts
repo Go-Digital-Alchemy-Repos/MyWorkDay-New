@@ -646,6 +646,7 @@ export const timeEntries = pgTable("time_entries", {
   clientId: varchar("client_id").references(() => clients.id),
   projectId: varchar("project_id").references(() => projects.id),
   taskId: varchar("task_id").references(() => tasks.id),
+  title: text("title"),
   description: text("description"),
   scope: text("scope").notNull().default("in_scope"),
   startTime: timestamp("start_time").notNull(),

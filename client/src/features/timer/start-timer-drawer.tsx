@@ -199,12 +199,12 @@ export function StartTimerDrawer({
       <div className="p-6 space-y-6">
         <div className="space-y-2">
           <Label>Client</Label>
-          <Select value={clientId || ""} onValueChange={(v) => handleClientChange(v || null)}>
+          <Select value={clientId || "none"} onValueChange={(v) => handleClientChange(v === "none" ? null : v)}>
             <SelectTrigger data-testid="select-start-timer-client">
               <SelectValue placeholder="Select client (optional)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">No client</SelectItem>
+              <SelectItem value="none">No client</SelectItem>
               {clients.map((client) => (
                 <SelectItem key={client.id} value={client.id}>
                   {client.displayName || client.companyName}
@@ -254,15 +254,15 @@ export function StartTimerDrawer({
         <div className="space-y-2">
           <Label>Project</Label>
           <Select 
-            value={projectId || ""} 
-            onValueChange={(v) => handleProjectChange(v || null)}
+            value={projectId || "none"} 
+            onValueChange={(v) => handleProjectChange(v === "none" ? null : v)}
             disabled={!clientId}
           >
             <SelectTrigger data-testid="select-start-timer-project">
               <SelectValue placeholder={clientId ? "Select project (optional)" : "Select client first"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">No project</SelectItem>
+              <SelectItem value="none">No project</SelectItem>
               {projects.map((project) => (
                 <SelectItem key={project.id} value={project.id}>
                   {project.name}

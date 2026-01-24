@@ -552,6 +552,7 @@ function ManualEntryDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [hours, setHours] = useState("0");
   const [minutes, setMinutes] = useState("30");
@@ -624,6 +625,7 @@ function ManualEntryDialog({
 
   const createMutation = useMutation({
     mutationFn: (data: {
+      title: string;
       description: string;
       durationSeconds: number;
       startTime: string;
@@ -636,6 +638,7 @@ function ManualEntryDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
       toast({ title: "Time entry created" });
       onOpenChange(false);
+      setTitle("");
       setDescription("");
       setHours("0");
       setMinutes("30");
@@ -665,6 +668,7 @@ function ManualEntryDialog({
     const startTime = new Date(`${date}T09:00:00`);
     const finalTaskId = subtaskId || taskId;
     createMutation.mutate({
+      title,
       description,
       durationSeconds,
       startTime: startTime.toISOString(),
@@ -677,6 +681,7 @@ function ManualEntryDialog({
 
   const initialDate = format(new Date(), "yyyy-MM-dd");
   const hasChanges = 
+    title !== "" ||
     description !== "" || 
     hours !== "0" || 
     minutes !== "30" || 
@@ -706,6 +711,15 @@ function ManualEntryDialog({
       }
     >
       <div className="space-y-6">
+        <div className="space-y-2">
+          <Label>Title</Label>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Brief title for this time entry"
+            data-testid="input-manual-title"
+          />
+        </div>
         <div className="space-y-2">
           <Label>Description</Label>
           <Textarea
@@ -1477,7 +1491,7 @@ function TimeEntriesList() {
             </Select>
             <Button onClick={() => setManualEntryOpen(true)} data-testid="button-add-manual-entry">
               <Plus className="h-4 w-4 mr-2" />
-              Add Entry
+              Add Manual Entry
             </Button>
           </div>
         </CardHeader>
@@ -1517,7 +1531,7 @@ function TimeEntriesList() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <p className="text-sm font-medium truncate">
-                                {entry.description || "No description"}
+                                {(entry as any).title || entry.description || "No title"}
                               </p>
                               <Badge 
                                 variant={entry.scope === "in_scope" ? "default" : "secondary"}
@@ -1815,7 +1829,7 @@ export default function TimeTrackingPage() {
             data-testid="button-add-entry"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Add Entry
+            Add Manual Entry
           </Button>
         </div>
       </div>
