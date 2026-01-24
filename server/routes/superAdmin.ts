@@ -644,9 +644,26 @@ router.delete("/tenants/:tenantId", requireSuperUser, async (req, res) => {
       success: true,
       message: `Tenant "${tenant.name}" and all its data have been permanently deleted`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting tenant:", error);
-    res.status(500).json({ error: "Failed to delete tenant" });
+    console.error("Error details:", {
+      message: error?.message,
+      code: error?.code,
+      detail: error?.detail,
+      constraint: error?.constraint,
+      table: error?.table,
+      column: error?.column,
+    });
+    
+    // Provide more detailed error for debugging
+    const errorMessage = error?.detail || error?.message || "Unknown error";
+    const constraintInfo = error?.constraint ? ` (constraint: ${error.constraint})` : "";
+    
+    res.status(500).json({ 
+      error: "Failed to delete tenant",
+      details: `${errorMessage}${constraintInfo}`,
+      code: error?.code,
+    });
   }
 });
 
