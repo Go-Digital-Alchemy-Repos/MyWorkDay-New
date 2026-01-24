@@ -212,12 +212,6 @@ export default function SuperChatMonitoringPage() {
               </Badge>
             </div>
 
-            <Alert variant="default" className="border-yellow-500/50 bg-yellow-500/10">
-              <AlertTriangle className="h-4 w-4 text-yellow-600" />
-              <AlertDescription className="text-yellow-700 dark:text-yellow-400">
-                This is a monitoring interface. You can view messages but cannot send, edit, or delete anything.
-              </AlertDescription>
-            </Alert>
 
             <div className="grid grid-cols-12 gap-6">
         <div className="col-span-3 space-y-4">

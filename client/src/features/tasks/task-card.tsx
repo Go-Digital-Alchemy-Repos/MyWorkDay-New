@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useState, useRef, useEffect } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "@/components/priority-badge";
@@ -23,19 +23,38 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
   ref
 ) {
   const isCompleted = task.status === "done";
+  const [justCompleted, setJustCompleted] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const assigneeUsers: Partial<User>[] = task.assignees?.map((a) => a.user).filter(Boolean) as Partial<User>[] || [];
   const taskTags: Tag[] = task.tags?.map((tt) => tt.tag).filter(Boolean) as Tag[] || [];
   const subtaskCount = task.subtasks?.length || 0;
   const completedSubtasks = task.subtasks?.filter((s) => s.completed).length || 0;
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleStatusChange = (checked: boolean) => {
+    if (checked && !isCompleted) {
+      setJustCompleted(true);
+      timeoutRef.current = setTimeout(() => setJustCompleted(false), 400);
+    }
+    onStatusChange?.(checked);
+  };
 
   if (view === "board") {
     return (
       <div
         ref={ref}
         className={cn(
-          "group w-full rounded-lg border border-card-border bg-card p-3 hover-elevate cursor-pointer transition-all duration-150",
+          "group relative w-full rounded-lg border border-card-border bg-card p-3 hover-elevate cursor-pointer transition-all duration-150",
           isCompleted && "opacity-60",
-          isDragging && "opacity-50 shadow-lg"
+          isDragging && "opacity-50 shadow-lg",
+          justCompleted && "task-complete-pulse"
         )}
         onClick={onSelect}
         data-testid={`task-card-${task.id}`}
@@ -53,9 +72,7 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
             )}
             <Checkbox
               checked={isCompleted}
-              onCheckedChange={(checked) => {
-                onStatusChange?.(checked as boolean);
-              }}
+              onCheckedChange={(checked) => handleStatusChange(checked as boolean)}
               onClick={(e) => e.stopPropagation()}
               className="mt-0.5"
               data-testid={`checkbox-task-${task.id}`}
@@ -118,10 +135,11 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
     <div
       ref={ref}
       className={cn(
-        "group grid items-center gap-3 px-4 py-3 min-h-[52px] border-b border-border hover-elevate cursor-pointer transition-all duration-150",
+        "group relative grid items-center gap-3 px-4 py-3 min-h-[52px] border-b border-border hover-elevate cursor-pointer transition-all duration-150",
         dragHandleProps ? "grid-cols-[auto_auto_1fr_auto_auto_auto]" : "grid-cols-[auto_1fr_auto_auto_auto]",
         isCompleted && "opacity-60",
-        isDragging && "opacity-50 shadow-lg bg-card"
+        isDragging && "opacity-50 shadow-lg bg-card",
+        justCompleted && "task-complete-pulse"
       )}
       onClick={onSelect}
       data-testid={`task-card-${task.id}`}
@@ -137,9 +155,7 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
       )}
       <Checkbox
         checked={isCompleted}
-        onCheckedChange={(checked) => {
-          onStatusChange?.(checked as boolean);
-        }}
+        onCheckedChange={(checked) => handleStatusChange(checked as boolean)}
         onClick={(e) => e.stopPropagation()}
         data-testid={`checkbox-task-${task.id}`}
       />
