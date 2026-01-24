@@ -420,3 +420,13 @@
 .dark .fc .fc-daygrid-day:hover {
   background-color: hsl(var(--muted) / 0.3);
 }
+
+/* Hide scrollbar utility for horizontal filter bars */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

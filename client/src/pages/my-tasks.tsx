@@ -392,16 +392,16 @@ export default function MyTasks() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {isEmployee && (
-        <AccessInfoBanner variant="tasks" className="mx-6 mt-4" />
+        <AccessInfoBanner variant="tasks" className="mx-4 md:mx-6 mt-4" />
       )}
       <div className="border-b border-border bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <CheckSquare className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-semibold">My Tasks</h1>
-            <span className="text-sm text-muted-foreground">({totalTasks} tasks)</span>
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 px-4 md:px-6 py-3 md:py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 md:gap-3">
+              <CheckSquare className="h-5 w-5 md:h-6 md:w-6 text-primary" />
+              <h1 className="text-lg md:text-2xl font-semibold">My Tasks</h1>
+              <span className="text-xs md:text-sm text-muted-foreground">({totalTasks})</span>
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -410,13 +410,28 @@ export default function MyTasks() {
                 setTimeout(() => inputRef.current?.focus(), 0);
               }}
               data-testid="button-add-personal-task"
+              className="md:hidden"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowNewTaskInput(true);
+                setTimeout(() => inputRef.current?.focus(), 0);
+              }}
+              data-testid="button-add-personal-task-desktop"
+              className="hidden md:flex"
             >
               <Plus className="h-4 w-4 mr-1" />
               Personal Task
             </Button>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[130px]" data-testid="select-status-filter">
-                <Filter className="h-4 w-4 mr-2" />
+              <SelectTrigger className="w-[110px] md:w-[130px] shrink-0" data-testid="select-status-filter">
+                <Filter className="h-4 w-4 mr-1 md:mr-2" />
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -428,8 +443,8 @@ export default function MyTasks() {
               </SelectContent>
             </Select>
             <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-              <SelectTrigger className="w-[130px]" data-testid="select-priority-filter">
-                <SortAsc className="h-4 w-4 mr-2" />
+              <SelectTrigger className="w-[100px] md:w-[130px] shrink-0" data-testid="select-priority-filter">
+                <SortAsc className="h-4 w-4 mr-1 md:mr-2" />
                 <SelectValue placeholder="Priority" />
               </SelectTrigger>
               <SelectContent>
@@ -444,18 +459,18 @@ export default function MyTasks() {
               variant={showCompleted ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setShowCompleted(!showCompleted)}
-              className="gap-2 min-w-[130px]"
+              className="gap-1 md:gap-2 shrink-0"
               data-testid="button-toggle-completed"
             >
               {showCompleted ? (
                 <>
                   <Eye className="h-4 w-4" />
-                  Show done
+                  <span className="hidden md:inline">Show done</span>
                 </>
               ) : (
                 <>
                   <EyeOff className="h-4 w-4" />
-                  Hide done
+                  <span className="hidden md:inline">Hide done</span>
                 </>
               )}
             </Button>
@@ -517,7 +532,7 @@ export default function MyTasks() {
 
       <div className="flex-1 overflow-hidden">
         {isLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 h-full">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6 h-full">
             <div className="space-y-4">
               <Skeleton className="h-5 w-32" />
               {[1, 2].map((section) => (
@@ -564,7 +579,7 @@ export default function MyTasks() {
             </div>
           </div>
         ) : totalTasks > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 h-full">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6 h-full">
             <ScrollArea className="h-full pr-2">
               <div className="space-y-4">
                 <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Scheduled Tasks</h2>

@@ -415,25 +415,35 @@ export default function ProjectPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="border-b border-border bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
             <div
-              className="h-8 w-8 rounded-md flex items-center justify-center text-white text-sm font-medium"
+              className="h-7 w-7 md:h-8 md:w-8 rounded-md flex items-center justify-center text-white text-sm font-medium shrink-0"
               style={{ backgroundColor: project.color || "#3B82F6" }}
             >
               {project.name.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <h1 className="text-xl font-semibold">{project.name}</h1>
+            <div className="min-w-0">
+              <h1 className="text-base md:text-xl font-semibold truncate">{project.name}</h1>
               {project.description && (
-                <p className="text-xs text-muted-foreground">{project.description}</p>
+                <p className="text-xs text-muted-foreground truncate hidden md:block">{project.description}</p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 md:gap-2 shrink-0">
+            <Button 
+              variant="default" 
+              size="icon"
+              className="md:hidden"
+              onClick={() => setTimerDrawerOpen(true)}
+              data-testid="button-start-timer-project-mobile"
+            >
+              <Play className="h-4 w-4" />
+            </Button>
             <Button 
               variant="default" 
               size="sm"
+              className="hidden md:flex"
               onClick={() => setTimerDrawerOpen(true)}
               data-testid="button-start-timer-project"
             >
@@ -442,14 +452,24 @@ export default function ProjectPage() {
             </Button>
             <Button
               variant="outline"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setAiPlannerOpen(true)}
+              data-testid="button-ai-planner-mobile"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
               size="sm"
+              className="hidden md:flex"
               onClick={() => setAiPlannerOpen(true)}
               data-testid="button-ai-planner"
             >
               <Sparkles className="h-4 w-4 mr-1" />
               AI Plan
             </Button>
-            <Button variant="ghost" size="icon" data-testid="button-project-members">
+            <Button variant="ghost" size="icon" data-testid="button-project-members" className="hidden md:flex">
               <Users className="h-4 w-4" />
             </Button>
             <Button
@@ -457,6 +477,7 @@ export default function ProjectPage() {
               size="icon"
               onClick={() => setActivityOpen(true)}
               data-testid="button-project-activity"
+              className="hidden md:flex"
             >
               <Activity className="h-4 w-4" />
             </Button>
@@ -471,26 +492,26 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-6 pb-3">
+        <div className="flex items-center justify-between px-4 md:px-6 pb-3">
           <Tabs value={view} onValueChange={(v) => setView(v as ViewType)}>
-            <TabsList className="h-9">
-              <TabsTrigger value="board" className="gap-1.5" data-testid="tab-board">
+            <TabsList className="h-8 md:h-9">
+              <TabsTrigger value="board" className="gap-1 md:gap-1.5 text-xs md:text-sm" data-testid="tab-board">
                 <LayoutGrid className="h-3.5 w-3.5" />
-                Board
+                <span className="hidden sm:inline">Board</span>
               </TabsTrigger>
-              <TabsTrigger value="list" className="gap-1.5" data-testid="tab-list">
+              <TabsTrigger value="list" className="gap-1 md:gap-1.5 text-xs md:text-sm" data-testid="tab-list">
                 <List className="h-3.5 w-3.5" />
-                List
+                <span className="hidden sm:inline">List</span>
               </TabsTrigger>
-              <TabsTrigger value="calendar" className="gap-1.5" data-testid="tab-calendar">
+              <TabsTrigger value="calendar" className="gap-1 md:gap-1.5 text-xs md:text-sm" data-testid="tab-calendar">
                 <CalendarIcon className="h-3.5 w-3.5" />
-                Calendar
+                <span className="hidden sm:inline">Calendar</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
           <Button size="sm" onClick={() => handleAddTask()} data-testid="button-add-task">
-            <Plus className="h-4 w-4 mr-1" />
-            Add Task
+            <Plus className="h-4 w-4 md:mr-1" />
+            <span className="hidden md:inline">Add Task</span>
           </Button>
         </div>
       </div>
@@ -503,7 +524,7 @@ export default function ProjectPage() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="flex gap-4 p-6 h-full overflow-x-auto">
+            <div className="flex gap-3 md:gap-4 p-4 md:p-6 h-full overflow-x-auto">
               {displaySections?.map((section) => (
                 <SectionColumn
                   key={section.id}
@@ -546,7 +567,7 @@ export default function ProjectPage() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="p-6">
+            <div className="p-4 md:p-6">
               {displaySections?.map((section) => (
                 <ListSectionDroppable
                   key={section.id}

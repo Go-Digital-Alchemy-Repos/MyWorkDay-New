@@ -56,6 +56,8 @@ import { ChatDrawerProvider, useChatDrawer } from "@/contexts/chat-drawer-contex
 import { GlobalChatDrawer } from "@/components/global-chat-drawer";
 import { Button } from "@/components/ui/button";
 import { NotificationCenter } from "@/components/notification-center";
+import { MobileNavBar } from "@/components/mobile-nav-bar";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -335,6 +337,7 @@ function ChatToggleButton() {
 function TenantLayout() {
   const { isImpersonating } = useAppMode();
   const [, setLocation] = useLocation();
+  const isMobile = useIsMobile();
   
   const style = {
     "--sidebar-width": "16rem",
@@ -356,29 +359,30 @@ function TenantLayout() {
             <div className="flex flex-1 overflow-hidden">
               <TenantSidebar />
               <div className="flex flex-col flex-1 overflow-hidden">
-                <header className={`flex items-center justify-between h-12 px-4 border-b shrink-0 ${isImpersonating ? "border-amber-400 bg-amber-50/30 dark:bg-amber-900/10" : "border-border bg-background"}`}>
-                  <div className="flex items-center gap-2">
-                    <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <header className={`flex items-center justify-between h-12 px-2 md:px-4 border-b shrink-0 ${isImpersonating ? "border-amber-400 bg-amber-50/30 dark:bg-amber-900/10" : "border-border bg-background"}`}>
+                  <div className="flex items-center gap-1 md:gap-2">
+                    <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden md:flex" />
                     {isImpersonating && (
-                      <span className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded" data-testid="badge-impersonating">
+                      <span className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded hidden md:inline" data-testid="badge-impersonating">
                         TENANT IMPERSONATION
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 md:gap-2">
                     <GlobalActiveTimer />
                     <ChatToggleButton />
                     <NotificationCenter />
-                    <ThemeToggle />
+                    <ThemeToggle className="hidden md:flex" />
                     <UserMenu />
                   </div>
                 </header>
-                <main className="flex-1 overflow-hidden">
+                <main className={`flex-1 overflow-hidden ${isMobile ? "pb-16" : ""}`}>
                   <TenantRouter />
                 </main>
               </div>
             </div>
           </div>
+          {isMobile && <MobileNavBar />}
           <GlobalChatDrawer />
         </TenantContextGate>
       </SidebarProvider>

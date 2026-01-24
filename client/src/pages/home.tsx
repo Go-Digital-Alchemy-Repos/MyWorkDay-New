@@ -120,18 +120,18 @@ export default function Home() {
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="border-b border-border bg-background sticky top-0 z-10">
-        <div className="flex items-center justify-between px-6 py-4">
+        <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4">
           <div>
-            <h1 className="text-2xl font-semibold">Welcome back</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h1 className="text-xl md:text-2xl font-semibold">Welcome back</h1>
+            <p className="text-xs md:text-sm text-muted-foreground mt-1">
               Here's what's happening with your projects today
             </p>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 p-6 space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="flex-1 p-4 md:p-6 space-y-4 md:space-y-6">
+        <div className="grid gap-3 md:gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
           <Card className="hover-elevate cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Projects</CardTitle>
