@@ -71,6 +71,7 @@ export function requireTenantContext(
  * ARCHITECTURE NOTE:
  * Every insert to a tenant-owned table MUST include tenant_id.
  * This guard catches cases where tenant_id is missing.
+ * Throws in test mode to catch regressions early.
  * 
  * @example
  * assertTenantIdOnInsert(projectData, "projects");
@@ -82,10 +83,48 @@ export function assertTenantIdOnInsert(
   requestId?: string
 ): void {
   if (!payload.tenantId) {
+    const message = `Missing tenant_id in insert to ${tableName}`;
+    guardViolation(message, { requestId, table: tableName });
+    
+    // Always throw in test mode to catch regressions early
+    if (isTest) {
+      throw new Error(`[TenancyGuard] ${message}`);
+    }
+  }
+}
+
+/**
+ * Assert that tenantId is NOT coming from client-supplied request body/query.
+ * Prevents accidental use of user-controlled tenantId which is a common isolation failure.
+ * 
+ * ARCHITECTURE NOTE:
+ * TenantId should ALWAYS come from authenticated session context (effectiveTenantId),
+ * never from req.body.tenantId or req.query.tenantId.
+ * 
+ * @example
+ * // Call at the start of tenant-scoped routes to verify no client tenantId
+ * assertNoClientTenantId(req.body, req.query, "POST /api/projects");
+ */
+export function assertNoClientTenantId(
+  body: Record<string, unknown>,
+  query: Record<string, unknown>,
+  context: string,
+  requestId?: string
+): void {
+  const hasBodyTenantId = body && "tenantId" in body;
+  const hasQueryTenantId = query && "tenantId" in query;
+  
+  if (hasBodyTenantId || hasQueryTenantId) {
+    const source = hasBodyTenantId ? "body" : "query";
     guardViolation(
-      `Missing tenant_id in insert to ${tableName}`,
-      { requestId, table: tableName }
+      `Client-supplied tenantId detected in ${context}. Use effectiveTenantId from session instead.`,
+      { requestId, context, source }
     );
+    
+    // In test mode, throw to catch this early
+    if (isTest) {
+      throw new Error(`[TenancyGuard] Client-supplied tenantId in ${context}`);
+    }
   }
 }
 
@@ -205,6 +244,7 @@ export function assertTenantScopedRoom(
 export default {
   requireTenantContext,
   assertTenantIdOnInsert,
+  assertNoClientTenantId,
   warnIfWorkspaceVisibility,
   assertTenantOwnership,
   logStorageOperation,
