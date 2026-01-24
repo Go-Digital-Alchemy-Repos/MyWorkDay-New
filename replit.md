@@ -56,6 +56,11 @@ MyWorkDay is an Asana-inspired project management application designed to stream
   - Atomic NOT NULL constraint migration (CLI + API) with pre-flight blocking for NULL values
   - Shared table allowlist (server/scripts/tenantOwnedTables.ts) for SQL injection prevention
   - Runtime guard helpers ready for integration (validateInsertTenantId, validateUpdateTenantId, etc.) - route wiring deferred to future sprint
+- **Provisioning Hardening (Sprint 2B)**: All super admin provisioning flows now use `storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId?)` helper:
+  - Helper queries for primary workspace and throws explicit error with requestId correlation if not found
+  - Updated flows: user creation, invitation activation, bulk import, client/project imports, orphan fixing, welcome project seeding, time entry imports
+  - Schema drift fixes: correct column references (comments.userId, activityLog.actorUserId), subqueries for tables without tenantId
+  - All provisioning endpoints have audit logging via recordTenantAuditEvent
 - **Performance Optimizations**: N+1 query fixes and query debugging utilities.
 - **Navigation Mode Hardening**: Enhanced super/tenant mode switching with `useAppMode` hook, cache isolation, and route guards.
 - **Time Tracking Reliability**: Timer hardening for cross-session/tab reliability using `BroadcastChannel`, `localStorage` fallback, and optimistic mutations.
