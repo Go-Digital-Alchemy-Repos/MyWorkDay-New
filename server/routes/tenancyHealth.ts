@@ -645,6 +645,245 @@ router.post("/v1/super/health/orphans/fix", requireAuth, requireSuperUser, async
   }
 });
 
+import { TENANT_OWNED_TABLES_SET, isValidTenantOwnedTable, TENANT_OWNED_TABLES_LIST } from "../scripts/tenantOwnedTables";
+
+/**
+ * Check NOT NULL constraint readiness
+ * GET /api/v1/super/tenancy/constraints
+ */
+router.get("/v1/super/tenancy/constraints", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+  const TENANT_OWNED_TABLES = TENANT_OWNED_TABLES_LIST;
+
+  try {
+    interface TableStatus {
+      name: string;
+      hasNotNullConstraint: boolean;
+      nullCount: number;
+      canMigrate: boolean;
+    }
+
+    const tableStatuses: TableStatus[] = [];
+
+    for (const tableName of TENANT_OWNED_TABLES) {
+      try {
+        const constraintCheck = await db.execute(sql.raw(`
+          SELECT is_nullable
+          FROM information_schema.columns
+          WHERE table_name = '${tableName}' AND column_name = 'tenant_id'
+        `));
+
+        if (constraintCheck.rows.length === 0) {
+          continue;
+        }
+
+        const hasNotNullConstraint = (constraintCheck.rows[0] as any).is_nullable === "NO";
+
+        const nullCountResult = await db.execute(sql.raw(`
+          SELECT COUNT(*) as count FROM ${tableName} WHERE tenant_id IS NULL
+        `));
+        const nullCount = parseInt(String((nullCountResult.rows[0] as any).count || 0), 10);
+
+        tableStatuses.push({
+          name: tableName,
+          hasNotNullConstraint,
+          nullCount,
+          canMigrate: !hasNotNullConstraint && nullCount === 0,
+        });
+      } catch {
+        tableStatuses.push({
+          name: tableName,
+          hasNotNullConstraint: false,
+          nullCount: -1,
+          canMigrate: false,
+        });
+      }
+    }
+
+    const alreadyMigrated = tableStatuses.filter(t => t.hasNotNullConstraint);
+    const readyToMigrate = tableStatuses.filter(t => t.canMigrate);
+    const blocked = tableStatuses.filter(t => !t.hasNotNullConstraint && t.nullCount > 0);
+
+    res.json({
+      tables: tableStatuses,
+      summary: {
+        total: tableStatuses.length,
+        alreadyMigrated: alreadyMigrated.length,
+        readyToMigrate: readyToMigrate.length,
+        blocked: blocked.length,
+        canApplyAll: blocked.length === 0 && readyToMigrate.length > 0,
+      },
+      blockedTables: blocked.map(t => ({ name: t.name, nullCount: t.nullCount })),
+    });
+  } catch (error) {
+    console.error("[TenancyConstraints] Error:", error);
+    res.status(500).json({ error: { code: "internal_error", message: "Failed to check constraints" } });
+  }
+});
+
+/**
+ * Apply NOT NULL constraints (atomic via transaction)
+ * POST /api/v1/super/tenancy/constraints/apply
+ */
+router.post("/v1/super/tenancy/constraints/apply", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+  const { dryRun = true, tables } = req.body;
+  const user = req.user as any;
+
+  const confirmHeader = req.headers["x-confirm-constraints"];
+  if (!dryRun && confirmHeader !== "YES") {
+    return res.status(400).json({
+      error: {
+        code: "confirmation_required",
+        message: "To apply constraints, set dryRun=false and include header 'X-Confirm-Constraints: YES'",
+      },
+    });
+  }
+
+  let requestedTables: string[];
+  if (tables && Array.isArray(tables)) {
+    const invalidTables = tables.filter((t: string) => !isValidTenantOwnedTable(t));
+    if (invalidTables.length > 0) {
+      return res.status(400).json({
+        error: {
+          code: "invalid_tables",
+          message: `Invalid table names: ${invalidTables.join(", ")}. Only tables from the allowlist are permitted.`,
+        },
+      });
+    }
+    requestedTables = tables;
+  } else {
+    requestedTables = [...TENANT_OWNED_TABLES_LIST];
+  }
+
+  console.log(`[TenancyConstraints] ${dryRun ? "DRY-RUN" : "APPLY"} by ${user.email}`);
+
+  interface MigrationResult {
+    table: string;
+    action: string;
+    success: boolean;
+    error?: string;
+  }
+
+  const results: MigrationResult[] = [];
+
+  try {
+    for (const tableName of requestedTables) {
+      if (!isValidTenantOwnedTable(tableName)) {
+        results.push({ table: tableName, action: "skipped_not_allowed", success: false, error: "Table not in allowlist" });
+        continue;
+      }
+
+      try {
+        const constraintCheck = await db.execute(sql.raw(`
+          SELECT is_nullable
+          FROM information_schema.columns
+          WHERE table_name = '${tableName}' AND column_name = 'tenant_id'
+        `));
+
+        if (constraintCheck.rows.length === 0) {
+          results.push({ table: tableName, action: "skipped_no_column", success: true });
+          continue;
+        }
+
+        const hasNotNullConstraint = (constraintCheck.rows[0] as any).is_nullable === "NO";
+        if (hasNotNullConstraint) {
+          results.push({ table: tableName, action: "already_not_null", success: true });
+          continue;
+        }
+
+        const nullCountResult = await db.execute(sql.raw(`
+          SELECT COUNT(*) as count FROM ${tableName} WHERE tenant_id IS NULL
+        `));
+        const nullCount = parseInt(String((nullCountResult.rows[0] as any).count || 0), 10);
+
+        if (nullCount > 0) {
+          results.push({
+            table: tableName,
+            action: "blocked_has_nulls",
+            success: false,
+            error: `${nullCount} rows with NULL tenant_id`,
+          });
+          continue;
+        }
+
+        if (dryRun) {
+          results.push({ table: tableName, action: "would_add_constraint", success: true });
+          continue;
+        }
+
+        results.push({ table: tableName, action: "pending", success: true });
+      } catch (error) {
+        results.push({
+          table: tableName,
+          action: "error",
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const tablesToMigrate = results.filter(r => r.action === "pending").map(r => r.table);
+    const blockedTables = results.filter(r => r.action === "blocked_has_nulls");
+
+    if (blockedTables.length > 0) {
+      return res.status(400).json({
+        error: {
+          code: "blocked_tables",
+          message: "Some tables have NULL tenant_id values and cannot be migrated",
+        },
+        blockedTables: blockedTables.map(t => ({ table: t.table, error: t.error })),
+        results,
+      });
+    }
+
+    if (!dryRun && tablesToMigrate.length > 0) {
+      try {
+        await db.transaction(async (tx) => {
+          for (const tableName of tablesToMigrate) {
+            await tx.execute(sql.raw(`
+              ALTER TABLE ${tableName} ALTER COLUMN tenant_id SET NOT NULL
+            `));
+            const result = results.find(r => r.table === tableName);
+            if (result) {
+              result.action = "added_not_null";
+            }
+          }
+        });
+      } catch (txError) {
+        for (const r of results) {
+          if (r.action === "pending") {
+            r.action = "transaction_failed";
+            r.success = false;
+            r.error = txError instanceof Error ? txError.message : String(txError);
+          }
+        }
+        throw txError;
+      }
+    }
+
+    const successful = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+
+    res.json({
+      dryRun,
+      executedBy: user.email,
+      results,
+      summary: {
+        total: results.length,
+        successful: successful.length,
+        failed: failed.length,
+        constraintsAdded: results.filter(r => r.action === "added_not_null").length,
+        wouldAdd: results.filter(r => r.action === "would_add_constraint").length,
+      },
+    });
+  } catch (error) {
+    console.error("[TenancyConstraints] Error:", error);
+    res.status(500).json({ 
+      error: { code: "internal_error", message: "Failed to apply constraints" },
+      results,
+    });
+  }
+});
+
 /**
  * Remediate endpoint - uses relationship-based backfill (more accurate than default tenant assignment)
  * POST /api/v1/super/tenancy/remediate?mode=dry-run|apply

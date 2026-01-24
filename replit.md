@@ -50,7 +50,12 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Backend Structure**: Feature-based modules in `server/features/` (clients extracted, others planned). Routes mounted before legacy for incremental migration. `DatabaseStorage` class, middleware for error handling, validation, and authentication.
 - **Design Guidelines**: Professional design with Inter font, 3-column layout, and dark mode support.
 - **API Error Handling**: Standardized error envelope with stable error codes and request ID correlation.
-- **Tenant Data Health Remediation**: Tools for backfilling missing `tenantId` values, quarantine management, and data integrity checks.
+- **Tenant Data Health Remediation**: Tools for backfilling missing `tenantId` values, quarantine management, and data integrity checks. Sprint 2A added:
+  - Relationship-based backfill via workspace→tenant, project→tenant chains (server/scripts/tenancyRemediate.ts)
+  - Super Admin endpoints: POST /api/v1/super/tenancy/remediate (dry-run/apply), GET/POST /api/v1/super/tenancy/constraints
+  - Atomic NOT NULL constraint migration (CLI + API) with pre-flight blocking for NULL values
+  - Shared table allowlist (server/scripts/tenantOwnedTables.ts) for SQL injection prevention
+  - Runtime guard helpers ready for integration (validateInsertTenantId, validateUpdateTenantId, etc.) - route wiring deferred to future sprint
 - **Performance Optimizations**: N+1 query fixes and query debugging utilities.
 - **Navigation Mode Hardening**: Enhanced super/tenant mode switching with `useAppMode` hook, cache isolation, and route guards.
 - **Time Tracking Reliability**: Timer hardening for cross-session/tab reliability using `BroadcastChannel`, `localStorage` fallback, and optimistic mutations.
