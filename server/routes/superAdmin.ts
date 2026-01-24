@@ -576,28 +576,28 @@ router.delete("/tenants/:tenantId", requireSuperUser, async (req, res) => {
       // Project sections (after tasks deleted)
       await tx.delete(sections).where(eq(sections.projectId, sql`ANY(SELECT id FROM projects WHERE tenant_id = ${tenantId})`));
       
-      // Projects
-      await tx.delete(projectMembers).where(eq(projectMembers.tenantId, tenantId));
+      // Projects (projectMembers doesn't have tenantId, use projectId subquery)
+      await tx.delete(projectMembers).where(eq(projectMembers.projectId, sql`ANY(SELECT id FROM projects WHERE tenant_id = ${tenantId})`));
       await tx.delete(projects).where(eq(projects.tenantId, tenantId));
       
-      // Client portal
+      // Client portal (clientInvites doesn't have tenantId, use clientId subquery)
       await tx.delete(clientUserAccess).where(eq(clientUserAccess.tenantId, tenantId));
-      await tx.delete(clientInvites).where(eq(clientInvites.tenantId, tenantId));
+      await tx.delete(clientInvites).where(eq(clientInvites.clientId, sql`ANY(SELECT id FROM clients WHERE tenant_id = ${tenantId})`));
       
       // Divisions
       await tx.delete(divisionMembers).where(eq(divisionMembers.tenantId, tenantId));
       await tx.delete(clientDivisions).where(eq(clientDivisions.tenantId, tenantId));
       
-      // Clients
-      await tx.delete(clientContacts).where(eq(clientContacts.tenantId, tenantId));
+      // Clients (clientContacts doesn't have tenantId, use clientId subquery)
+      await tx.delete(clientContacts).where(eq(clientContacts.clientId, sql`ANY(SELECT id FROM clients WHERE tenant_id = ${tenantId})`));
       await tx.delete(clients).where(eq(clients.tenantId, tenantId));
       
-      // Teams
-      await tx.delete(teamMembers).where(eq(teamMembers.tenantId, tenantId));
+      // Teams (teamMembers doesn't have tenantId, use teamId subquery)
+      await tx.delete(teamMembers).where(eq(teamMembers.teamId, sql`ANY(SELECT id FROM teams WHERE tenant_id = ${tenantId})`));
       await tx.delete(teams).where(eq(teams.tenantId, tenantId));
       
-      // Workspaces (after tags deleted)
-      await tx.delete(workspaceMembers).where(eq(workspaceMembers.tenantId, tenantId));
+      // Workspaces (workspaceMembers doesn't have tenantId, use workspaceId subquery)
+      await tx.delete(workspaceMembers).where(eq(workspaceMembers.workspaceId, sql`ANY(SELECT id FROM workspaces WHERE tenant_id = ${tenantId})`));
       await tx.delete(workspaces).where(eq(workspaces.tenantId, tenantId));
       
       // Invitations and auth
@@ -621,7 +621,7 @@ router.delete("/tenants/:tenantId", requireSuperUser, async (req, res) => {
       await tx.delete(emailOutbox).where(eq(emailOutbox.tenantId, tenantId));
       
       // Tenancy warnings (data integrity warnings for this tenant)
-      await tx.delete(tenancyWarnings).where(eq(tenancyWarnings.tenantId, tenantId));
+      await tx.delete(tenancyWarnings).where(eq(tenancyWarnings.effectiveTenantId, tenantId));
       
       // Users belonging to this tenant
       await tx.delete(users).where(eq(users.tenantId, tenantId));
