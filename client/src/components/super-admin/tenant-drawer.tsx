@@ -117,14 +117,18 @@ interface TenantNote {
   id: string;
   tenantId: string;
   authorUserId: string;
+  lastEditedByUserId?: string | null;
   body: string;
   category: string;
   createdAt: string;
+  updatedAt?: string;
   author: {
     id: string;
     name: string;
     email: string;
   };
+  versionCount?: number;
+  hasVersions?: boolean;
 }
 
 interface TenantAuditEvent {
@@ -2847,18 +2851,20 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => {
-                                  setVersionHistoryNoteId(note.id);
-                                  setVersionHistoryDialogOpen(true);
-                                }}
-                                className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                data-testid={`button-history-note-${note.id}`}
-                              >
-                                <History className="h-3.5 w-3.5" />
-                              </Button>
+                              {note.hasVersions && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setVersionHistoryNoteId(note.id);
+                                    setVersionHistoryDialogOpen(true);
+                                  }}
+                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                  data-testid={`button-history-note-${note.id}`}
+                                >
+                                  <History className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                               <Button
                                 size="icon"
                                 variant="ghost"

@@ -3536,13 +3536,30 @@ router.get("/tenants/:tenantId/notes", requireSuperUser, async (req, res) => {
       id: tenantNotes.id,
       tenantId: tenantNotes.tenantId,
       authorUserId: tenantNotes.authorUserId,
+      lastEditedByUserId: tenantNotes.lastEditedByUserId,
       body: tenantNotes.body,
       category: tenantNotes.category,
       createdAt: tenantNotes.createdAt,
+      updatedAt: tenantNotes.updatedAt,
     })
       .from(tenantNotes)
       .where(eq(tenantNotes.tenantId, tenantId))
       .orderBy(desc(tenantNotes.createdAt));
+
+    // Get version counts for all notes
+    const noteIds = notes.map(n => n.id);
+    let versionCounts: Map<string, number> = new Map();
+    if (noteIds.length > 0) {
+      const versionCountResults = await db.select({
+        noteId: tenantNoteVersions.noteId,
+        count: count(),
+      })
+        .from(tenantNoteVersions)
+        .where(inArray(tenantNoteVersions.noteId, noteIds))
+        .groupBy(tenantNoteVersions.noteId);
+      
+      versionCountResults.forEach(v => versionCounts.set(v.noteId, v.count));
+    }
 
     // Enrich with author info
     const userIds = Array.from(new Set(notes.map(n => n.authorUserId)));
@@ -3556,6 +3573,8 @@ router.get("/tenants/:tenantId/notes", requireSuperUser, async (req, res) => {
     const enrichedNotes = notes.map(note => ({
       ...note,
       author: authorMap.get(note.authorUserId) || { id: note.authorUserId, name: "Unknown", email: "" },
+      versionCount: versionCounts.get(note.id) || 0,
+      hasVersions: (versionCounts.get(note.id) || 0) > 0,
     }));
 
     res.json(enrichedNotes);
