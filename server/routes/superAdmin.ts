@@ -1079,34 +1079,39 @@ router.post("/tenants/:tenantId/invitations/:invitationId/activate", requireSupe
     const firstName = (invitation as any).firstName || invitation.email.split("@")[0];
     const lastName = (invitation as any).lastName || "";
     
-    // Create the user
-    const newUser = await storage.createUserWithTenant({
-      email: invitation.email,
-      name: `${firstName} ${lastName}`.trim() || invitation.email.split("@")[0],
-      firstName,
-      lastName,
-      role: invitation.role || "employee",
-      passwordHash,
-      isActive: true,
-      tenantId,
-      mustChangePasswordOnNextLogin: mustChangePassword,
+    // Use a transaction to ensure atomicity of user creation, workspace membership, and invitation update
+    const newUser = await db.transaction(async (tx) => {
+      // Create the user
+      const [createdUser] = await tx.insert(users).values({
+        email: invitation.email,
+        name: `${firstName} ${lastName}`.trim() || invitation.email.split("@")[0],
+        firstName,
+        lastName,
+        role: invitation.role || "employee",
+        passwordHash,
+        isActive: true,
+        tenantId,
+        mustChangePasswordOnNextLogin: mustChangePassword,
+      }).returning();
+      
+      // Add to primary workspace if exists
+      if (primaryWorkspace) {
+        await tx.insert(workspaceMembers).values({
+          workspaceId: primaryWorkspace.id,
+          userId: createdUser.id,
+          role: invitation.role === "admin" ? "admin" : "member",
+        }).onConflictDoNothing();
+      }
+      
+      // Mark invitation as accepted
+      await tx.update(invitations)
+        .set({ status: "accepted", usedAt: new Date() })
+        .where(eq(invitations.id, invitationId));
+      
+      return createdUser;
     });
     
-    // Add to primary workspace if exists
-    if (primaryWorkspace) {
-      await db.insert(workspaceMembers).values({
-        workspaceId: primaryWorkspace.id,
-        userId: newUser.id,
-        role: invitation.role === "admin" ? "admin" : "member",
-      }).onConflictDoNothing();
-    }
-    
-    // Mark invitation as accepted
-    await db.update(invitations)
-      .set({ status: "accepted", usedAt: new Date() })
-      .where(eq(invitations.id, invitationId));
-    
-    // Log the action
+    // Log the action (outside transaction - best effort)
     await logSuperAdminAction(
       superUser.id,
       "manually_activate_invitation",
