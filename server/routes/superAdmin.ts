@@ -1506,6 +1506,172 @@ router.get("/users/orphaned", requireSuperUser, async (req, res) => {
   }
 });
 
+// =============================================================================
+// GET ALL USERS - List all application users across all tenants
+// =============================================================================
+router.get("/users", requireSuperUser, async (req, res) => {
+  try {
+    const { search, tenantId, status, role, page = "1", pageSize = "50" } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(pageSize as string) || 50));
+    const offset = (pageNum - 1) * limit;
+
+    // Build conditions
+    const conditions: any[] = [
+      ne(users.role, UserRole.SUPER_USER), // Exclude super users (they're managed separately)
+    ];
+
+    if (search && typeof search === "string" && search.trim()) {
+      const searchTerm = `%${search.trim().toLowerCase()}%`;
+      conditions.push(
+        sql`(LOWER(${users.email}) LIKE ${searchTerm} OR LOWER(${users.name}) LIKE ${searchTerm} OR LOWER(${users.firstName}) LIKE ${searchTerm} OR LOWER(${users.lastName}) LIKE ${searchTerm})`
+      );
+    }
+
+    if (tenantId && typeof tenantId === "string" && tenantId !== "all") {
+      conditions.push(eq(users.tenantId, tenantId));
+    }
+
+    if (status && typeof status === "string") {
+      if (status === "active") {
+        conditions.push(eq(users.isActive, true));
+      } else if (status === "inactive") {
+        conditions.push(eq(users.isActive, false));
+      }
+    }
+
+    if (role && typeof role === "string" && ["admin", "employee"].includes(role)) {
+      conditions.push(eq(users.role, role as any));
+    }
+
+    // Get total count
+    const countResult = await db.select({ count: count() })
+      .from(users)
+      .where(and(...conditions));
+    const totalCount = countResult[0]?.count || 0;
+
+    // Get users with tenant info
+    const userList = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+      isActive: users.isActive,
+      avatarUrl: users.avatarUrl,
+      tenantId: users.tenantId,
+      tenantName: tenants.name,
+      tenantStatus: tenants.status,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+      lastLoginAt: users.lastLoginAt,
+    })
+      .from(users)
+      .leftJoin(tenants, eq(users.tenantId, tenants.id))
+      .where(and(...conditions))
+      .orderBy(desc(users.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Get pending invitations count for each user's email
+    const userEmails = userList.map(u => u.email);
+    let pendingInvites: Record<string, boolean> = {};
+    
+    if (userEmails.length > 0) {
+      const inviteResults = await db.select({
+        email: invitations.email,
+      })
+        .from(invitations)
+        .where(and(
+          inArray(invitations.email, userEmails),
+          eq(invitations.status, "pending"),
+          gte(invitations.expiresAt, new Date())
+        ));
+      
+      inviteResults.forEach(inv => {
+        pendingInvites[inv.email] = true;
+      });
+    }
+
+    res.json({
+      users: userList.map(u => ({
+        ...u,
+        hasPendingInvite: pendingInvites[u.email] || false,
+      })),
+      total: totalCount,
+      page: pageNum,
+      pageSize: limit,
+      totalPages: Math.ceil(totalCount / limit),
+    });
+  } catch (error) {
+    console.error("[super/users] Error:", error);
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+// =============================================================================
+// GET USER ACTIVITY - Get activity summary for a specific user
+// =============================================================================
+router.get("/users/:userId/activity", requireSuperUser, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Get user details
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Get recent activity count (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const activityCountResult = await db.select({ count: count() })
+      .from(activityLog)
+      .where(and(
+        eq(activityLog.userId, userId),
+        gte(activityLog.createdAt, thirtyDaysAgo)
+      ));
+
+    // Get recent activity (last 10 items)
+    const recentActivity = await db.select({
+      id: activityLog.id,
+      action: activityLog.action,
+      entityType: activityLog.entityType,
+      entityId: activityLog.entityId,
+      metadata: activityLog.metadata,
+      createdAt: activityLog.createdAt,
+    })
+      .from(activityLog)
+      .where(eq(activityLog.userId, userId))
+      .orderBy(desc(activityLog.createdAt))
+      .limit(10);
+
+    // Get task counts
+    const taskCountResult = await db.select({ count: count() })
+      .from(taskAssignees)
+      .where(eq(taskAssignees.userId, userId));
+
+    // Get comment count
+    const commentCountResult = await db.select({ count: count() })
+      .from(comments)
+      .where(eq(comments.userId, userId));
+
+    res.json({
+      userId,
+      activityCount30Days: activityCountResult[0]?.count || 0,
+      taskCount: taskCountResult[0]?.count || 0,
+      commentCount: commentCountResult[0]?.count || 0,
+      recentActivity,
+      lastLoginAt: user.lastLoginAt,
+    });
+  } catch (error) {
+    console.error("[super/users/activity] Error:", error);
+    res.status(500).json({ error: "Failed to fetch user activity" });
+  }
+});
+
 // Update a user
 const updateUserSchema = z.object({
   email: z.string().email().optional(),
