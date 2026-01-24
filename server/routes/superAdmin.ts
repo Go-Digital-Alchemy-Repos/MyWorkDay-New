@@ -1011,6 +1011,264 @@ router.get("/tenants/:tenantId/invitations", requireSuperUser, async (req, res) 
   }
 });
 
+// POST /api/v1/super/tenants/:tenantId/invitations/:invitationId/activate - Manually activate a pending invitation
+router.post("/tenants/:tenantId/invitations/:invitationId/activate", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId, invitationId } = req.params;
+    const { password } = req.body;
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    // Get the invitation
+    const [invitation] = await db.select().from(invitations)
+      .where(and(
+        eq(invitations.id, invitationId),
+        eq(invitations.tenantId, tenantId)
+      ));
+    
+    if (!invitation) {
+      return res.status(404).json({ error: "Invitation not found" });
+    }
+    
+    if (invitation.status !== "pending") {
+      return res.status(400).json({ error: `Invitation is already ${invitation.status}` });
+    }
+    
+    // Check if user with this email already exists
+    const existingUser = await storage.getUserByEmail(invitation.email);
+    if (existingUser) {
+      // If user exists for this tenant, just mark invitation as accepted
+      if (existingUser.tenantId === tenantId) {
+        await db.update(invitations)
+          .set({ status: "accepted", usedAt: new Date() })
+          .where(eq(invitations.id, invitationId));
+        return res.json({ 
+          message: "User already exists, invitation marked as accepted",
+          user: existingUser 
+        });
+      }
+      return res.status(409).json({ error: "A user with this email already exists in another tenant" });
+    }
+    
+    // Hash password if provided, otherwise generate temporary one
+    const { hashPassword } = await import("../auth");
+    const crypto = await import("crypto");
+    let passwordHash: string;
+    let mustChangePassword = false;
+    let tempPassword: string | undefined;
+    
+    if (password && password.length >= 8) {
+      passwordHash = await hashPassword(password);
+    } else {
+      // Generate a temporary password
+      tempPassword = crypto.randomBytes(12).toString("base64").slice(0, 16);
+      passwordHash = await hashPassword(tempPassword);
+      mustChangePassword = true;
+    }
+    
+    // Get primary workspace for this tenant
+    const tenantWorkspaces = await db.select().from(workspaces)
+      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
+    const primaryWorkspace = tenantWorkspaces[0];
+    
+    // Extract names from invitation if available
+    const firstName = (invitation as any).firstName || invitation.email.split("@")[0];
+    const lastName = (invitation as any).lastName || "";
+    
+    // Create the user
+    const newUser = await storage.createUserWithTenant({
+      email: invitation.email,
+      name: `${firstName} ${lastName}`.trim() || invitation.email.split("@")[0],
+      firstName,
+      lastName,
+      role: invitation.role || "employee",
+      passwordHash,
+      isActive: true,
+      tenantId,
+      mustChangePasswordOnNextLogin: mustChangePassword,
+    });
+    
+    // Add to primary workspace if exists
+    if (primaryWorkspace) {
+      await db.insert(workspaceMembers).values({
+        workspaceId: primaryWorkspace.id,
+        userId: newUser.id,
+        role: invitation.role === "admin" ? "admin" : "member",
+      }).onConflictDoNothing();
+    }
+    
+    // Mark invitation as accepted
+    await db.update(invitations)
+      .set({ status: "accepted", usedAt: new Date() })
+      .where(eq(invitations.id, invitationId));
+    
+    // Log the action
+    await logSuperAdminAction(
+      superUser.id,
+      "manually_activate_invitation",
+      "invitation",
+      invitationId,
+      { 
+        email: invitation.email, 
+        tenantId,
+        userId: newUser.id,
+        role: invitation.role 
+      }
+    );
+    
+    res.json({
+      message: "Invitation activated successfully",
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        role: newUser.role,
+        isActive: newUser.isActive,
+      },
+      tempPassword: mustChangePassword ? tempPassword : undefined,
+      mustChangePassword,
+    });
+  } catch (error) {
+    console.error("Error activating invitation:", error);
+    res.status(500).json({ error: "Failed to activate invitation" });
+  }
+});
+
+// POST /api/v1/super/tenants/:tenantId/invitations/activate-all - Activate all pending invitations for a tenant
+router.post("/tenants/:tenantId/invitations/activate-all", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const superUser = req.user as any;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    // Get all pending invitations for this tenant
+    const pendingInvitations = await db.select().from(invitations)
+      .where(and(
+        eq(invitations.tenantId, tenantId),
+        eq(invitations.status, "pending")
+      ));
+    
+    if (pendingInvitations.length === 0) {
+      return res.json({ message: "No pending invitations to activate", activated: 0 });
+    }
+    
+    // Get primary workspace for this tenant
+    const tenantWorkspaces = await db.select().from(workspaces)
+      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
+    const primaryWorkspace = tenantWorkspaces[0];
+    
+    const { hashPassword } = await import("../auth");
+    const crypto = await import("crypto");
+    
+    const results: any[] = [];
+    const errors: any[] = [];
+    
+    for (const invitation of pendingInvitations) {
+      try {
+        // Check if user with this email already exists
+        const existingUser = await storage.getUserByEmail(invitation.email);
+        if (existingUser) {
+          if (existingUser.tenantId === tenantId) {
+            // Mark invitation as accepted since user exists
+            await db.update(invitations)
+              .set({ status: "accepted", usedAt: new Date() })
+              .where(eq(invitations.id, invitation.id));
+            results.push({ 
+              email: invitation.email, 
+              status: "already_exists", 
+              userId: existingUser.id 
+            });
+          } else {
+            errors.push({ 
+              email: invitation.email, 
+              error: "Email exists in another tenant" 
+            });
+          }
+          continue;
+        }
+        
+        // Generate a temporary password
+        const tempPassword = crypto.randomBytes(12).toString("base64").slice(0, 16);
+        const passwordHash = await hashPassword(tempPassword);
+        
+        // Extract names from invitation if available
+        const firstName = (invitation as any).firstName || invitation.email.split("@")[0];
+        const lastName = (invitation as any).lastName || "";
+        
+        // Create the user
+        const newUser = await storage.createUserWithTenant({
+          email: invitation.email,
+          name: `${firstName} ${lastName}`.trim() || invitation.email.split("@")[0],
+          firstName,
+          lastName,
+          role: invitation.role || "employee",
+          passwordHash,
+          isActive: true,
+          tenantId,
+          mustChangePasswordOnNextLogin: true,
+        });
+        
+        // Add to primary workspace if exists
+        if (primaryWorkspace) {
+          await db.insert(workspaceMembers).values({
+            workspaceId: primaryWorkspace.id,
+            userId: newUser.id,
+            role: invitation.role === "admin" ? "admin" : "member",
+          }).onConflictDoNothing();
+        }
+        
+        // Mark invitation as accepted
+        await db.update(invitations)
+          .set({ status: "accepted", usedAt: new Date() })
+          .where(eq(invitations.id, invitation.id));
+        
+        results.push({
+          email: invitation.email,
+          status: "activated",
+          userId: newUser.id,
+          tempPassword,
+        });
+      } catch (err: any) {
+        console.error(`Error activating invitation for ${invitation.email}:`, err);
+        errors.push({ email: invitation.email, error: err.message });
+      }
+    }
+    
+    // Log the bulk action
+    await logSuperAdminAction(
+      superUser.id,
+      "bulk_activate_invitations",
+      "tenant",
+      tenantId,
+      { 
+        totalPending: pendingInvitations.length,
+        activated: results.filter(r => r.status === "activated").length,
+        alreadyExisted: results.filter(r => r.status === "already_exists").length,
+        errors: errors.length 
+      }
+    );
+    
+    res.json({
+      message: `Activated ${results.filter(r => r.status === "activated").length} invitations`,
+      results,
+      errors,
+    });
+  } catch (error) {
+    console.error("Error bulk activating invitations:", error);
+    res.status(500).json({ error: "Failed to activate invitations" });
+  }
+});
+
 // Create a user directly (manual activation)
 const createUserSchema = z.object({
   email: z.string().email("Valid email is required"),

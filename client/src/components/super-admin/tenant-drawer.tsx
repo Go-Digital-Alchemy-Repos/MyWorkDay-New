@@ -1595,6 +1595,54 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
     },
   });
 
+  // Activate invitation mutation (create user from invitation)
+  const activateInvitationMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/invitations/${invitationId}/activate`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "invitations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "users"] });
+      if (data.tempPassword) {
+        toast({ 
+          title: "User activated", 
+          description: `${data.user?.email} activated. Temp password: ${data.tempPassword}` 
+        });
+        navigator.clipboard.writeText(data.tempPassword);
+      } else {
+        toast({ title: "User activated", description: `${data.user?.email} has been activated.` });
+      }
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Failed to activate invitation";
+      toast({ title: "Activation failed", description: message, variant: "destructive" });
+    },
+  });
+
+  // Activate all pending invitations mutation
+  const activateAllInvitationsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/v1/super/tenants/${activeTenant?.id}/invitations/activate-all`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "invitations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", activeTenant?.id, "users"] });
+      const activated = data.results?.filter((r: any) => r.status === "activated").length || 0;
+      const alreadyExisted = data.results?.filter((r: any) => r.status === "already_exists").length || 0;
+      const errors = data.errors?.length || 0;
+      toast({ 
+        title: "Bulk activation complete", 
+        description: `Activated: ${activated}, Already existed: ${alreadyExisted}, Errors: ${errors}` 
+      });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Failed to activate invitations";
+      toast({ title: "Bulk activation failed", description: message, variant: "destructive" });
+    },
+  });
+
   // Regenerate invitation link mutation
   const regenerateInvitationMutation = useMutation({
     mutationFn: async (invitationId: string) => {
@@ -3969,11 +4017,24 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
 
             {/* Pending Invitations */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Pending Invitations</CardTitle>
-                <CardDescription>
-                  {invitationsResponse?.invitations?.filter(i => i.status === "pending").length || 0} pending invitation(s)
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">Pending Invitations</CardTitle>
+                  <CardDescription>
+                    {invitationsResponse?.invitations?.filter(i => i.status === "pending").length || 0} pending invitation(s)
+                  </CardDescription>
+                </div>
+                {(invitationsResponse?.invitations?.filter(i => i.status === "pending").length || 0) > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={() => activateAllInvitationsMutation.mutate()}
+                    disabled={activateAllInvitationsMutation.isPending}
+                    data-testid="button-activate-all-invitations"
+                  >
+                    <UserPlus className="h-4 w-4 mr-1" />
+                    {activateAllInvitationsMutation.isPending ? "Activating..." : "Activate All"}
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
                 {invitationsLoading ? (
@@ -4029,6 +4090,16 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                             ) : (
                               <>
                                 <Badge className="text-xs">Pending</Badge>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => activateInvitationMutation.mutate(invitation.id)}
+                                  disabled={activateInvitationMutation.isPending}
+                                  title="Activate (create user account)"
+                                  data-testid={`button-activate-invitation-${invitation.id}`}
+                                >
+                                  <UserPlus className="h-4 w-4" />
+                                </Button>
                                 <Button
                                   size="icon"
                                   variant="ghost"
