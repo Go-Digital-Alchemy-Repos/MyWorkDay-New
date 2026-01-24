@@ -1070,21 +1070,20 @@ router.post("/tenants/:tenantId/invitations/:invitationId/activate", requireSupe
       mustChangePassword = true;
     }
     
-    // Get primary workspace for this tenant
-    const tenantWorkspaces = await db.select().from(workspaces)
-      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
-    const primaryWorkspace = tenantWorkspaces[0];
+    // Get primary workspace for this tenant (required for user provisioning)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
     
-    // Extract names from invitation if available
-    const firstName = (invitation as any).firstName || invitation.email.split("@")[0];
-    const lastName = (invitation as any).lastName || "";
+    // Extract names from invitation if available - email parsing as fallback
+    const firstName = invitation.email.split("@")[0];
+    const lastName = "";
     
     // Use a transaction to ensure atomicity of user creation, workspace membership, and invitation update
     const newUser = await db.transaction(async (tx) => {
       // Create the user
       const [createdUser] = await tx.insert(users).values({
         email: invitation.email,
-        name: `${firstName} ${lastName}`.trim() || invitation.email.split("@")[0],
+        name: firstName || invitation.email.split("@")[0],
         firstName,
         lastName,
         role: invitation.role || "employee",
@@ -1094,14 +1093,12 @@ router.post("/tenants/:tenantId/invitations/:invitationId/activate", requireSupe
         mustChangePasswordOnNextLogin: mustChangePassword,
       }).returning();
       
-      // Add to primary workspace if exists
-      if (primaryWorkspace) {
-        await tx.insert(workspaceMembers).values({
-          workspaceId: primaryWorkspace.id,
-          userId: createdUser.id,
-          role: invitation.role === "admin" ? "admin" : "member",
-        }).onConflictDoNothing();
-      }
+      // Add to primary workspace
+      await tx.insert(workspaceMembers).values({
+        workspaceId: primaryWorkspaceId,
+        userId: createdUser.id,
+        role: invitation.role === "admin" ? "admin" : "member",
+      }).onConflictDoNothing();
       
       // Mark invitation as accepted
       await tx.update(invitations)
@@ -1167,10 +1164,9 @@ router.post("/tenants/:tenantId/invitations/activate-all", requireSuperUser, asy
       return res.json({ message: "No pending invitations to activate", activated: 0 });
     }
     
-    // Get primary workspace for this tenant
-    const tenantWorkspaces = await db.select().from(workspaces)
-      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
-    const primaryWorkspace = tenantWorkspaces[0];
+    // Get primary workspace for this tenant (required for user provisioning)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
     
     const { hashPassword } = await import("../auth");
     const crypto = await import("crypto");
@@ -1206,14 +1202,14 @@ router.post("/tenants/:tenantId/invitations/activate-all", requireSuperUser, asy
         const tempPassword = crypto.randomBytes(12).toString("base64").slice(0, 16);
         const passwordHash = await hashPassword(tempPassword);
         
-        // Extract names from invitation if available
-        const firstName = (invitation as any).firstName || invitation.email.split("@")[0];
-        const lastName = (invitation as any).lastName || "";
+        // Extract names from invitation if available - use email parsing as fallback
+        const firstName = invitation.email.split("@")[0];
+        const lastName = "";
         
         // Create the user
         const newUser = await storage.createUserWithTenant({
           email: invitation.email,
-          name: `${firstName} ${lastName}`.trim() || invitation.email.split("@")[0],
+          name: firstName || invitation.email.split("@")[0],
           firstName,
           lastName,
           role: invitation.role || "employee",
@@ -1223,14 +1219,12 @@ router.post("/tenants/:tenantId/invitations/activate-all", requireSuperUser, asy
           mustChangePasswordOnNextLogin: true,
         });
         
-        // Add to primary workspace if exists
-        if (primaryWorkspace) {
-          await db.insert(workspaceMembers).values({
-            workspaceId: primaryWorkspace.id,
-            userId: newUser.id,
-            role: invitation.role === "admin" ? "admin" : "member",
-          }).onConflictDoNothing();
-        }
+        // Add to primary workspace
+        await db.insert(workspaceMembers).values({
+          workspaceId: primaryWorkspaceId,
+          userId: newUser.id,
+          role: invitation.role === "admin" ? "admin" : "member",
+        }).onConflictDoNothing();
         
         // Mark invitation as accepted
         await db.update(invitations)
@@ -1305,10 +1299,9 @@ router.post("/tenants/:tenantId/users", requireSuperUser, async (req, res) => {
     const { hashPassword } = await import("../auth");
     const passwordHash = await hashPassword(data.password);
     
-    // Get primary workspace for this tenant
-    const tenantWorkspaces = await db.select().from(workspaces)
-      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
-    const primaryWorkspace = tenantWorkspaces[0];
+    // Get primary workspace for this tenant (required for user provisioning)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
     
     // Create the user
     const newUser = await storage.createUserWithTenant({
@@ -1322,14 +1315,12 @@ router.post("/tenants/:tenantId/users", requireSuperUser, async (req, res) => {
       tenantId,
     });
     
-    // Add to primary workspace if exists
-    if (primaryWorkspace) {
-      await db.insert(workspaceMembers).values({
-        workspaceId: primaryWorkspace.id,
-        userId: newUser.id,
-        role: data.role === "admin" ? "admin" : "member",
-      }).onConflictDoNothing();
-    }
+    // Add to primary workspace
+    await db.insert(workspaceMembers).values({
+      workspaceId: primaryWorkspaceId,
+      userId: newUser.id,
+      role: data.role === "admin" ? "admin" : "member",
+    }).onConflictDoNothing();
     
     // Record audit event
     await recordTenantAuditEvent(
@@ -1448,10 +1439,8 @@ router.post("/tenants/:tenantId/users/provision", requireSuperUser, async (req, 
         });
       }
       
-      // Get primary workspace for this tenant
-      const tenantWorkspaces = await db.select().from(workspaces)
-        .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)));
-      const primaryWorkspace = tenantWorkspaces[0];
+      // Get primary workspace for this tenant (required for user provisioning)
+      const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
       
       // Create new user (password will be set below if method is SET_PASSWORD)
       user = await storage.createUserWithTenant({
@@ -1466,14 +1455,12 @@ router.post("/tenants/:tenantId/users/provision", requireSuperUser, async (req, 
       });
       isNewUser = true;
       
-      // Add to primary workspace if exists
-      if (primaryWorkspace) {
-        await db.insert(workspaceMembers).values({
-          workspaceId: primaryWorkspace.id,
-          userId: user.id,
-          role: data.role === "admin" ? "admin" : "member",
-        }).onConflictDoNothing();
-      }
+      // Add to primary workspace
+      await db.insert(workspaceMembers).values({
+        workspaceId: primaryWorkspaceId,
+        userId: user.id,
+        role: data.role === "admin" ? "admin" : "member",
+      }).onConflictDoNothing();
       
       await recordTenantAuditEvent(
         tenantId,
@@ -4232,16 +4219,9 @@ router.post("/tenants/:tenantId/clients/bulk", requireSuperUser, async (req, res
       return res.status(404).json({ error: "Tenant not found" });
     }
 
-    // Get primary workspace
-    const primaryWorkspaceResult = await db.select()
-      .from(workspaces)
-      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)))
-      .limit(1);
-    
-    if (!primaryWorkspaceResult.length) {
-      return res.status(400).json({ error: "No primary workspace found for tenant" });
-    }
-    const workspaceId = primaryWorkspaceResult[0].id;
+    // Get primary workspace (required for client creation)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const workspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
 
     // Get existing clients for deduplication
     const existingClients = await db.select({ companyName: clients.companyName, id: clients.id })
@@ -4439,7 +4419,7 @@ router.post("/tenants/:tenantId/projects/bulk", requireSuperUser, async (req, re
     for (const projectData of data.projects) {
       const projectNameTrimmed = projectData.projectName.trim();
       let clientIdToUse: string | null = null;
-      let workspaceIdToUse = primaryWorkspace.id;
+      let workspaceIdToUse = workspaceId;
 
       // Resolve workspace if specified
       if (projectData.workspaceName) {
@@ -4656,15 +4636,9 @@ router.post("/tenants/:tenantId/clients/fix-tenant-ids", requireSuperUser, async
       return res.status(404).json({ error: "Tenant not found" });
     }
 
-    // Get primary workspace for this tenant
-    const [primaryWorkspace] = await db.select()
-      .from(workspaces)
-      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)))
-      .limit(1);
-
-    if (!primaryWorkspace) {
-      return res.status(400).json({ error: "No primary workspace found for tenant" });
-    }
+    // Get primary workspace for this tenant (required for orphan assignment)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
 
     // Find clients that:
     // 1. Have NULL tenantId but belong to a workspace owned by this tenant
@@ -4725,7 +4699,7 @@ router.post("/tenants/:tenantId/clients/fix-tenant-ids", requireSuperUser, async
         await db.update(clients)
           .set({ 
             tenantId,
-            workspaceId: primaryWorkspace.id
+            workspaceId: primaryWorkspaceId
           })
           .where(eq(clients.id, client.id));
         
@@ -5334,24 +5308,21 @@ router.post("/tenants/:tenantId/seed/welcome-project", requireSuperUser, async (
     const user = req.user as Express.User;
 
     // Verify tenant exists
-    const tenant = await storage.getTenantById(tenantId);
+    const tenant = await storage.getTenant(tenantId);
     if (!tenant) {
       return res.status(404).json({ error: "Tenant not found" });
     }
 
-    // Get primary workspace
-    const workspaces = await db.select().from(schema.workspaces).where(eq(schema.workspaces.tenantId, tenantId));
-    const primaryWorkspace = workspaces.find(w => w.isPrimary) || workspaces[0];
-    if (!primaryWorkspace) {
-      return res.status(400).json({ error: "Tenant has no workspace" });
-    }
+    // Get primary workspace (required for seeding)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
 
     // Check for existing welcome project (idempotency)
     const welcomeProjectName = `Welcome to ${tenant.name}`;
     const existingProjects = await db.select()
       .from(schema.projects)
       .where(and(
-        eq(schema.projects.workspaceId, primaryWorkspace.id),
+        eq(schema.projects.workspaceId, primaryWorkspaceId),
         eq(schema.projects.name, welcomeProjectName)
       ));
 
@@ -5366,7 +5337,7 @@ router.post("/tenants/:tenantId/seed/welcome-project", requireSuperUser, async (
     // Create welcome project
     const [project] = await db.insert(schema.projects).values({
       tenantId,
-      workspaceId: primaryWorkspace.id,
+      workspaceId: primaryWorkspaceId,
       name: welcomeProjectName,
       description: "Your introduction to the platform",
       status: "active",
@@ -5450,7 +5421,7 @@ router.post("/tenants/:tenantId/projects/:projectId/seed/task-template", require
     const data = taskTemplateSchema.parse(req.body);
 
     // Verify tenant exists
-    const tenant = await storage.getTenantById(tenantId);
+    const tenant = await storage.getTenant(tenantId);
     if (!tenant) {
       return res.status(404).json({ error: "Tenant not found" });
     }
@@ -5589,7 +5560,7 @@ router.post("/tenants/:tenantId/projects/:projectId/tasks/bulk", requireSuperUse
     const options = data.options || { createMissingSections: true, allowUnknownAssignees: false };
 
     // Verify tenant exists
-    const tenant = await storage.getTenantById(tenantId);
+    const tenant = await storage.getTenant(tenantId);
     if (!tenant) {
       return res.status(404).json({ error: "Tenant not found" });
     }
@@ -8966,11 +8937,9 @@ router.post("/tenants/:tenantId/import/clients", requireSuperUser, async (req, r
       return res.status(404).json({ error: "Tenant not found" });
     }
     
-    const allWorkspaces = await db.select().from(workspaces).where(eq(workspaces.tenantId, tenantId));
-    const primaryWorkspace = allWorkspaces.find(w => w.isPrimary) || allWorkspaces[0];
-    if (!primaryWorkspace) {
-      return res.status(400).json({ error: "Tenant has no workspace" });
-    }
+    // Get primary workspace (required for client creation)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
     
     const results: Array<{ name: string; status: "created" | "skipped" | "error"; reason?: string }> = [];
     let created = 0;
@@ -9000,7 +8969,7 @@ router.post("/tenants/:tenantId/import/clients", requireSuperUser, async (req, r
       try {
         await db.insert(clients).values({
           tenantId,
-          workspaceId: primaryWorkspace.id,
+          workspaceId: primaryWorkspaceId,
           companyName,
           displayName: row.displayName?.trim() || null,
           industry: row.industry?.trim() || null,
@@ -9059,11 +9028,9 @@ router.post("/tenants/:tenantId/import/time-entries", requireSuperUser, async (r
       return res.status(404).json({ error: "Tenant not found" });
     }
     
-    const allWorkspaces = await db.select().from(workspaces).where(eq(workspaces.tenantId, tenantId));
-    const primaryWorkspace = allWorkspaces.find(w => w.isPrimary) || allWorkspaces[0];
-    if (!primaryWorkspace) {
-      return res.status(400).json({ error: "Tenant has no workspace" });
-    }
+    // Get primary workspace (required for time entry creation)
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
     
     const tenantUsers = await db.select().from(users).where(eq(users.tenantId, tenantId));
     const usersByEmail = new Map(tenantUsers.map(u => [u.email.toLowerCase(), u]));
@@ -9121,7 +9088,7 @@ router.post("/tenants/:tenantId/import/time-entries", requireSuperUser, async (r
       try {
         await db.insert(timeEntries).values({
           tenantId,
-          workspaceId: primaryWorkspace.id,
+          workspaceId: primaryWorkspaceId,
           userId: user.id,
           clientId: client?.id || null,
           projectId: project?.id || null,
