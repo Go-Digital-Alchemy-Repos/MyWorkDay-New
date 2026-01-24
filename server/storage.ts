@@ -99,6 +99,7 @@ export interface IStorage {
   getWorkspacesByUser(userId: string): Promise<Workspace[]>;
   getWorkspacesByTenant(tenantId: string): Promise<Workspace[]>;
   getPrimaryWorkspaceId(tenantId: string): Promise<string | null>;
+  getPrimaryWorkspaceIdOrFail(tenantId: string, requestId?: string): Promise<string>;
   createWorkspace(workspace: InsertWorkspace): Promise<Workspace>;
   
   getWorkspaceMembers(workspaceId: string): Promise<(WorkspaceMember & { user?: User })[]>;
@@ -495,8 +496,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPrimaryWorkspaceId(tenantId: string): Promise<string | null> {
+    const [primaryWorkspace] = await db.select()
+      .from(workspaces)
+      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)))
+      .limit(1);
+    
+    if (primaryWorkspace) {
+      return primaryWorkspace.id;
+    }
+    
+    // Fallback to first workspace if no primary exists
     const tenantWorkspaces = await this.getWorkspacesByTenant(tenantId);
     return tenantWorkspaces.length > 0 ? tenantWorkspaces[0].id : null;
+  }
+  
+  async getPrimaryWorkspaceIdOrFail(tenantId: string, requestId?: string): Promise<string> {
+    const [primaryWorkspace] = await db.select()
+      .from(workspaces)
+      .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.isPrimary, true)))
+      .limit(1);
+    
+    if (primaryWorkspace) {
+      return primaryWorkspace.id;
+    }
+    
+    // Log error with requestId for debugging
+    const reqIdInfo = requestId ? ` (requestId: ${requestId})` : '';
+    console.error(`[getPrimaryWorkspaceIdOrFail] No primary workspace found for tenant ${tenantId}${reqIdInfo}`);
+    throw new Error(`No primary workspace found for tenant ${tenantId}`);
   }
 
   async createWorkspace(insertWorkspace: InsertWorkspace): Promise<Workspace> {

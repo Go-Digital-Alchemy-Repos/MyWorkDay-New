@@ -554,17 +554,17 @@ router.delete("/tenants/:tenantId", requireSuperUser, async (req, res) => {
       await tx.delete(activeTimers).where(eq(activeTimers.tenantId, tenantId));
       await tx.delete(timeEntries).where(eq(timeEntries.tenantId, tenantId));
       
-      // Comments and mentions (delete children first)
-      await tx.delete(commentMentions).where(eq(commentMentions.commentId, sql`ANY(SELECT id FROM comments WHERE tenant_id = ${tenantId})`));
-      await tx.delete(comments).where(eq(comments.tenantId, tenantId));
+      // Comments and mentions (delete children first - use task subquery since comments don't have tenantId)
+      await tx.delete(commentMentions).where(eq(commentMentions.commentId, sql`ANY(SELECT id FROM comments WHERE task_id IN (SELECT id FROM tasks WHERE tenant_id = ${tenantId}))`));
+      await tx.delete(comments).where(eq(comments.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
       
       // Task-related (delete children before tasks)
       await tx.delete(taskAttachments).where(eq(taskAttachments.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
       await tx.delete(taskTags).where(eq(taskTags.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
       await tx.delete(subtasks).where(eq(subtasks.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
       await tx.delete(taskWatchers).where(eq(taskWatchers.tenantId, tenantId));
-      await tx.delete(taskAssignees).where(eq(taskAssignees.tenantId, tenantId));
-      await tx.delete(activityLog).where(eq(activityLog.tenantId, tenantId));
+      await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, sql`ANY(SELECT id FROM tasks WHERE tenant_id = ${tenantId})`));
+      await tx.delete(activityLog).where(eq(activityLog.workspaceId, sql`ANY(SELECT id FROM workspaces WHERE tenant_id = ${tenantId})`));
       await tx.delete(tasks).where(eq(tasks.tenantId, tenantId));
       
       // Tags (after taskTags deleted)
@@ -580,8 +580,8 @@ router.delete("/tenants/:tenantId", requireSuperUser, async (req, res) => {
       await tx.delete(projectMembers).where(eq(projectMembers.projectId, sql`ANY(SELECT id FROM projects WHERE tenant_id = ${tenantId})`));
       await tx.delete(projects).where(eq(projects.tenantId, tenantId));
       
-      // Client portal (clientInvites doesn't have tenantId, use clientId subquery)
-      await tx.delete(clientUserAccess).where(eq(clientUserAccess.tenantId, tenantId));
+      // Client portal (use clientId subquery since clientUserAccess doesn't have tenantId)
+      await tx.delete(clientUserAccess).where(eq(clientUserAccess.clientId, sql`ANY(SELECT id FROM clients WHERE tenant_id = ${tenantId})`));
       await tx.delete(clientInvites).where(eq(clientInvites.clientId, sql`ANY(SELECT id FROM clients WHERE tenant_id = ${tenantId})`));
       
       // Divisions
@@ -1685,27 +1685,34 @@ router.post("/tenants/:tenantId/users/fix-tenant-ids", requireSuperUser, async (
       console.log(`[fix-tenant-ids] Fixed user ${row.user.email} -> tenantId: ${tenantId}`);
     }
     
-    // Also check invitations table for users who accepted invitations but have no tenantId
-    const inviteUsers = await db.select({
-      userId: invitations.userId,
-      userEmail: users.email,
+    // Also check for users who were created via invitation (email match) but have no tenantId
+    const inviteEmails = await db.select({
+      email: invitations.email,
     })
       .from(invitations)
-      .innerJoin(users, eq(users.id, invitations.userId))
       .where(and(
         eq(invitations.tenantId, tenantId),
-        isNull(users.tenantId),
-        ne(users.role, UserRole.SUPER_USER),
+        eq(invitations.status, "accepted")
       ));
     
-    for (const row of inviteUsers) {
-      if (row.userId) {
+    for (const row of inviteEmails) {
+      // Find user by email
+      const [matchedUser] = await db.select()
+        .from(users)
+        .where(and(
+          eq(users.email, row.email),
+          isNull(users.tenantId),
+          ne(users.role, UserRole.SUPER_USER),
+        ))
+        .limit(1);
+      
+      if (matchedUser) {
         await db.update(users)
           .set({ tenantId, updatedAt: new Date() })
-          .where(eq(users.id, row.userId));
+          .where(eq(users.id, matchedUser.id));
         fixedCount++;
         
-        console.log(`[fix-tenant-ids] Fixed invited user ${row.userEmail} -> tenantId: ${tenantId}`);
+        console.log(`[fix-tenant-ids] Fixed invited user ${matchedUser.email} -> tenantId: ${tenantId}`);
       }
     }
     
@@ -2464,8 +2471,8 @@ router.delete("/tenants/:tenantId/users/:userId", requireSuperUser, async (req, 
     // 4. Delete division memberships
     await db.delete(divisionMembers).where(eq(divisionMembers.userId, userId));
     
-    // 5. Nullify references in tasks (assignee)
-    await db.update(tasks).set({ assigneeId: null }).where(eq(tasks.assigneeId, userId));
+    // 5. Delete task assignee entries for this user (task assignees are in separate table)
+    await db.delete(taskAssignees).where(eq(taskAssignees.userId, userId));
     
     // 6. Nullify references in projects (createdBy)
     await db.update(projects).set({ createdBy: null }).where(eq(projects.createdBy, userId));
@@ -2474,10 +2481,10 @@ router.delete("/tenants/:tenantId/users/:userId", requireSuperUser, async (req, 
     await db.delete(timeEntries).where(eq(timeEntries.userId, userId));
     
     // 8. Delete activity logs referencing this user
-    await db.delete(activityLog).where(eq(activityLog.userId, userId));
+    await db.delete(activityLog).where(eq(activityLog.actorUserId, userId));
     
     // 9. Delete comments by this user
-    await db.delete(comments).where(eq(comments.authorId, userId));
+    await db.delete(comments).where(eq(comments.userId, userId));
     
     // 10. Delete password reset tokens
     await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
