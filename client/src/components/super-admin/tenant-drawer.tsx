@@ -69,6 +69,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TenantUserDrawer } from "./tenant-user-drawer";
 import { ProvisionUserDrawer } from "./provision-user-drawer";
 import { S3Dropzone } from "@/components/common/S3Dropzone";
+import { RichTextEditor, RichTextViewer } from "@/components/ui/rich-text-editor";
 import type { Tenant } from "@shared/schema";
 
 interface TenantSettings {
@@ -2644,9 +2645,10 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-3">
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-medium">Category:</Label>
                     <Select value={newNoteCategory} onValueChange={setNewNoteCategory}>
-                      <SelectTrigger className="w-32" data-testid="select-note-category">
+                      <SelectTrigger className="w-36" data-testid="select-note-category">
                         <SelectValue placeholder="Category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2657,20 +2659,21 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                         <SelectItem value="accounts">Accounts</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input
-                      placeholder="Add a note..."
-                      value={newNoteBody}
-                      onChange={(e) => setNewNoteBody(e.target.value)}
-                      className="flex-1"
-                      data-testid="input-new-note"
-                    />
+                  </div>
+                  <RichTextEditor
+                    value={newNoteBody}
+                    onChange={setNewNoteBody}
+                    placeholder="Add a note... Use the toolbar to format text, add links, etc."
+                    minHeight="100px"
+                  />
+                  <div className="flex justify-end">
                     <Button
                       onClick={() => createNoteMutation.mutate({ body: newNoteBody, category: newNoteCategory })}
-                      disabled={!newNoteBody.trim() || createNoteMutation.isPending}
+                      disabled={!newNoteBody.trim() || newNoteBody === "<p></p>" || createNoteMutation.isPending}
                       data-testid="button-add-note"
                     >
                       <Send className="h-4 w-4 mr-2" />
-                      Add
+                      Add Note
                     </Button>
                   </div>
                 </div>
@@ -2705,7 +2708,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                             </Button>
                           </div>
                         </div>
-                        <p className="text-sm">{note.body}</p>
+                        <RichTextViewer content={note.body} className="text-sm" />
                       </div>
                     ))}
                   </div>
