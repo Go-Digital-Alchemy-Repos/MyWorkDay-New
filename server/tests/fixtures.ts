@@ -119,6 +119,20 @@ export async function createTestProject(options: CreateProjectOptions) {
   return project;
 }
 
+export interface CreateSectionOptions {
+  name?: string;
+  projectId: string;
+}
+
+export async function createTestSection(options: CreateSectionOptions) {
+  const { sections } = await import("../../shared/schema");
+  const [section] = await db.insert(sections).values({
+    name: options.name || "Test Section",
+    projectId: options.projectId,
+  }).returning();
+  return section;
+}
+
 export interface CreateTaskOptions {
   title?: string;
   projectId: string;

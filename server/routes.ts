@@ -26,6 +26,7 @@ import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { z } from "zod";
+import { captureError } from "./middleware/errorLogging";
 import subRoutes from "./routes/index";
 import webhookRoutes from "./routes/webhooks";
 import {
@@ -1397,8 +1398,10 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors, requestId });
       }
-      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[Personal Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${sanitizedError}`);
+      // Log to error_logs table for observability
+      const err = error instanceof Error ? error : new Error(String(error));
+      captureError(req as any, err, 500, { route: "POST /api/tasks/personal", body: req.body }).catch(() => {});
+      console.error(`[Personal Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${err.message}`);
       res.status(500).json({ error: "Unable to create personal task", requestId });
     }
   });
@@ -1591,6 +1594,30 @@ export async function registerRoutes(
         createdBy: userId,
       });
       
+      // Validate projectId belongs to tenant (if provided and not personal task)
+      if (data.projectId && !data.isPersonal) {
+        const project = tenantId 
+          ? await storage.getProjectByIdAndTenant(data.projectId, tenantId)
+          : await storage.getProject(data.projectId);
+        if (!project) {
+          return res.status(400).json({ 
+            error: "Invalid project: project not found or does not belong to this tenant",
+            requestId 
+          });
+        }
+      }
+      
+      // Validate sectionId belongs to the project (if provided)
+      if (data.sectionId && data.projectId) {
+        const section = await storage.getSection(data.sectionId);
+        if (!section || section.projectId !== data.projectId) {
+          return res.status(400).json({ 
+            error: "Invalid section: section not found or does not belong to this project",
+            requestId 
+          });
+        }
+      }
+      
       // Use tenant-aware task creation
       const task = tenantId 
         ? await storage.createTaskWithTenant(data, tenantId)
@@ -1617,8 +1644,10 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors, requestId });
       }
-      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${sanitizedError}`);
+      // Log to error_logs table for observability
+      const err = error instanceof Error ? error : new Error(String(error));
+      captureError(req as any, err, 500, { route: "POST /api/tasks", body: req.body }).catch(() => {});
+      console.error(`[Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${err.message}`);
       res.status(500).json({ error: "Unable to create task", requestId });
     }
   });
@@ -1672,8 +1701,10 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors, requestId });
       }
-      const sanitizedError = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[Child Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${sanitizedError}`);
+      // Log to error_logs table for observability
+      const err = error instanceof Error ? error : new Error(String(error));
+      captureError(req as any, err, 500, { route: "POST /api/tasks/:taskId/childtasks", body: req.body }).catch(() => {});
+      console.error(`[Child Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${err.message}`);
       res.status(500).json({ error: "Unable to create child task", requestId });
     }
   });

@@ -170,26 +170,36 @@ Manual regression checklist for verifying core functionality. Run through this c
 
 ## 6. Tasks & Subtasks
 
-### 6.1 Tasks
-- [ ] Create task in section
+### 6.1 Task Creation (Critical Path)
+- [ ] Create task with valid project (tenant admin) - should succeed, task has tenantId
+- [ ] Create task with valid project (employee) - should succeed
+- [ ] Create task in section - section must belong to same project
+- [ ] Create personal task (no project) - should succeed with isPersonal=true
+- [ ] Create task with project from another tenant - should return 400 with "Invalid project"
+- [ ] Create task with non-existent projectId - should return 400 with "Invalid project"
+- [ ] Create task with sectionId from different project - should return 400 with "Invalid section"
+- [ ] Error responses include requestId (no stack traces exposed)
+- [ ] All 500 errors logged to error_logs table with requestId correlation
+
+### 6.2 Task Operations
 - [ ] Edit task via drawer
 - [ ] Set due date, priority, status
 - [ ] Add multiple assignees
 - [ ] Move task between sections (drag-drop)
 - [ ] Delete task
 
-### 6.2 Subtasks
+### 6.3 Subtasks
 - [ ] Add subtask to task
 - [ ] Toggle subtask complete
 - [ ] Edit subtask
 - [ ] Delete subtask
 
-### 6.3 Comments
+### 6.4 Comments
 - [ ] Add comment to task
 - [ ] Edit comment
 - [ ] Delete comment
 
-### 6.4 Attachments
+### 6.5 Attachments
 - [ ] Upload attachment (if S3 configured)
 - [ ] Download attachment
 - [ ] Delete attachment
