@@ -1380,11 +1380,16 @@ export async function registerRoutes(
         ? await storage.createTaskWithTenant(data, tenantId)
         : await storage.createTask(data);
 
-      // Auto-assign the task to the creating user
-      await storage.addTaskAssignee({
-        taskId: task.id,
-        userId: userId,
-      });
+      // Auto-assign the task to the creating user with proper tenantId
+      try {
+        await storage.addTaskAssignee({
+          taskId: task.id,
+          userId: userId,
+          tenantId: tenantId || undefined,
+        });
+      } catch (assigneeError) {
+        console.warn(`[Personal Task Create] Failed to auto-assign task ${task.id} to user ${userId}:`, assigneeError);
+      }
 
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
@@ -1623,10 +1628,17 @@ export async function registerRoutes(
         ? await storage.createTaskWithTenant(data, tenantId)
         : await storage.createTask(data);
 
-      await storage.addTaskAssignee({
-        taskId: task.id,
-        userId: userId,
-      });
+      // Add creator as assignee with proper tenantId for data integrity
+      try {
+        await storage.addTaskAssignee({
+          taskId: task.id,
+          userId: userId,
+          tenantId: tenantId || undefined,
+        });
+      } catch (assigneeError) {
+        // Log but don't fail task creation - assignee is optional
+        console.warn(`[Task Create] Failed to auto-assign task ${task.id} to user ${userId}:`, assigneeError);
+      }
 
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
@@ -1682,11 +1694,17 @@ export async function registerRoutes(
         ? await storage.createTaskWithTenant({ ...data, parentTaskId }, effectiveTenantId)
         : await storage.createChildTask(parentTaskId, data);
 
+      // Add assignee with proper tenantId if specified
       if (body.assigneeId) {
-        await storage.addTaskAssignee({
-          taskId: task.id,
-          userId: body.assigneeId,
-        });
+        try {
+          await storage.addTaskAssignee({
+            taskId: task.id,
+            userId: body.assigneeId,
+            tenantId: effectiveTenantId || undefined,
+          });
+        } catch (assigneeError) {
+          console.warn(`[Child Task Create] Failed to assign task ${task.id} to user ${body.assigneeId}:`, assigneeError);
+        }
       }
 
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
@@ -1879,6 +1897,7 @@ export async function registerRoutes(
       const assignee = await storage.addTaskAssignee({
         taskId: req.params.taskId,
         userId: assigneeUserId,
+        tenantId: tenantId || undefined,
       });
       
       // Send notification to new assignee (fire and forget)
@@ -1897,8 +1916,9 @@ export async function registerRoutes(
       
       res.status(201).json(assignee);
     } catch (error) {
-      console.error("Error adding assignee:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const requestId = (req as any).requestId || 'unknown';
+      console.error(`[Add Assignee Error] requestId=${requestId} error=`, error);
+      res.status(500).json({ error: "Unable to add assignee", requestId });
     }
   });
 

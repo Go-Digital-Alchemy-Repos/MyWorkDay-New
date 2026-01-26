@@ -18,7 +18,7 @@ import express, { Express, Response, NextFunction } from "express";
 import session from "express-session";
 import { db } from "../db";
 import { 
-  tenants, workspaces, projects, tasks, sections, users, 
+  tenants, workspaces, projects, tasks, sections, users, taskAssignees,
   TenantStatus, UserRole 
 } from "../../shared/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -187,10 +187,17 @@ describe("Tenant Task Create - Regression Tests", () => {
           ? await storage.createTaskWithTenant(data, tenantId)
           : await storage.createTask(data);
 
-        await storage.addTaskAssignee({
-          taskId: task.id,
-          userId: userId,
-        });
+        // Add creator as assignee with proper tenantId for data integrity
+        try {
+          await storage.addTaskAssignee({
+            taskId: task.id,
+            userId: userId,
+            tenantId: tenantId || undefined,
+          });
+        } catch (assigneeError) {
+          // Log but don't fail task creation - assignee is optional
+          console.warn(`[Task Create Test] Failed to auto-assign task ${task.id} to user ${userId}:`, assigneeError);
+        }
 
         const taskWithRelations = await storage.getTaskWithRelations(task.id);
         testTaskIds.push(task.id);
@@ -227,10 +234,16 @@ describe("Tenant Task Create - Regression Tests", () => {
           ? await storage.createTaskWithTenant(data, tenantId)
           : await storage.createTask(data);
 
-        await storage.addTaskAssignee({
-          taskId: task.id,
-          userId: userId,
-        });
+        // Add creator as assignee with proper tenantId for data integrity
+        try {
+          await storage.addTaskAssignee({
+            taskId: task.id,
+            userId: userId,
+            tenantId: tenantId || undefined,
+          });
+        } catch (assigneeError) {
+          console.warn(`[Personal Task Create Test] Failed to auto-assign task ${task.id} to user ${userId}:`, assigneeError);
+        }
 
         const taskWithRelations = await storage.getTaskWithRelations(task.id);
         testTaskIds.push(task.id);
@@ -457,6 +470,29 @@ describe("Tenant Task Create - Regression Tests", () => {
       expect(res1.body.tenantId).toBe(tenant1.id);
       expect(res2.body.tenantId).toBe(tenant2.id);
       expect(res1.body.tenantId).not.toBe(res2.body.tenantId);
+    });
+
+    it("should set tenantId on task assignees for data integrity", async () => {
+      const res = await request(app)
+        .post("/api/tasks")
+        .set("X-Test-User-Id", adminUser1.id)
+        .send({
+          title: "Task with Assignee TenantId Check",
+          projectId: project1.id,
+          status: "todo",
+        });
+      
+      expect(res.status).toBe(201);
+      const taskId = res.body.id;
+      
+      // Verify the task_assignees entry has tenantId set
+      const [assignee] = await db.select()
+        .from(taskAssignees)
+        .where(eq(taskAssignees.taskId, taskId));
+      
+      expect(assignee).toBeDefined();
+      expect(assignee.tenantId).toBe(tenant1.id);
+      expect(assignee.userId).toBe(adminUser1.id);
     });
   });
 });
