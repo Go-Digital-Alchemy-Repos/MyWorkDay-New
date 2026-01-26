@@ -4808,13 +4808,101 @@ router.delete("/tenants/:tenantId/clients/:clientId", requireSuperUser, async (r
       return res.status(404).json({ error: "Client not found" });
     }
 
-    await db.delete(clients).where(eq(clients.id, clientId));
+    // Use transaction to cascade delete all related data
+    await db.transaction(async (tx) => {
+      // Get project IDs for this client
+      const clientProjects = await tx.select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.clientId, clientId));
+      const projectIds = clientProjects.map(p => p.id);
+
+      // Get division IDs for this client
+      const clientDivisionsList = await tx.select({ id: clientDivisions.id })
+        .from(clientDivisions)
+        .where(eq(clientDivisions.clientId, clientId));
+      const divisionIds = clientDivisionsList.map(d => d.id);
+
+      // Delete time entries for this client
+      await tx.delete(timeEntries).where(eq(timeEntries.clientId, clientId));
+
+      // Delete active timers for this client
+      await tx.delete(activeTimers).where(eq(activeTimers.clientId, clientId));
+
+      // Delete task-related data for client's projects
+      if (projectIds.length > 0) {
+        // Get task IDs for these projects
+        const projectTasks = await tx.select({ id: tasks.id })
+          .from(tasks)
+          .where(inArray(tasks.projectId, projectIds));
+        const taskIds = projectTasks.map(t => t.id);
+
+        if (taskIds.length > 0) {
+          // Delete task attachments
+          await tx.delete(taskAttachments).where(inArray(taskAttachments.taskId, taskIds));
+          // Delete subtasks
+          await tx.delete(subtasks).where(inArray(subtasks.taskId, taskIds));
+          // Delete task tags
+          await tx.delete(taskTags).where(inArray(taskTags.taskId, taskIds));
+          // Delete task assignees
+          await tx.delete(taskAssignees).where(inArray(taskAssignees.taskId, taskIds));
+          // Delete task watchers
+          await tx.delete(taskWatchers).where(inArray(taskWatchers.taskId, taskIds));
+          // Delete comment mentions for task comments
+          const taskComments = await tx.select({ id: comments.id })
+            .from(comments)
+            .where(inArray(comments.taskId, taskIds));
+          const commentIds = taskComments.map(c => c.id);
+          if (commentIds.length > 0) {
+            await tx.delete(commentMentions).where(inArray(commentMentions.commentId, commentIds));
+          }
+          // Delete comments
+          await tx.delete(comments).where(inArray(comments.taskId, taskIds));
+          // Delete activity log for tasks
+          await tx.delete(activityLog).where(
+            and(eq(activityLog.entityType, "task"), inArray(activityLog.entityId, taskIds))
+          );
+          // Delete tasks
+          await tx.delete(tasks).where(inArray(tasks.id, taskIds));
+        }
+
+        // Delete sections
+        await tx.delete(sections).where(inArray(sections.projectId, projectIds));
+        // Delete project members
+        await tx.delete(projectMembers).where(inArray(projectMembers.projectId, projectIds));
+        // Delete activity log for projects
+        await tx.delete(activityLog).where(
+          and(eq(activityLog.entityType, "project"), inArray(activityLog.entityId, projectIds))
+        );
+        // Delete projects
+        await tx.delete(projects).where(inArray(projects.id, projectIds));
+      }
+
+      // Delete division members for this client's divisions
+      if (divisionIds.length > 0) {
+        await tx.delete(divisionMembers).where(inArray(divisionMembers.divisionId, divisionIds));
+      }
+
+      // Delete client user access
+      await tx.delete(clientUserAccess).where(eq(clientUserAccess.clientId, clientId));
+
+      // Delete client invites (need to delete invites before contacts due to FK)
+      await tx.delete(clientInvites).where(eq(clientInvites.clientId, clientId));
+
+      // Delete client divisions
+      await tx.delete(clientDivisions).where(eq(clientDivisions.clientId, clientId));
+
+      // Delete client contacts
+      await tx.delete(clientContacts).where(eq(clientContacts.clientId, clientId));
+
+      // Finally delete the client
+      await tx.delete(clients).where(eq(clients.id, clientId));
+    });
 
     const superUser = req.user as any;
     await recordTenantAuditEvent(
       tenantId,
       "client_deleted",
-      `Client "${existingClient.companyName}" deleted by super admin`,
+      `Client "${existingClient.companyName}" deleted by super admin (with all related data)`,
       superUser?.id,
       { clientId, clientName: existingClient.companyName }
     );
