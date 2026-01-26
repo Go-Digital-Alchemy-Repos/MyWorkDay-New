@@ -2319,9 +2319,9 @@ router.post("/invitations/:invitationId/activate", requireSuperUser, async (req,
 const updateUserSchema = z.object({
   email: z.string().email().optional(),
   firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
+  lastName: z.string().optional(), // Allow empty string to clear lastName
   name: z.string().min(1).optional(),
-  role: z.enum(["admin", "employee"]).optional(),
+  role: z.enum(["admin", "employee", "client"]).optional(), // All tenant user roles (not super_user for safety)
   isActive: z.boolean().optional(),
 });
 
@@ -2900,17 +2900,27 @@ router.post("/tenants/:tenantId/users/:userId/reset-password", requireSuperUser,
     
     await storage.setUserPasswordWithMustChange(userId, tenantId, passwordHash, mustChangeOnNextLogin);
     
+    // Invalidate all existing sessions for this user to force re-login with new password
+    try {
+      await db.execute(
+        sql`DELETE FROM user_sessions WHERE sess::text LIKE ${'%"passport":{"user":"' + userId + '"%'}`
+      );
+    } catch (sessionError) {
+      console.warn("Could not invalidate user sessions:", sessionError);
+      // Continue even if session invalidation fails
+    }
+    
     // Record audit event
     await recordTenantAuditEvent(
       tenantId,
       "user_password_reset",
-      `Password reset for user ${existingUser.email}${mustChangeOnNextLogin ? " (must change on next login)" : ""}`,
+      `Password reset for user ${existingUser.email}${mustChangeOnNextLogin ? " (must change on next login)" : ""} - sessions invalidated`,
       superUser?.id,
       { userId, email: existingUser.email, mustChangeOnNextLogin }
     );
     
     res.json({
-      message: "Password reset successfully",
+      message: "Password reset successfully. User will need to log in again.",
       mustChangeOnNextLogin,
     });
   } catch (error) {

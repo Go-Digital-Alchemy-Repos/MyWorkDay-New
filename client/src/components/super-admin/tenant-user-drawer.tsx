@@ -21,6 +21,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   User, 
   Mail, 
@@ -39,7 +46,9 @@ import {
   Lock,
   LogIn,
   ExternalLink,
-  Trash2
+  Trash2,
+  Pencil,
+  Save
 } from "lucide-react";
 
 interface TenantUser {
@@ -82,8 +91,16 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
   const [showPassword, setShowPassword] = useState(false);
   const [confirmRegenerateInvite, setConfirmRegenerateInvite] = useState(false);
   const [confirmDeleteInvite, setConfirmDeleteInvite] = useState(false);
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState(false);
   const [lastGeneratedUrl, setLastGeneratedUrl] = useState<string | null>(null);
   const [lastResetLinkUrl, setLastResetLinkUrl] = useState<string | null>(null);
+  
+  // Edit mode state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState<string>("");
 
   const { data: user, isLoading: userLoading } = useQuery<TenantUser>({
     queryKey: ["/api/v1/super/tenants", tenantId, "users", userId],
@@ -233,16 +250,103 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
     },
   });
 
+  // Update user mutation
+  const updateUserMutation = useMutation({
+    mutationFn: async (data: { firstName?: string; lastName?: string; email?: string; role?: string }) => {
+      const res = await apiRequest("PATCH", `/api/v1/super/tenants/${tenantId}/users/${userId}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenantId, "users"] });
+      toast({ title: "User updated successfully" });
+      setIsEditing(false);
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to update user", 
+        description: error?.message || "An error occurred",
+        variant: "destructive" 
+      });
+    },
+  });
+
+  // Delete user permanently mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/v1/super/tenants/${tenantId}/users/${userId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/tenants", tenantId, "users"] });
+      toast({ title: "User deleted permanently", description: "The user and all associated data have been removed." });
+      onClose();
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to delete user", 
+        description: error?.message || "An error occurred",
+        variant: "destructive" 
+      });
+    },
+  });
+
+  // Initialize edit fields when user data loads
+  useEffect(() => {
+    if (user) {
+      setEditFirstName(user.firstName || "");
+      setEditLastName(user.lastName || "");
+      setEditEmail(user.email || "");
+      setEditRole(user.role || "employee");
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!open) {
       setActiveTab("overview");
       setNewPassword("");
       setShowResetPassword(false);
       setConfirmDeleteInvite(false);
+      setConfirmDeleteUser(false);
+      setIsEditing(false);
       setLastGeneratedUrl(null);
       setLastResetLinkUrl(null);
     }
   }, [open]);
+
+  const startEditing = () => {
+    if (user) {
+      setEditFirstName(user.firstName || "");
+      setEditLastName(user.lastName || "");
+      setEditEmail(user.email || "");
+      setEditRole(user.role || "employee");
+      setIsEditing(true);
+    }
+  };
+
+  const saveUserChanges = () => {
+    const updates: { firstName?: string; lastName?: string; email?: string; role?: string } = {};
+    
+    if (editFirstName !== (user?.firstName || "")) {
+      updates.firstName = editFirstName;
+    }
+    if (editLastName !== (user?.lastName || "")) {
+      updates.lastName = editLastName;
+    }
+    if (editEmail !== user?.email) {
+      updates.email = editEmail;
+    }
+    if (editRole !== user?.role) {
+      updates.role = editRole;
+    }
+    
+    if (Object.keys(updates).length === 0) {
+      toast({ title: "No changes to save" });
+      setIsEditing(false);
+      return;
+    }
+    
+    updateUserMutation.mutate(updates);
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
