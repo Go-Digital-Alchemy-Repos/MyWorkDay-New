@@ -1,0 +1,143 @@
+You are continuing development on my React + Express multi-tenant app (single codebase) deployed on Railway.
+NEXT TASK: Diagnose + Fix Tenant Task Creation 500 (“Unable to save”) and harden core tenant CRUD flows with tests.
+
+We have an active production issue: creating a new task in a tenant account triggers HTTP 500 and the task is not saved.
+We also suspect broader instability in tenant services (Clients/Projects/Tasks/Time Entries provisioning).
+
+This prompt must be SAFE, NON-DESTRUCTIVE, and focused.
+
+===============================================================================
+ABSOLUTE NON-NEGOTIABLE SAFETY RULES
+===============================================================================
+- Do NOT change existing endpoint paths.
+- Do NOT change existing API response shapes.
+- Do NOT change auth/tenancy/agreement enforcement logic.
+- Do NOT wipe/reset data.
+- Schema changes are allowed ONLY if proven necessary (e.g., missing column/migration) and must be additive + migration-backed.
+- Do NOT show stack traces or raw SQL to tenant users. Tenant users get a friendly error + requestId only.
+- All fixes must include regression tests.
+
+===============================================================================
+PHASE 1 — REPRODUCE + CAPTURE ROOT CAUSE USING REQUEST ID
+===============================================================================
+1) Reproduce locally AND on Railway (if possible):
+- Create task within a project
+- Create task via any “My Tasks” personal task flow (if supported)
+- Create task with/without section
+- Create task with assignee(s), tags, priority (if supported)
+
+2) Ensure failures surface X-Request-Id in the UI toast:
+“Unable to create task. Request ID: <id>” + Copy button
+
+3) Using the requestId, locate full error details in Super Admin Error Log and capture:
+- route + method
+- DB error code/constraint if present
+- stack trace (server only)
+- the payload fields that were sent (field NAMES only; no secrets)
+
+Deliverable:
+- Write a short “Root Cause Summary” comment in code or /docs/INCIDENTS.md referencing requestId and failure cause.
+
+===============================================================================
+PHASE 2 — FIX THE ROOT CAUSE (MINIMAL CHANGE)
+===============================================================================
+Based on the captured error, implement the smallest safe fix.
+
+Common root causes to check (fix whichever is confirmed):
+A) tenantId/effectiveTenantId not applied on insert
+- Server must derive tenantId from session/effectiveTenantId, never trust the client.
+- Ensure insert sets tenantId for tasks and any related rows.
+
+B) Invalid foreign key chain
+- projectId/clientId provided but belongs to different tenant or missing
+- Validate project belongs to tenant before insert
+- Validate client assignment rules if project requires client
+
+C) Required field null (validation gap)
+- e.g., title empty, sectionId/teamId required by DB but not provided
+- Add server-side validation (zod or existing validator) to prevent DB exceptions.
+- Return existing error shape but with 400 where already consistent (do not change shapes; keep prior error body fields).
+
+D) Schema/migration mismatch in Railway
+- If error is “column does not exist” or similar:
+  - create additive migration
+  - ensure migration runs at startup/deploy
+  - add a Super Admin System Status indicator if migrations are behind (optional, low-risk)
+
+E) Personal task flow conflicts with DB constraints
+- If tasks can be personal (no projectId/clientId):
+  - Ensure DB allows null projectId (if intended)
+  - Or ensure personal tasks use a separate table/type if that exists already
+  - If personal tasks were implemented earlier, align create logic to match existing schema.
+
+IMPORTANT:
+- Keep endpoint output JSON unchanged.
+- Do not refactor unrelated files.
+- Add guardrails to prevent inserting tenantless records.
+
+===============================================================================
+PHASE 3 — ADD TENANT “CORE CRUD” SMOKE TEST SUITE (PREVENT REGRESSIONS)
+===============================================================================
+Add or expand integration tests that run against a test DB:
+1) Clients:
+- create/list/update (tenant-scoped)
+
+2) Projects:
+- create/list/update with required client assignment (if required by current rules)
+- employee visibility scoped appropriately
+
+3) Tasks:
+- create task success (project task)
+- create task validates project belongs to tenant
+- create task fails gracefully on bad input (no 500)
+- create sub-task (if supported)
+- ensure tenantId is set/derived correctly
+
+4) Time Entries (basic):
+- create time entry referencing client/project/task selection
+- validate tenant scoping
+
+Minimum tests to add (at least these 4):
+- tenant_task_create_success.test.ts
+- tenant_task_create_rejects_cross_tenant_project.test.ts
+- tenant_task_create_validation_returns_4xx_not_500.test.ts
+- tenant_core_flows_smoke.test.ts (clients+projects+tasks basic)
+
+===============================================================================
+PHASE 4 — IMPROVE TROUBLESHOOTING WITHOUT EXPOSING INTERNALS
+===============================================================================
+1) Ensure tenant UI error toasts show requestId consistently for task create failures.
+2) Ensure server logs (and Error Log) include:
+- requestId
+- tenantId
+- userId
+- route/method
+- sanitized error code/constraint name
+3) Do NOT expose stack traces to tenant users.
+
+===============================================================================
+DOCUMENTATION
+===============================================================================
+Update:
+- /docs/REGRESSION_CHECKLIST.md:
+  - steps to verify task creation across contexts
+  - how to use requestId to find error log entry
+- If you maintain incidents:
+  - /docs/INCIDENTS.md add a brief entry with requestId example and fix summary
+
+===============================================================================
+ACCEPTANCE CRITERIA
+===============================================================================
+- Tenant admins and employees can create tasks reliably (no 500).
+- Any failure returns a controlled error (no unhandled exception) and shows requestId in UI.
+- Cross-tenant project/task creation is blocked with proper handling.
+- Tests pass and prevent regression.
+- No endpoint path/shape changes; no destructive actions.
+
+===============================================================================
+OUTPUT REQUIRED
+===============================================================================
+- Root cause explanation (what exactly caused the 500)
+- Exact code locations changed
+- Tests added and their coverage
+- Manual Railway verification checklist

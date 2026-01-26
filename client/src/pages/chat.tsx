@@ -507,14 +507,22 @@ export default function ChatPage() {
       const res = await apiRequest("POST", "/api/v1/chat/dm", { userIds });
       return res.json();
     },
-    onSuccess: (result: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/dm"] });
+    onSuccess: async (result: any) => {
       setStartChatSelectedUsers(new Set());
       setStartChatSearchQuery("");
       setStartChatDrawerOpen(false);
+      
+      // Refetch to get full thread with members (refetchQueries waits for completion)
+      await queryClient.refetchQueries({ queryKey: ["/api/v1/chat/dm"] });
+      
+      // After refetch, find and select the new DM from the updated cache
       if (result && result.id) {
-        setSelectedDm(result);
-        setSelectedChannel(null);
+        const dmList = queryClient.getQueryData<ChatDmThread[]>(["/api/v1/chat/dm"]);
+        const newDm = dmList?.find(dm => dm.id === result.id);
+        if (newDm) {
+          setSelectedDm(newDm);
+          setSelectedChannel(null);
+        }
       }
     },
     onError: (error: any) => {
