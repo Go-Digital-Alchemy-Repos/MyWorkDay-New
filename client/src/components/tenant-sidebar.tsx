@@ -56,7 +56,6 @@ const mainNavItems = [
   { title: "Time Tracking", url: "/time-tracking", icon: Clock },
   { title: "Team Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Chat", url: "/chat", icon: MessageCircle },
-  { title: "User Manager", url: "/user-manager", icon: UsersRound, adminOnly: true },
 ];
 
 export function TenantSidebar() {
@@ -144,9 +143,7 @@ export function TenantSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems
-                .filter((item) => !item.adminOnly || isAdmin || isSuperUser)
-                .map((item) => (
+              {mainNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -331,6 +328,17 @@ export function TenantSidebar() {
                     <Link href="/account" data-testid="link-account-settings">
                       <UserCog className="h-4 w-4" />
                       <span>Account</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/user-manager" || location.startsWith("/user-manager/")}
+                  >
+                    <Link href="/user-manager" data-testid="link-user-manager">
+                      <UsersRound className="h-4 w-4" />
+                      <span>User Manager</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
