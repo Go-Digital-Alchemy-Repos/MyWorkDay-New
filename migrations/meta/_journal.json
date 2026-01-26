@@ -15,6 +15,13 @@
       "when": 1769469244738,
       "tag": "0001_cloudy_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1769471200000,
+      "tag": "0002_safe_additive_fixes",
+      "breakpoints": true
     }
   ]
 }
