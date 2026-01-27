@@ -322,7 +322,7 @@ export async function registerRoutes(
       
       // Strict tenant enforcement - no fallback for security
       if (!tenantId) {
-        return res.status(403).json({ error: "Tenant context required for search" });
+        return sendError(res, AppError.forbidden("Tenant context required for search"), req);
       }
 
       const { q, limit = "10" } = req.query;
@@ -387,8 +387,7 @@ export async function registerRoutes(
         tasks: filteredTasks.map(t => ({ id: t.id, name: t.title, type: "task", projectId: t.projectId, status: t.status })),
       });
     } catch (error) {
-      console.error("Error in global search:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/search", req);
     }
   });
 
@@ -397,12 +396,11 @@ export async function registerRoutes(
       const workspaceId = await getCurrentWorkspaceIdAsync(req);
       const workspace = await storage.getWorkspace(workspaceId);
       if (!workspace) {
-        return res.status(404).json({ error: "Workspace not found" });
+        return sendError(res, AppError.notFound("Workspace"), req);
       }
       res.json(workspace);
     } catch (error) {
-      console.error("Error fetching workspace:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/workspaces/current", req);
     }
   });
 
@@ -410,12 +408,11 @@ export async function registerRoutes(
     try {
       const workspace = await storage.getWorkspace(req.params.id);
       if (!workspace) {
-        return res.status(404).json({ error: "Workspace not found" });
+        return sendError(res, AppError.notFound("Workspace"), req);
       }
       res.json(workspace);
     } catch (error) {
-      console.error("Error fetching workspace:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/workspaces/:id", req);
     }
   });
 
@@ -436,10 +433,9 @@ export async function registerRoutes(
       res.status(201).json(workspace);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error creating workspace:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/workspaces", req);
     }
   });
 
@@ -448,8 +444,7 @@ export async function registerRoutes(
       const members = await storage.getWorkspaceMembers(req.params.workspaceId);
       res.json(members);
     } catch (error) {
-      console.error("Error fetching workspace members:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/workspaces/:workspaceId/members", req);
     }
   });
 
@@ -463,10 +458,9 @@ export async function registerRoutes(
       res.status(201).json(member);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error adding workspace member:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/workspaces/:workspaceId/members", req);
     }
   });
 
@@ -474,12 +468,11 @@ export async function registerRoutes(
     try {
       const workspace = await storage.updateWorkspace(req.params.id, req.body);
       if (!workspace) {
-        return res.status(404).json({ error: "Workspace not found" });
+        return sendError(res, AppError.notFound("Workspace"), req);
       }
       res.json(workspace);
     } catch (error) {
-      console.error("Error updating workspace:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/workspaces/:id", req);
     }
   });
 
@@ -489,8 +482,7 @@ export async function registerRoutes(
       const workspaces = await storage.getWorkspacesByUser(userId);
       res.json(workspaces);
     } catch (error) {
-      console.error("Error fetching workspaces:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/workspaces", req);
     }
   });
 
@@ -500,8 +492,7 @@ export async function registerRoutes(
       const members = await storage.getWorkspaceMembers(workspaceId);
       res.json(members);
     } catch (error) {
-      console.error("Error fetching workspace members:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/workspace-members", req);
     }
   });
 
@@ -528,10 +519,9 @@ export async function registerRoutes(
       
       // Regular users must have tenantId
       console.error(`[projects] User ${getCurrentUserId(req)} has no tenantId`);
-      return res.status(500).json({ error: "User tenant not configured" });
+      return sendError(res, AppError.internal("User tenant not configured"), req);
     } catch (error) {
-      console.error("Error fetching projects:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/projects", req);
     }
   });
 
@@ -545,8 +535,7 @@ export async function registerRoutes(
       );
       res.json(projects);
     } catch (error) {
-      console.error("Error fetching unassigned projects:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/projects/unassigned", req);
     }
   });
 
@@ -557,7 +546,7 @@ export async function registerRoutes(
       if (tenantId) {
         const project = await storage.getProjectByIdAndTenant(req.params.id, tenantId);
         if (!project) {
-          return res.status(404).json({ error: "Project not found" });
+          return sendError(res, AppError.notFound("Project"), req);
         }
         return res.json(project);
       }
@@ -566,15 +555,14 @@ export async function registerRoutes(
       if (isSuperUser(req)) {
         const project = await storage.getProject(req.params.id);
         if (!project) {
-          return res.status(404).json({ error: "Project not found" });
+          return sendError(res, AppError.notFound("Project"), req);
         }
         return res.json(project);
       }
       
-      return res.status(500).json({ error: "User tenant not configured" });
+      return sendError(res, AppError.internal("User tenant not configured"), req);
     } catch (error) {
-      console.error("Error fetching project:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/projects/:id", req);
     }
   });
 
@@ -599,32 +587,32 @@ export async function registerRoutes(
       
       // ClientId is required for tenant users
       if (tenantId && !body.clientId) {
-        return res.status(400).json({ error: "Client assignment is required for projects" });
+        return sendError(res, AppError.badRequest("Client assignment is required for projects"), req);
       }
       
       // Validate clientId belongs to tenant if provided and tenantId available
       if (body.clientId && tenantId) {
         const client = await storage.getClientByIdAndTenant(body.clientId, tenantId);
         if (!client) {
-          return res.status(400).json({ error: "Client not found or does not belong to tenant" });
+          return sendError(res, AppError.badRequest("Client not found or does not belong to tenant"), req);
         }
         
         // Check if client has divisions - if so, divisionId is required
         const clientDivisions = await storage.getClientDivisionsByClient(body.clientId, tenantId);
         if (clientDivisions.length > 0) {
           if (!body.divisionId) {
-            return res.status(400).json({ error: "Division is required when client has divisions" });
+            return sendError(res, AppError.badRequest("Division is required when client has divisions"), req);
           }
           // Validate divisionId belongs to this client and tenant
           const divisionValid = await storage.validateDivisionBelongsToClientTenant(
             body.divisionId, body.clientId, tenantId
           );
           if (!divisionValid) {
-            return res.status(400).json({ error: "Division does not belong to the selected client" });
+            return sendError(res, AppError.badRequest("Division does not belong to the selected client"), req);
           }
         } else if (body.divisionId) {
           // Client has no divisions but divisionId was provided - reject
-          return res.status(400).json({ error: "Cannot assign division to a client without divisions" });
+          return sendError(res, AppError.badRequest("Cannot assign division to a client without divisions"), req);
         }
       }
       
@@ -633,7 +621,7 @@ export async function registerRoutes(
         for (const memberId of memberIds) {
           const member = await storage.getUserByIdAndTenant(memberId, tenantId);
           if (!member) {
-            return res.status(400).json({ error: `User ${memberId} not found or does not belong to tenant` });
+            return sendError(res, AppError.badRequest(`User ${memberId} not found or does not belong to tenant`), req);
           }
         }
       }
@@ -651,7 +639,7 @@ export async function registerRoutes(
         // Only superusers can use legacy non-scoped methods
         project = await storage.createProject(data);
       } else {
-        return res.status(500).json({ error: "User tenant not configured" });
+        return sendError(res, AppError.internal("User tenant not configured"), req);
       }
 
       // Add creator as project member automatically
@@ -670,10 +658,9 @@ export async function registerRoutes(
       res.status(201).json(project);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error creating project:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/projects", req);
     }
   });
 
@@ -689,7 +676,7 @@ export async function registerRoutes(
         existingProject = await storage.getProject(req.params.id);
       }
       if (!existingProject) {
-        return res.status(404).json({ error: "Project not found" });
+        return sendError(res, AppError.notFound("Project"), req);
       }
       
       // Determine the effective clientId (updated or existing)
@@ -700,21 +687,21 @@ export async function registerRoutes(
       if (effectiveClientId && tenantId) {
         const client = await storage.getClientByIdAndTenant(effectiveClientId, tenantId);
         if (!client) {
-          return res.status(400).json({ error: "Client not found or does not belong to tenant" });
+          return sendError(res, AppError.badRequest("Client not found or does not belong to tenant"), req);
         }
         
         // Check if client has divisions - if so, divisionId is required
         const clientDivisions = await storage.getClientDivisionsByClient(effectiveClientId, tenantId);
         if (clientDivisions.length > 0) {
           if (!effectiveDivisionId) {
-            return res.status(400).json({ error: "Division is required when client has divisions" });
+            return sendError(res, AppError.badRequest("Division is required when client has divisions"), req);
           }
           // Validate divisionId belongs to this client and tenant
           const divisionValid = await storage.validateDivisionBelongsToClientTenant(
             effectiveDivisionId, effectiveClientId, tenantId
           );
           if (!divisionValid) {
-            return res.status(400).json({ error: "Division does not belong to the selected client" });
+            return sendError(res, AppError.badRequest("Division does not belong to the selected client"), req);
           }
         } else if (effectiveDivisionId) {
           // Client has no divisions but divisionId was provided - clear it
@@ -729,7 +716,7 @@ export async function registerRoutes(
         // Only superusers can use legacy non-scoped methods
         project = await storage.updateProject(req.params.id, req.body);
       } else {
-        return res.status(500).json({ error: "User tenant not configured" });
+        return sendError(res, AppError.internal("User tenant not configured"), req);
       }
       
       // Emit real-time event after successful DB operation
@@ -757,8 +744,7 @@ export async function registerRoutes(
 
       res.json(project);
     } catch (error) {
-      console.error("Error updating project:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/projects/:id", req);
     }
   });
 
@@ -770,7 +756,7 @@ export async function registerRoutes(
       // Get the current project to check if it exists and get previous clientId
       const existingProject = await storage.getProject(projectId);
       if (!existingProject) {
-        return res.status(404).json({ error: "Project not found" });
+        return sendError(res, AppError.notFound("Project"), req);
       }
 
       const previousClientId = existingProject.clientId;
@@ -779,7 +765,7 @@ export async function registerRoutes(
       if (clientId !== null && clientId !== undefined) {
         const client = await storage.getClient(clientId);
         if (!client) {
-          return res.status(400).json({ error: "Client not found" });
+          return sendError(res, AppError.badRequest("Client not found"), req);
         }
       }
 
@@ -789,7 +775,7 @@ export async function registerRoutes(
       });
 
       if (!updatedProject) {
-        return res.status(500).json({ error: "Failed to update project" });
+        return sendError(res, AppError.internal("Failed to update project"), req);
       }
 
       // Emit real-time event for client assignment change
@@ -797,8 +783,7 @@ export async function registerRoutes(
 
       res.json(updatedProject);
     } catch (error) {
-      console.error("Error assigning client to project:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/projects/:projectId/client", req);
     }
   });
 
@@ -812,15 +797,14 @@ export async function registerRoutes(
       if (tenantId) {
         const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
         if (!project) {
-          return res.status(404).json({ error: "Project not found" });
+          return sendError(res, AppError.notFound("Project"), req);
         }
       }
       
       const members = await storage.getProjectMembers(projectId);
       res.json(members);
     } catch (error) {
-      console.error("Error fetching project members:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/projects/:projectId/members", req);
     }
   });
 
@@ -831,27 +815,27 @@ export async function registerRoutes(
       const tenantId = getEffectiveTenantId(req);
       
       if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+        return sendError(res, AppError.badRequest("userId is required"), req);
       }
       
       // Verify project exists and belongs to tenant
       if (tenantId) {
         const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
         if (!project) {
-          return res.status(404).json({ error: "Project not found" });
+          return sendError(res, AppError.notFound("Project"), req);
         }
         
         // Verify user belongs to same tenant
         const user = await storage.getUserByIdAndTenant(userId, tenantId);
         if (!user) {
-          return res.status(400).json({ error: "User not found or does not belong to tenant" });
+          return sendError(res, AppError.badRequest("User not found or does not belong to tenant"), req);
         }
       }
       
       // Check if already a member
       const isMember = await storage.isProjectMember(projectId, userId);
       if (isMember) {
-        return res.status(409).json({ error: "User is already a project member" });
+        return sendError(res, AppError.conflict("User is already a project member"), req);
       }
       
       const member = await storage.addProjectMember({ projectId, userId, role: "member" });
@@ -877,8 +861,7 @@ export async function registerRoutes(
       
       res.status(201).json(member);
     } catch (error) {
-      console.error("Error adding project member:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/projects/:projectId/members", req);
     }
   });
 
@@ -891,7 +874,7 @@ export async function registerRoutes(
       if (tenantId) {
         const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
         if (!project) {
-          return res.status(404).json({ error: "Project not found" });
+          return sendError(res, AppError.notFound("Project"), req);
         }
       }
       
@@ -914,21 +897,21 @@ export async function registerRoutes(
       const tenantId = getEffectiveTenantId(req);
       
       if (!Array.isArray(memberIds)) {
-        return res.status(400).json({ error: "memberIds must be an array" });
+        return sendError(res, AppError.badRequest("memberIds must be an array"), req);
       }
       
       // Verify project exists and belongs to tenant
       if (tenantId) {
         const project = await storage.getProjectByIdAndTenant(projectId, tenantId);
         if (!project) {
-          return res.status(404).json({ error: "Project not found" });
+          return sendError(res, AppError.notFound("Project"), req);
         }
         
         // Validate all memberIds belong to same tenant
         for (const memberId of memberIds) {
           const user = await storage.getUserByIdAndTenant(memberId, tenantId);
           if (!user) {
-            return res.status(400).json({ error: `User ${memberId} not found or does not belong to tenant` });
+            return sendError(res, AppError.badRequest(`User ${memberId} not found or does not belong to tenant`), req);
           }
         }
       }
@@ -941,8 +924,7 @@ export async function registerRoutes(
       const members = await storage.getProjectMembers(projectId);
       res.json(members);
     } catch (error) {
-      console.error("Error updating project members:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PUT /api/projects/:projectId/members", req);
     }
   });
 
@@ -962,10 +944,9 @@ export async function registerRoutes(
         return res.json(teams);
       }
       
-      return res.status(500).json({ error: "User tenant not configured" });
+      return sendError(res, AppError.internal("User tenant not configured"), req);
     } catch (error) {
-      console.error("Error fetching teams:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/teams", req);
     }
   });
 
@@ -976,7 +957,7 @@ export async function registerRoutes(
       if (tenantId) {
         const team = await storage.getTeamByIdAndTenant(req.params.id, tenantId);
         if (!team) {
-          return res.status(404).json({ error: "Team not found" });
+          return sendError(res, AppError.notFound("Team"), req);
         }
         return res.json(team);
       }
@@ -985,15 +966,14 @@ export async function registerRoutes(
       if (isSuperUser(req)) {
         const team = await storage.getTeam(req.params.id);
         if (!team) {
-          return res.status(404).json({ error: "Team not found" });
+          return sendError(res, AppError.notFound("Team"), req);
         }
         return res.json(team);
       }
       
-      return res.status(500).json({ error: "User tenant not configured" });
+      return sendError(res, AppError.internal("User tenant not configured"), req);
     } catch (error) {
-      console.error("Error fetching team:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/teams/:id", req);
     }
   });
 
@@ -1014,16 +994,15 @@ export async function registerRoutes(
         // Only superusers can use legacy non-scoped methods
         team = await storage.createTeam(data);
       } else {
-        return res.status(500).json({ error: "User tenant not configured" });
+        return sendError(res, AppError.internal("User tenant not configured"), req);
       }
       
       res.status(201).json(team);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error creating team:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/teams", req);
     }
   });
 
@@ -1032,8 +1011,7 @@ export async function registerRoutes(
       const members = await storage.getTeamMembers(req.params.teamId);
       res.json(members);
     } catch (error) {
-      console.error("Error fetching team members:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/teams/:teamId/members", req);
     }
   });
 
@@ -1045,13 +1023,13 @@ export async function registerRoutes(
       if (tenantId) {
         const team = await storage.getTeamByIdAndTenant(req.params.teamId, tenantId);
         if (!team) {
-          return res.status(404).json({ error: "Team not found" });
+          return sendError(res, AppError.notFound("Team"), req);
         }
         
         // Validate user belongs to same tenant
         const user = await storage.getUserByIdAndTenant(req.body.userId, tenantId);
         if (!user) {
-          return res.status(400).json({ error: "User not found or does not belong to tenant" });
+          return sendError(res, AppError.badRequest("User not found or does not belong to tenant"), req);
         }
       }
       
@@ -1063,10 +1041,9 @@ export async function registerRoutes(
       res.status(201).json(member);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error adding team member:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/teams/:teamId/members", req);
     }
   });
 
@@ -1081,16 +1058,15 @@ export async function registerRoutes(
         // Only superusers can use legacy non-scoped methods
         team = await storage.updateTeam(req.params.id, req.body);
       } else {
-        return res.status(500).json({ error: "User tenant not configured" });
+        return sendError(res, AppError.internal("User tenant not configured"), req);
       }
       
       if (!team) {
-        return res.status(404).json({ error: "Team not found" });
+        return sendError(res, AppError.notFound("Team"), req);
       }
       res.json(team);
     } catch (error) {
-      console.error("Error updating team:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/teams/:id", req);
     }
   });
 
@@ -1101,19 +1077,18 @@ export async function registerRoutes(
       if (tenantId) {
         const deleted = await storage.deleteTeamWithTenant(req.params.id, tenantId);
         if (!deleted) {
-          return res.status(404).json({ error: "Team not found" });
+          return sendError(res, AppError.notFound("Team"), req);
         }
       } else if (isSuperUser(req)) {
         // Only superusers can use legacy non-scoped methods
         await storage.deleteTeam(req.params.id);
       } else {
-        return res.status(500).json({ error: "User tenant not configured" });
+        return sendError(res, AppError.internal("User tenant not configured"), req);
       }
       
       res.json({ success: true });
     } catch (error) {
-      console.error("Error deleting team:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/teams/:id", req);
     }
   });
 
@@ -1125,15 +1100,14 @@ export async function registerRoutes(
       if (tenantId) {
         const team = await storage.getTeamByIdAndTenant(req.params.teamId, tenantId);
         if (!team) {
-          return res.status(404).json({ error: "Team not found" });
+          return sendError(res, AppError.notFound("Team"), req);
         }
       }
       
       await storage.removeTeamMember(req.params.teamId, req.params.userId);
       res.json({ success: true });
     } catch (error) {
-      console.error("Error removing team member:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/teams/:teamId/members/:userId", req);
     }
   });
 
@@ -1142,8 +1116,7 @@ export async function registerRoutes(
       const sections = await storage.getSectionsWithTasks(req.params.projectId);
       res.json(sections);
     } catch (error) {
-      console.error("Error fetching sections:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/projects/:projectId/sections", req);
     }
   });
 
@@ -1203,10 +1176,9 @@ export async function registerRoutes(
       res.status(201).json(section);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error creating section:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/sections", req);
     }
   });
 
@@ -1214,7 +1186,7 @@ export async function registerRoutes(
     try {
       const section = await storage.updateSection(req.params.id, req.body);
       if (!section) {
-        return res.status(404).json({ error: "Section not found" });
+        return sendError(res, AppError.notFound("Section"), req);
       }
 
       // Emit real-time event after successful DB operation
@@ -1222,8 +1194,7 @@ export async function registerRoutes(
 
       res.json(section);
     } catch (error) {
-      console.error("Error updating section:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/sections/:id", req);
     }
   });
 
@@ -1232,7 +1203,7 @@ export async function registerRoutes(
       // Get section before deletion to emit event with projectId
       const section = await storage.getSection(req.params.id);
       if (!section) {
-        return res.status(404).json({ error: "Section not found" });
+        return sendError(res, AppError.notFound("Section"), req);
       }
 
       await storage.deleteSection(req.params.id);
@@ -1242,8 +1213,7 @@ export async function registerRoutes(
 
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting section:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/sections/:id", req);
     }
   });
 
@@ -1252,8 +1222,7 @@ export async function registerRoutes(
       const tasks = await storage.getTasksByProject(req.params.projectId);
       res.json(tasks);
     } catch (error) {
-      console.error("Error fetching tasks:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/projects/:projectId/tasks", req);
     }
   });
 
@@ -1421,13 +1390,12 @@ export async function registerRoutes(
       res.status(201).json(taskWithRelations);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors, requestId });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
       // Log to error_logs table for observability
       const err = error instanceof Error ? error : new Error(String(error));
       captureError(req as any, err, 500, { route: "POST /api/tasks/personal", body: req.body }).catch(() => {});
-      console.error(`[Personal Task Create Error] requestId=${requestId} userId=${getCurrentUserId(req)} tenantId=${getEffectiveTenantId(req) || 'none'} error=${err.message}`);
-      res.status(500).json({ error: "Unable to create personal task", requestId });
+      return handleRouteError(res, error, "POST /api/tasks/personal", req);
     }
   });
 
@@ -1442,8 +1410,7 @@ export async function registerRoutes(
       const sections = await storage.getPersonalTaskSections(userId);
       res.json(sections);
     } catch (error) {
-      console.error("Error fetching personal task sections:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/v1/my-tasks/sections", req);
     }
   });
 
@@ -1455,7 +1422,7 @@ export async function registerRoutes(
       const { name } = req.body;
       
       if (!name || typeof name !== "string" || name.trim() === "") {
-        return res.status(400).json({ error: "Section name is required" });
+        return sendError(res, AppError.badRequest("Section name is required"), req);
       }
 
       // Get current max sortOrder
@@ -1471,8 +1438,7 @@ export async function registerRoutes(
       
       res.status(201).json(section);
     } catch (error) {
-      console.error("Error creating personal task section:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/v1/my-tasks/sections", req);
     }
   });
 
@@ -1486,10 +1452,10 @@ export async function registerRoutes(
       // Verify ownership
       const section = await storage.getPersonalTaskSection(sectionId);
       if (!section) {
-        return res.status(404).json({ error: "Section not found" });
+        return sendError(res, AppError.notFound("Section"), req);
       }
       if (section.userId !== userId) {
-        return res.status(403).json({ error: "Cannot modify another user's section" });
+        return sendError(res, AppError.forbidden("Cannot modify another user's section"), req);
       }
 
       const updates: { name?: string; sortOrder?: number } = {};
@@ -1499,8 +1465,7 @@ export async function registerRoutes(
       const updatedSection = await storage.updatePersonalTaskSection(sectionId, updates);
       res.json(updatedSection);
     } catch (error) {
-      console.error("Error updating personal task section:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/v1/my-tasks/sections/:id", req);
     }
   });
 
@@ -1513,10 +1478,10 @@ export async function registerRoutes(
       // Verify ownership
       const section = await storage.getPersonalTaskSection(sectionId);
       if (!section) {
-        return res.status(404).json({ error: "Section not found" });
+        return sendError(res, AppError.notFound("Section"), req);
       }
       if (section.userId !== userId) {
-        return res.status(403).json({ error: "Cannot delete another user's section" });
+        return sendError(res, AppError.forbidden("Cannot delete another user's section"), req);
       }
 
       // Clear personalSectionId from all tasks in this section (do not delete tasks)
@@ -1525,8 +1490,7 @@ export async function registerRoutes(
       await storage.deletePersonalTaskSection(sectionId);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting personal task section:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/v1/my-tasks/sections/:id", req);
     }
   });
 
@@ -1540,7 +1504,7 @@ export async function registerRoutes(
       // Get the task
       const task = await storage.getTask(taskId);
       if (!task) {
-        return res.status(404).json({ error: "Task not found" });
+        return sendError(res, AppError.notFound("Task"), req);
       }
 
       // Task must belong to current user (check assignees or createdBy)
@@ -1548,22 +1512,22 @@ export async function registerRoutes(
       const isAssigned = taskWithRelations?.assignees?.some(a => a.userId === userId);
       const isCreator = task.createdBy === userId;
       if (!isAssigned && !isCreator) {
-        return res.status(403).json({ error: "Cannot move a task you don't own" });
+        return sendError(res, AppError.forbidden("Cannot move a task you don't own"), req);
       }
 
       // Task must be a personal task (no project/client)
       if (task.projectId || !task.isPersonal) {
-        return res.status(400).json({ error: "Can only organize personal tasks into sections" });
+        return sendError(res, AppError.badRequest("Can only organize personal tasks into sections"), req);
       }
 
       // If moving to a section, verify the section belongs to the user
       if (personalSectionId) {
         const section = await storage.getPersonalTaskSection(personalSectionId);
         if (!section) {
-          return res.status(404).json({ error: "Section not found" });
+          return sendError(res, AppError.notFound("Section"), req);
         }
         if (section.userId !== userId) {
-          return res.status(403).json({ error: "Cannot move task to another user's section" });
+          return sendError(res, AppError.forbidden("Cannot move task to another user's section"), req);
         }
       }
 
@@ -1576,8 +1540,7 @@ export async function registerRoutes(
       const updatedWithRelations = await storage.getTaskWithRelations(taskId);
       res.json(updatedWithRelations);
     } catch (error) {
-      console.error("Error moving personal task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/v1/my-tasks/tasks/:taskId/move", req);
     }
   });
 
@@ -1903,14 +1866,14 @@ export async function registerRoutes(
       // Get task first to validate tenant context
       const task = await storage.getTask(req.params.taskId);
       if (!task) {
-        return res.status(404).json({ error: "Task not found" });
+        return sendError(res, AppError.notFound("Task"), req);
       }
       
       // Validate assignee belongs to same tenant (critical for multi-tenant isolation)
       if (tenantId) {
         const assigneeUser = await storage.getUser(assigneeUserId);
         if (!assigneeUser || assigneeUser.tenantId !== tenantId) {
-          return res.status(403).json({ error: "User is not in the same organization" });
+          return sendError(res, AppError.forbidden("User is not in the same organization"), req);
         }
       }
       
@@ -1936,9 +1899,7 @@ export async function registerRoutes(
       
       res.status(201).json(assignee);
     } catch (error) {
-      const requestId = (req as any).requestId || 'unknown';
-      console.error(`[Add Assignee Error] requestId=${requestId} error=`, error);
-      res.status(500).json({ error: "Unable to add assignee", requestId });
+      return handleRouteError(res, error, "POST /api/tasks/:taskId/assignees", req);
     }
   });
 
@@ -1947,8 +1908,7 @@ export async function registerRoutes(
       await storage.removeTaskAssignee(req.params.taskId, req.params.userId);
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing assignee:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/tasks/:taskId/assignees/:userId", req);
     }
   });
 
@@ -1958,8 +1918,7 @@ export async function registerRoutes(
       const watchers = await storage.getTaskWatchers(req.params.taskId);
       res.json(watchers);
     } catch (error) {
-      console.error("Error fetching watchers:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/tasks/:taskId/watchers", req);
     }
   });
 
@@ -1972,8 +1931,7 @@ export async function registerRoutes(
       });
       res.status(201).json(watcher);
     } catch (error) {
-      console.error("Error adding watcher:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/tasks/:taskId/watchers", req);
     }
   });
 
@@ -1982,8 +1940,7 @@ export async function registerRoutes(
       await storage.removeTaskWatcher(req.params.taskId, req.params.userId);
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing watcher:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/tasks/:taskId/watchers/:userId", req);
     }
   });
 
@@ -1992,8 +1949,7 @@ export async function registerRoutes(
       const subtasks = await storage.getSubtasksByTask(req.params.taskId);
       res.json(subtasks);
     } catch (error) {
-      console.error("Error fetching subtasks:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/tasks/:taskId/subtasks", req);
     }
   });
 
@@ -2021,10 +1977,9 @@ export async function registerRoutes(
       res.status(201).json(subtask);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return sendError(res, AppError.badRequest("Validation failed", error.errors), req);
       }
-      console.error("Error creating subtask:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/tasks/:taskId/subtasks", req);
     }
   });
 
@@ -2038,7 +1993,7 @@ export async function registerRoutes(
       
       const subtask = await storage.updateSubtask(req.params.id, updateData);
       if (!subtask) {
-        return res.status(404).json({ error: "Subtask not found" });
+        return sendError(res, AppError.notFound("Subtask"), req);
       }
 
       // Get parent task to emit event with projectId
@@ -2056,8 +2011,7 @@ export async function registerRoutes(
 
       res.json(subtask);
     } catch (error) {
-      console.error("Error updating subtask:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/subtasks/:id", req);
     }
   });
 
@@ -2066,7 +2020,7 @@ export async function registerRoutes(
       // Get subtask before deletion to emit event with taskId and projectId
       const subtask = await storage.getSubtask(req.params.id);
       if (!subtask) {
-        return res.status(404).json({ error: "Subtask not found" });
+        return sendError(res, AppError.notFound("Subtask"), req);
       }
 
       const parentTask = await storage.getTask(subtask.taskId);
@@ -2080,8 +2034,7 @@ export async function registerRoutes(
 
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting subtask:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/subtasks/:id", req);
     }
   });
 
@@ -2092,8 +2045,7 @@ export async function registerRoutes(
       const subtask = await storage.getSubtask(req.params.id);
       res.json(subtask);
     } catch (error) {
-      console.error("Error moving subtask:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/subtasks/:id/move", req);
     }
   });
 
@@ -2102,12 +2054,11 @@ export async function registerRoutes(
     try {
       const subtask = await storage.getSubtaskWithRelations(req.params.id);
       if (!subtask) {
-        return res.status(404).json({ error: "Subtask not found" });
+        return sendError(res, AppError.notFound("Subtask"), req);
       }
       res.json(subtask);
     } catch (error) {
-      console.error("Error fetching subtask:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/subtasks/:id/full", req);
     }
   });
 
@@ -2117,8 +2068,7 @@ export async function registerRoutes(
       const assignees = await storage.getSubtaskAssignees(req.params.id);
       res.json(assignees);
     } catch (error) {
-      console.error("Error fetching subtask assignees:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/subtasks/:id/assignees", req);
     }
   });
 
@@ -2126,7 +2076,7 @@ export async function registerRoutes(
     try {
       const { userId, tenantId } = req.body;
       if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+        return sendError(res, AppError.badRequest("userId is required"), req);
       }
       const assignee = await storage.addSubtaskAssignee({
         subtaskId: req.params.id,
@@ -2148,8 +2098,7 @@ export async function registerRoutes(
       await storage.removeSubtaskAssignee(req.params.subtaskId, req.params.userId);
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing subtask assignee:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/subtasks/:subtaskId/assignees/:userId", req);
     }
   });
 
@@ -2159,8 +2108,7 @@ export async function registerRoutes(
       const tags = await storage.getSubtaskTags(req.params.id);
       res.json(tags);
     } catch (error) {
-      console.error("Error fetching subtask tags:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "GET /api/subtasks/:id/tags", req);
     }
   });
 
@@ -2168,7 +2116,7 @@ export async function registerRoutes(
     try {
       const { tagId } = req.body;
       if (!tagId) {
-        return res.status(400).json({ error: "tagId is required" });
+        return sendError(res, AppError.badRequest("tagId is required"), req);
       }
       const subtaskTag = await storage.addSubtaskTag({
         subtaskId: req.params.id,
@@ -2177,10 +2125,9 @@ export async function registerRoutes(
       res.status(201).json(subtaskTag);
     } catch (error: any) {
       if (error?.code === '23505') {
-        return res.status(409).json({ error: "Tag already added to subtask" });
+        return sendError(res, AppError.conflict("Tag already added to subtask"), req);
       }
-      console.error("Error adding subtask tag:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/subtasks/:id/tags", req);
     }
   });
 
@@ -2189,8 +2136,7 @@ export async function registerRoutes(
       await storage.removeSubtaskTag(req.params.subtaskId, req.params.tagId);
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing subtask tag:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "DELETE /api/subtasks/:subtaskId/tags/:tagId", req);
     }
   });
 
