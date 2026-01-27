@@ -15,7 +15,7 @@ import path from "path";
 const CRITICAL_TABLES = [
   "users",
   "tenants",
-  "sessions",
+  "user_sessions",
   "workspaces",
   "projects",
   "tasks",
