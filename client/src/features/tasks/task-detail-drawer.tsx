@@ -897,20 +897,32 @@ export function TaskDetailDrawer({
         projectId={task.projectId || undefined}
         workspaceId={workspaceId}
         open={subtaskDrawerOpen}
-        onOpenChange={setSubtaskDrawerOpen}
+        onOpenChange={(open) => {
+          setSubtaskDrawerOpen(open);
+          if (!open) setSelectedSubtask(null);
+        }}
         onUpdate={(subtaskId, data) => {
           if (data.title) {
-            updateSubtaskTitleMutation.mutate({ subtaskId, title: data.title });
+            updateSubtaskTitleMutation.mutate({ subtaskId, title: data.title }, {
+              onSuccess: () => {
+                if (selectedSubtask && selectedSubtask.id === subtaskId) {
+                  setSelectedSubtask({ ...selectedSubtask, title: data.title });
+                }
+              }
+            });
           } else {
             apiRequest("PATCH", `/api/subtasks/${subtaskId}`, data).then(() => {
               invalidateTaskQueries();
               if (selectedSubtask && selectedSubtask.id === subtaskId) {
                 setSelectedSubtask({ ...selectedSubtask, ...data });
               }
-            });
+            }).catch(console.error);
           }
         }}
-        onBack={() => setSubtaskDrawerOpen(false)}
+        onBack={() => {
+          setSubtaskDrawerOpen(false);
+          setSelectedSubtask(null);
+        }}
         availableUsers={availableUsers}
       />
 
