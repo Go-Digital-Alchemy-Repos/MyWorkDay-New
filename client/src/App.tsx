@@ -58,6 +58,8 @@ import { useEffect } from "react";
 import { GlobalActiveTimer } from "@/features/timer";
 import { ChatDrawerProvider, useChatDrawer } from "@/contexts/chat-drawer-context";
 import { GlobalChatDrawer } from "@/components/global-chat-drawer";
+import { FeaturesProvider } from "@/contexts/features-context";
+import { FeaturesBanner } from "@/components/features-banner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -577,11 +579,14 @@ function App() {
       <ThemeProvider>
         <TooltipProvider>
           <AuthProvider>
-            <TenantThemeProvider>
-              <UserImpersonationWrapper>
-                <AppLayout />
-              </UserImpersonationWrapper>
-            </TenantThemeProvider>
+            <FeaturesProvider>
+              <TenantThemeProvider>
+                <UserImpersonationWrapper>
+                  <FeaturesBanner />
+                  <AppLayout />
+                </UserImpersonationWrapper>
+              </TenantThemeProvider>
+            </FeaturesProvider>
           </AuthProvider>
           <Toaster />
         </TooltipProvider>

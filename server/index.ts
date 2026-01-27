@@ -191,6 +191,30 @@ app.get("/api/v1/system/health/db", async (_req, res) => {
   }
 });
 
+// Features endpoint - public, no auth required
+// Returns feature availability based on database schema presence
+app.get("/api/v1/system/features", async (_req, res) => {
+  try {
+    const { getFeatureFlags, getRecommendations } = await import("./lib/features");
+    const features = await getFeatureFlags(true);
+    const recommendations = getRecommendations(features);
+
+    res.json({
+      features,
+      recommendations,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error("[features] Feature check failed:", error);
+    res.status(500).json({
+      features: {},
+      recommendations: ["Unable to check feature status - database may be unavailable"],
+      timestamp: new Date().toISOString(),
+      error: error?.message || "Feature check failed",
+    });
+  }
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;

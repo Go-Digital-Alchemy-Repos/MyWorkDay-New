@@ -12,30 +12,51 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import path from "path";
 
-const REQUIRED_TABLES = [
+const CRITICAL_TABLES = [
   "users",
   "tenants",
+  "sessions",
   "workspaces",
   "projects",
   "tasks",
   "clients",
   "teams",
+];
+
+const IMPORTANT_TABLES = [
+  "error_logs",
+  "notification_preferences",
+  "email_outbox",
+];
+
+const OPTIONAL_TABLES = [
   "chat_channels",
   "chat_dm_members",
   "chat_messages",
-  "error_logs",
-  "notification_preferences",
+  "chat_dm_threads",
   "time_entries",
   "active_timers",
+  "client_notes",
+  "client_documents",
+  "notifications",
 ];
 
-const REQUIRED_COLUMNS: { table: string; column: string }[] = [
-  { table: "tenants", column: "chat_retention_days" },
-  { table: "active_timers", column: "title" },
+const REQUIRED_TABLES = [...CRITICAL_TABLES, ...IMPORTANT_TABLES, ...OPTIONAL_TABLES];
+
+const CRITICAL_COLUMNS: { table: string; column: string }[] = [
   { table: "users", column: "tenant_id" },
   { table: "projects", column: "client_id" },
   { table: "tasks", column: "project_id" },
 ];
+
+const OPTIONAL_COLUMNS: { table: string; column: string }[] = [
+  { table: "tenants", column: "chat_retention_days" },
+  { table: "active_timers", column: "title" },
+];
+
+const REQUIRED_COLUMNS = [...CRITICAL_COLUMNS, ...OPTIONAL_COLUMNS];
+
+export { CRITICAL_TABLES, IMPORTANT_TABLES, OPTIONAL_TABLES };
 
 export interface SchemaCheckResult {
   migrationAppliedCount: number;
@@ -177,8 +198,8 @@ export async function checkSchemaReadiness(): Promise<SchemaCheckResult> {
   for (const table of REQUIRED_TABLES) {
     const exists = dbConnectionOk ? await checkTableExists(table) : false;
     tablesCheck.push({ table, exists });
-    if (!exists) {
-      errors.push(`Required table missing: ${table}`);
+    if (!exists && CRITICAL_TABLES.includes(table)) {
+      errors.push(`Critical table missing: ${table}`);
     }
   }
 
@@ -186,14 +207,20 @@ export async function checkSchemaReadiness(): Promise<SchemaCheckResult> {
   for (const { table, column } of REQUIRED_COLUMNS) {
     const exists = dbConnectionOk ? await checkColumnExists(table, column) : false;
     columnsCheck.push({ table, column, exists });
-    if (!exists) {
-      errors.push(`Required column missing: ${table}.${column}`);
+    if (!exists && CRITICAL_COLUMNS.some(c => c.table === table && c.column === column)) {
+      errors.push(`Critical column missing: ${table}.${column}`);
     }
   }
 
+  const criticalTablesExist = CRITICAL_TABLES.every(t => 
+    tablesCheck.find(tc => tc.table === t)?.exists ?? false
+  );
+  const criticalColumnsExist = CRITICAL_COLUMNS.every(c =>
+    columnsCheck.find(cc => cc.table === c.table && cc.column === c.column)?.exists ?? false
+  );
   const allTablesExist = tablesCheck.every((t) => t.exists);
   const allColumnsExist = columnsCheck.every((c) => c.exists);
-  const isReady = dbConnectionOk && allTablesExist && allColumnsExist;
+  const isReady = dbConnectionOk && criticalTablesExist && criticalColumnsExist;
 
   return {
     migrationAppliedCount,
@@ -214,6 +241,17 @@ let lastSchemaCheck: SchemaCheckResult | null = null;
 
 export function getLastSchemaCheck(): SchemaCheckResult | null {
   return lastSchemaCheck;
+}
+
+export interface DegradedFeatures {
+  missingImportant: string[];
+  missingOptional: string[];
+}
+
+let degradedFeatures: DegradedFeatures = { missingImportant: [], missingOptional: [] };
+
+export function getDegradedFeatures(): DegradedFeatures {
+  return degradedFeatures;
 }
 
 export async function ensureSchemaReady(): Promise<void> {
@@ -249,9 +287,6 @@ export async function ensureSchemaReady(): Promise<void> {
     lastSchemaCheck = preCheck;
   } else {
     console.log("[schema] AUTO_MIGRATE disabled - skipping automatic migrations");
-    if (!preCheck.isReady) {
-      console.warn("[schema] WARNING: Schema is not ready. Set AUTO_MIGRATE=true to run migrations on boot.");
-    }
   }
 
   console.log(`[schema] Migrations applied: ${preCheck.migrationAppliedCount}`);
@@ -259,34 +294,52 @@ export async function ensureSchemaReady(): Promise<void> {
     console.log(`[schema] Last migration: ${preCheck.lastMigrationHash}`);
   }
 
-  const missingTables = preCheck.tablesCheck.filter((t) => !t.exists);
-  const missingColumns = preCheck.columnsCheck.filter((c) => !c.exists);
+  const tableStatus = preCheck.tablesCheck.reduce((acc, t) => {
+    acc[t.table] = t.exists;
+    return acc;
+  }, {} as Record<string, boolean>);
 
-  if (missingTables.length > 0) {
-    console.error("[schema] Schema readiness failed: Missing tables:", missingTables.map((t) => t.table).join(", "));
+  const columnStatus = preCheck.columnsCheck.reduce((acc, c) => {
+    acc[`${c.table}.${c.column}`] = c.exists;
+    return acc;
+  }, {} as Record<string, boolean>);
+
+  const missingCriticalTables = CRITICAL_TABLES.filter(t => !tableStatus[t]);
+  const missingCriticalColumns = CRITICAL_COLUMNS.filter(c => !columnStatus[`${c.table}.${c.column}`]);
+
+  if (missingCriticalTables.length > 0 || missingCriticalColumns.length > 0) {
+    console.error("[schema] FATAL: Missing CRITICAL tables:", missingCriticalTables.join(", ") || "none");
+    console.error("[schema] FATAL: Missing CRITICAL columns:", missingCriticalColumns.map(c => `${c.table}.${c.column}`).join(", ") || "none");
+    console.error("[schema] Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate");
+    throw new Error(`Critical schema missing: tables=[${missingCriticalTables.join(", ")}] columns=[${missingCriticalColumns.map(c => `${c.table}.${c.column}`).join(", ")}]`);
   }
 
-  if (missingColumns.length > 0) {
-    console.error("[schema] Schema readiness failed: Missing columns:", missingColumns.map((c) => `${c.table}.${c.column}`).join(", "));
+  const missingImportantTables = IMPORTANT_TABLES.filter(t => !tableStatus[t]);
+  if (missingImportantTables.length > 0) {
+    console.error(`[schema] ERROR: Missing IMPORTANT tables (degraded mode): ${missingImportantTables.join(", ")}`);
+    console.error("[schema] Features affected: error logging, notifications, email sending");
+    degradedFeatures.missingImportant = missingImportantTables;
+  }
+
+  const missingOptionalTables = OPTIONAL_TABLES.filter(t => !tableStatus[t]);
+  const missingOptionalColumns = OPTIONAL_COLUMNS.filter(c => !columnStatus[`${c.table}.${c.column}`]);
+  if (missingOptionalTables.length > 0) {
+    console.warn(`[schema] WARNING: Missing OPTIONAL tables (features disabled): ${missingOptionalTables.join(", ")}`);
+    degradedFeatures.missingOptional = missingOptionalTables;
+  }
+  if (missingOptionalColumns.length > 0) {
+    console.warn(`[schema] WARNING: Missing OPTIONAL columns: ${missingOptionalColumns.map(c => `${c.table}.${c.column}`).join(", ")}`);
   }
 
   const schemaCheckDuration = Date.now() - schemaCheckStart;
 
-  if (preCheck.isReady) {
-    console.log(`[schema] Schema check completed in ${schemaCheckDuration}ms - all required tables and columns exist`);
-  } else {
-    // In production: always fail fast
-    // In development: fail unless FAIL_ON_SCHEMA_ISSUES=false
-    if (isProduction || failOnSchemaIssues) {
-      console.error("[schema] FATAL: Schema is NOT ready");
-      console.error("[schema] Errors:", preCheck.errors);
-      console.error("[schema] Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate");
-      
-      throw new Error(`Schema not ready: ${preCheck.errors.join("; ")}`);
-    } else {
-      console.warn(`[schema] Schema check completed in ${schemaCheckDuration}ms - WARNING: NOT ready, continuing in dev mode`);
-      console.warn("[schema] Issues:", preCheck.errors);
-      console.warn("[schema] Fix: Set AUTO_MIGRATE=true or run migrations manually");
-    }
+  const hasCritical = missingCriticalTables.length > 0 || missingCriticalColumns.length > 0;
+  const hasImportant = missingImportantTables.length > 0;
+  const hasOptional = missingOptionalTables.length > 0 || missingOptionalColumns.length > 0;
+
+  if (!hasCritical && !hasImportant && !hasOptional) {
+    console.log(`[schema] Schema check completed in ${schemaCheckDuration}ms - all tables and columns exist`);
+  } else if (!hasCritical) {
+    console.log(`[schema] Schema check completed in ${schemaCheckDuration}ms - app starting with degraded features`);
   }
 }
