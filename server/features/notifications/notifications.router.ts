@@ -90,6 +90,26 @@ router.delete("/notifications/:id", async (req, res) => {
   }
 });
 
+// Default notification preferences for when table doesn't exist or user has no preferences
+function getDefaultPreferences(userId: string, tenantId: string | null) {
+  return {
+    id: "default",
+    tenantId,
+    userId,
+    taskDeadline: true,
+    taskAssigned: true,
+    taskCompleted: true,
+    commentAdded: true,
+    commentMention: true,
+    projectUpdate: true,
+    projectMemberAdded: true,
+    taskStatusChanged: true,
+    emailEnabled: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
 // Get notification preferences
 router.get("/notifications/preferences", async (req, res) => {
   try {
@@ -99,15 +119,24 @@ router.get("/notifications/preferences", async (req, res) => {
     let prefs = await storage.getNotificationPreferences(userId);
     
     if (!prefs) {
-      prefs = await storage.upsertNotificationPreferences(userId, {
-        tenantId: tenantId || undefined,
-      });
+      // Try to create preferences, fall back to defaults if table doesn't exist
+      try {
+        prefs = await storage.upsertNotificationPreferences(userId, {
+          tenantId: tenantId || undefined,
+        });
+      } catch (error) {
+        console.warn("[notifications] Could not create preferences, using defaults:", error);
+        prefs = getDefaultPreferences(userId, tenantId);
+      }
     }
     
     res.json(prefs);
   } catch (error) {
     console.error("Error fetching notification preferences:", error);
-    res.status(500).json({ error: "Internal server error" });
+    // Return defaults instead of 500 error
+    const userId = getCurrentUserId(req);
+    const tenantId = getEffectiveTenantId(req);
+    res.json(getDefaultPreferences(userId, tenantId));
   }
 });
 
