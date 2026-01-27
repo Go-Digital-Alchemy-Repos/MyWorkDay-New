@@ -401,7 +401,7 @@ export default function ClientDetailPage() {
       status: client.status as "active" | "inactive" | "prospect",
       industry: client.industry || "",
       companySize: client.companySize || "",
-      website: client.website || "",
+      website: client.website || "https://",
       taxId: client.taxId || "",
       foundedDate: client.foundedDate || "",
       description: client.description || "",
@@ -1063,30 +1063,6 @@ export default function ClientDetailPage() {
                     </CardContent>
                   </Card>
                 </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Notes
-                    </CardTitle>
-                    <CardDescription>Internal notes about this client</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <FormField
-                      control={clientForm.control}
-                      name="notes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Textarea {...field} placeholder="Add any notes about this client..." rows={4} data-testid="input-notes" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
 
                 {divisions.length > 0 && (
                   <Card>

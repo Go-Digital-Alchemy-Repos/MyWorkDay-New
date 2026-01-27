@@ -2455,7 +2455,7 @@ export function TenantDrawer({ tenant, open, onOpenChange, onTenantUpdated, mode
                           id="website"
                           name="website"
                           type="url"
-                          defaultValue={(activeTenant as any).website || ""}
+                          defaultValue={(activeTenant as any).website || "https://"}
                           placeholder="https://example.com"
                           data-testid="input-website"
                         />

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2, CheckSquare } from "lucide-react";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2, CheckSquare, Save } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -394,16 +394,38 @@ export function TaskDetailDrawer({
         <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">
           <SheetDescription className="sr-only">Edit task details, add subtasks, and manage comments</SheetDescription>
           <div className="flex items-center justify-between">
-            <SheetTitle className="sr-only">Task Details</SheetTitle>
-            <StatusBadge status={task.status as any} />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onOpenChange(false)}
-              data-testid="button-close-drawer"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <SheetTitle className="sr-only">Task Details</SheetTitle>
+              <StatusBadge status={task.status as any} />
+            </div>
+            <div className="flex items-center gap-2">
+              {isDirty && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (title.trim() && title !== task.title) {
+                      onUpdate?.(task.id, { title: title.trim() });
+                    }
+                    if (description !== (task.description || "")) {
+                      onUpdate?.(task.id, { description });
+                    }
+                    markClean();
+                  }}
+                  data-testid="button-save-task"
+                >
+                  <Save className="h-4 w-4 mr-1" />
+                  Save Changes
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onOpenChange(false)}
+                data-testid="button-close-drawer"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </SheetHeader>
 

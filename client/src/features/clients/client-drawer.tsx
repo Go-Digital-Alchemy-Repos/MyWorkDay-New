@@ -61,7 +61,7 @@ export function ClientDrawer({
       displayName: "",
       status: "active",
       industry: "",
-      website: "",
+      website: "https://",
       notes: "",
     },
   });
@@ -73,7 +73,7 @@ export function ClientDrawer({
         displayName: client.displayName || "",
         status: client.status as "active" | "inactive" | "prospect",
         industry: client.industry || "",
-        website: client.website || "",
+        website: client.website || "https://",
         notes: client.notes || "",
       });
     } else if (open && mode === "create") {
@@ -82,7 +82,7 @@ export function ClientDrawer({
         displayName: "",
         status: "active",
         industry: "",
-        website: "",
+        website: "https://",
         notes: "",
       });
     }
