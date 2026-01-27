@@ -1,0 +1,170 @@
+app.use(tenantContextMiddleware);
+app.use(agreementEnforcementGuard);  // ← Runs on EVERY request
+```
+
+If the agreement system is:
+- Querying a missing/broken database table
+- Doing slow database lookups on every request
+- Throwing errors that prevent health checks from responding
+
+**It could be blocking your entire app from starting!**
+
+---
+
+## Safe Removal Prompt for Replit
+
+Here's a comprehensive prompt that will remove the agreement system without breaking anything else:
+```
+REMOVAL: Safely Remove Tenant Agreement System
+
+CONTEXT:
+The tenant agreement/SaaS agreement system may be causing health check failures and blocking app startup. We need to completely remove this feature while preserving all other functionality.
+
+GOAL:
+Remove all agreement-related code, middleware, database tables, and routes without breaking:
+- Multi-tenancy (tenant context must still work)
+- User authentication
+- All other features (tasks, projects, chat, etc.)
+
+STEP 1: REMOVE MIDDLEWARE
+File: server/index.ts
+- Remove line: import { agreementEnforcementGuard } from "./middleware/agreementEnforcement";
+- Remove line: app.use(agreementEnforcementGuard);
+- Keep tenantContextMiddleware (still needed)
+
+STEP 2: REMOVE MIDDLEWARE FILE
+- Delete: server/middleware/agreementEnforcement.ts
+
+STEP 3: REMOVE ROUTES
+File: server/routes.ts or server/auth.ts
+Search for and remove:
+- Any routes containing "agreement" or "terms"
+- Example: POST /api/agreements/accept
+- Example: GET /api/agreements/current
+- Example: GET /api/agreements/pending
+
+STEP 4: REMOVE DATABASE QUERIES
+Search entire server/ directory for:
+- "agreements" (table name)
+- "tenant_agreements" (table name)
+- "user_agreements" (table name)
+- "agreement_versions" (table name)
+
+Remove or comment out:
+- All queries to these tables
+- All imports related to agreement storage
+- Keep any tenant-related queries that don't involve agreements
+
+STEP 5: REMOVE FRONTEND COMPONENTS
+File: client/src/App.tsx or client/src/pages/
+- Remove: /accept-terms route
+- Remove: Any agreement acceptance modal/component
+- Remove: Any "pending agreement" checks that block UI
+
+Files to check:
+- client/src/pages/accept-terms.tsx (delete if exists)
+- client/src/components/agreement-modal.tsx (delete if exists)
+
+STEP 6: CLEAN UP DATABASE SCHEMA
+File: shared/schema.ts
+Remove table definitions for:
+- agreements
+- tenant_agreements  
+- user_agreements
+- agreement_versions
+- agreement_acceptances
+
+STEP 7: UPDATE TESTS
+Search for tests containing "agreement":
+- Delete: server/tests/agreement-enforcement.test.ts
+- Remove agreement-related test cases from other files
+- Keep all other tests
+
+STEP 8: UPDATE DOCUMENTATION
+Files to update:
+- replit.md - Remove agreement system from features list
+- docs/AGREEMENTS.md - Delete or mark as deprecated
+- README.md - Remove agreement references
+
+STEP 9: VERIFY NO BROKEN IMPORTS
+After removal, check that:
+- Server starts without import errors
+- No routes reference deleted agreement files
+- No components reference deleted agreement pages
+
+ACCEPTANCE CRITERIA:
+✅ Server starts without errors
+✅ Health checks respond in <2 seconds
+✅ All non-agreement features work (tasks, projects, etc.)
+✅ No agreement-related middleware blocks requests
+✅ Database queries don't reference agreement tables
+✅ Tests pass (after removing agreement tests)
+
+SAFETY CHECKS:
+- Do NOT remove tenant context middleware
+- Do NOT remove user authentication
+- Do NOT remove any non-agreement database tables
+- Do NOT break existing API contracts for tasks/projects
+
+TESTING AFTER REMOVAL:
+1. Start server locally - should start successfully
+2. Hit health endpoints - should respond immediately
+3. Login as user - should work
+4. Create task - should work
+5. Deploy to Railway - should pass health checks
+
+If you encounter errors during removal, stop and report:
+- Which file has the error
+- The specific error message
+- What was being removed when it failed
+```
+
+---
+
+## Why This Is Safe
+
+This approach:
+1. **Only removes agreement code** - doesn't touch core features
+2. **Preserves tenant context** - multi-tenancy still works
+3. **Keeps authentication** - users can still login
+4. **Maintains data integrity** - doesn't delete user/project/task data
+5. **Is reversible** - you can restore from git if needed
+
+---
+
+## What Happens After Removal
+
+**Immediate benefits:**
+- Health checks will respond faster (no agreement middleware blocking them)
+- Fewer database queries on every request
+- Simpler startup sequence
+- Less code to debug
+
+**You'll lose:**
+- Ability to require users to accept terms before using app
+- Agreement version tracking
+- Agreement acceptance audit trail
+
+---
+
+## Alternative: Just Disable It First
+
+If you want to test whether this is the problem before fully removing, try this quick test:
+
+**Quick Disable Test Prompt:**
+```
+QUICK TEST: Temporarily Disable Agreement Middleware
+
+File: server/index.ts
+Change:
+  app.use(agreementEnforcementGuard);
+
+To:
+  // TEMPORARILY DISABLED - Testing if this blocks health checks
+  // app.use(agreementEnforcementGuard);
+
+Then test:
+1. Deploy to Railway
+2. Check if health checks pass
+3. If yes, proceed with full removal
+4. If no, re-enable and investigate other issues

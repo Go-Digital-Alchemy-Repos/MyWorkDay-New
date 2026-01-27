@@ -5593,8 +5593,9 @@ export async function registerRoutes(
         return res.status(400).json({ error: "agreementId and version are required" });
       }
 
-      // Verify agreement exists and is active for this tenant
-      const activeAgreements = await db.select()
+      // Verify agreement exists and is active for this tenant (or is a global agreement)
+      // First check for tenant-specific agreement with this ID
+      let activeAgreements = await db.select()
         .from(tenantAgreements)
         .where(and(
           eq(tenantAgreements.id, agreementId),
@@ -5602,6 +5603,18 @@ export async function registerRoutes(
           eq(tenantAgreements.status, AgreementStatus.ACTIVE)
         ))
         .limit(1);
+
+      // If not found, check for global agreement (tenantId = NULL)
+      if (activeAgreements.length === 0) {
+        activeAgreements = await db.select()
+          .from(tenantAgreements)
+          .where(and(
+            eq(tenantAgreements.id, agreementId),
+            isNull(tenantAgreements.tenantId),
+            eq(tenantAgreements.status, AgreementStatus.ACTIVE)
+          ))
+          .limit(1);
+      }
 
       if (activeAgreements.length === 0) {
         return res.status(404).json({ 
