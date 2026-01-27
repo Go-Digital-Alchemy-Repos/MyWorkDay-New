@@ -62,6 +62,10 @@ import {
   Play,
   Layers,
   Users,
+  Calendar,
+  Briefcase,
+  Save,
+  Loader2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { StartTimerDrawer } from "@/features/timer";
@@ -92,9 +96,25 @@ type CreateContactForm = z.infer<typeof createContactSchema>;
 const updateClientSchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
   displayName: z.string().optional(),
+  legalName: z.string().optional(),
   status: z.enum(["active", "inactive", "prospect"]),
   industry: z.string().optional(),
+  companySize: z.string().optional(),
   website: z.string().optional(),
+  taxId: z.string().optional(),
+  foundedDate: z.string().optional(),
+  description: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+  primaryContactName: z.string().optional(),
+  primaryContactEmail: z.string().optional(),
+  primaryContactPhone: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -360,9 +380,25 @@ export default function ClientDetailPage() {
     values: client ? {
       companyName: client.companyName,
       displayName: client.displayName || "",
+      legalName: (client as any).legalName || "",
       status: client.status as "active" | "inactive" | "prospect",
       industry: client.industry || "",
+      companySize: (client as any).companySize || "",
       website: client.website || "",
+      taxId: (client as any).taxId || "",
+      foundedDate: (client as any).foundedDate || "",
+      description: (client as any).description || "",
+      phone: client.phone || "",
+      email: client.email || "",
+      addressLine1: client.addressLine1 || "",
+      addressLine2: client.addressLine2 || "",
+      city: client.city || "",
+      state: client.state || "",
+      postalCode: client.postalCode || "",
+      country: client.country || "",
+      primaryContactName: (client as any).primaryContactName || "",
+      primaryContactEmail: (client as any).primaryContactEmail || "",
+      primaryContactPhone: (client as any).primaryContactPhone || "",
       notes: client.notes || "",
     } : undefined,
   });
@@ -627,122 +663,471 @@ export default function ClientDetailPage() {
             </TabsList>
           </div>
 
-          <TabsContent value="overview" className="p-6 space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Company Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {client.industry && (
-                    <div className="flex items-start gap-3">
-                      <Building2 className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Industry</p>
-                        <p className="text-sm">{client.industry}</p>
+          <TabsContent value="overview" className="p-6 overflow-auto">
+            <Form {...clientForm}>
+              <form onSubmit={clientForm.handleSubmit(handleUpdateClient)} className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Client Profile</h2>
+                  <Button 
+                    type="submit" 
+                    disabled={updateClientMutation.isPending || !clientForm.formState.isDirty}
+                    data-testid="button-save-profile"
+                  >
+                    {updateClientMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-3">
+                  <Card className="md:col-span-2">
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Building2 className="h-4 w-4" />
+                        Company Information
+                      </CardTitle>
+                      <CardDescription>Basic company details and identification</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={clientForm.control}
+                          name="companyName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Company Name *</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Company name" data-testid="input-company-name" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="displayName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Display Name</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Short name or abbreviation" data-testid="input-display-name" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="legalName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Legal Name</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Legal company name" data-testid="input-legal-name" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="industry"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Industry</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="e.g. Technology, Healthcare" data-testid="input-industry" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="companySize"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Company Size</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ""}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-company-size">
+                                    <SelectValue placeholder="Select size" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="1-10">1-10 employees</SelectItem>
+                                  <SelectItem value="11-50">11-50 employees</SelectItem>
+                                  <SelectItem value="51-200">51-200 employees</SelectItem>
+                                  <SelectItem value="201-500">201-500 employees</SelectItem>
+                                  <SelectItem value="501-1000">501-1000 employees</SelectItem>
+                                  <SelectItem value="1001+">1001+ employees</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="website"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Website</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="https://example.com" data-testid="input-website" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="taxId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Tax ID</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Tax identification number" data-testid="input-tax-id" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="foundedDate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Founded</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="e.g. 2020" data-testid="input-founded-date" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="status"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Status</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-status">
+                                    <SelectValue placeholder="Select status" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="active">Active</SelectItem>
+                                  <SelectItem value="inactive">Inactive</SelectItem>
+                                  <SelectItem value="prospect">Prospect</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </div>
-                    </div>
-                  )}
-                  {client.website && (
-                    <div className="flex items-start gap-3">
-                      <Globe className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Website</p>
-                        <a
-                          href={client.website}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          {client.website}
-                        </a>
+                      <FormField
+                        control={clientForm.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Description</FormLabel>
+                            <FormControl>
+                              <Textarea {...field} placeholder="Brief description of the company" rows={3} data-testid="input-description" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Quick Stats</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="text-center p-4 bg-muted/50 rounded-lg">
+                        <p className="text-2xl font-semibold">{client.projects?.length || 0}</p>
+                        <p className="text-xs text-muted-foreground">Projects</p>
                       </div>
-                    </div>
-                  )}
-                  {!client.industry && !client.website && (
-                    <p className="text-sm text-muted-foreground">No details added yet.</p>
-                  )}
-                </CardContent>
-              </Card>
+                      <div className="text-center p-4 bg-muted/50 rounded-lg">
+                        <p className="text-2xl font-semibold">{client.contacts?.length || 0}</p>
+                        <p className="text-xs text-muted-foreground">Contacts</p>
+                      </div>
+                      <div className="text-center p-4 bg-muted/50 rounded-lg">
+                        <p className="text-2xl font-semibold">{divisions.length}</p>
+                        <p className="text-xs text-muted-foreground">Divisions</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Quick Stats</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-4 bg-muted/50 rounded-lg">
-                    <p className="text-2xl font-semibold">{client.projects?.length || 0}</p>
-                    <p className="text-xs text-muted-foreground">Projects</p>
-                  </div>
-                  <div className="text-center p-4 bg-muted/50 rounded-lg">
-                    <p className="text-2xl font-semibold">{client.contacts?.length || 0}</p>
-                    <p className="text-xs text-muted-foreground">Contacts</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        Address
+                      </CardTitle>
+                      <CardDescription>Company location and mailing address</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <FormField
+                        control={clientForm.control}
+                        name="addressLine1"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Address Line 1</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="Street address" data-testid="input-address-1" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={clientForm.control}
+                        name="addressLine2"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Address Line 2</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="Suite, floor, etc." data-testid="input-address-2" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={clientForm.control}
+                          name="city"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>City</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="City" data-testid="input-city" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="state"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>State / Province</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="State" data-testid="input-state" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="postalCode"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Postal Code</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="ZIP / Postal code" data-testid="input-postal-code" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="country"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Country</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Country" data-testid="input-country" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
 
-            {/* Divisions Section */}
-            {divisions.length > 0 && (
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between gap-2">
-                  <CardTitle className="text-base">Divisions</CardTitle>
-                  <Badge variant="secondary">{divisions.length}</Badge>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {divisions.map((division) => (
-                      <Card
-                        key={division.id}
-                        className="hover-elevate cursor-pointer"
-                        onClick={() => {
-                          setEditingDivision(division);
-                          setDivisionMode("edit");
-                          setDivisionDrawerOpen(true);
-                        }}
-                        data-testid={`division-card-${division.id}`}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="h-3 w-3 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: division.color || "#3B82F6" }}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium truncate">{division.name}</p>
-                              {division.description && (
-                                <p className="text-xs text-muted-foreground truncate">{division.description}</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Users className="h-3 w-3" />
-                              {division.memberCount} members
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <FolderKanban className="h-3 w-3" />
-                              {division.projectCount} projects
-                            </span>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        Primary Contact
+                      </CardTitle>
+                      <CardDescription>Main point of contact at this company</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <FormField
+                        control={clientForm.control}
+                        name="primaryContactName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Contact Name</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="Full name" data-testid="input-primary-contact-name" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={clientForm.control}
+                        name="primaryContactEmail"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Contact Email</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="email" placeholder="email@example.com" data-testid="input-primary-contact-email" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={clientForm.control}
+                        name="primaryContactPhone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Contact Phone</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="+1 (555) 000-0000" data-testid="input-primary-contact-phone" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={clientForm.control}
+                          name="phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Company Phone</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Main phone" data-testid="input-phone" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={clientForm.control}
+                          name="email"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Company Email</FormLabel>
+                              <FormControl>
+                                <Input {...field} type="email" placeholder="General email" data-testid="input-email" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
 
-            {client.notes && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Notes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm whitespace-pre-wrap">{client.notes}</p>
-                </CardContent>
-              </Card>
-            )}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Notes
+                    </CardTitle>
+                    <CardDescription>Internal notes about this client</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <FormField
+                      control={clientForm.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Textarea {...field} placeholder="Add any notes about this client..." rows={4} data-testid="input-notes" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                </Card>
+
+                {divisions.length > 0 && (
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Layers className="h-4 w-4" />
+                          Divisions
+                        </CardTitle>
+                        <CardDescription>Organizational divisions within this client</CardDescription>
+                      </div>
+                      <Badge variant="secondary">{divisions.length}</Badge>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {divisions.map((division) => (
+                          <Card
+                            key={division.id}
+                            className="hover-elevate cursor-pointer"
+                            onClick={() => {
+                              setEditingDivision(division);
+                              setDivisionMode("edit");
+                              setDivisionDrawerOpen(true);
+                            }}
+                            data-testid={`division-card-${division.id}`}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="h-3 w-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: division.color || "#3B82F6" }}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">{division.name}</p>
+                                  {division.description && (
+                                    <p className="text-xs text-muted-foreground truncate">{division.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {division.memberCount} members
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <FolderKanban className="h-3 w-3" />
+                                  {division.projectCount} projects
+                                </span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </form>
+            </Form>
           </TabsContent>
 
           <TabsContent value="contacts" className="p-6">
