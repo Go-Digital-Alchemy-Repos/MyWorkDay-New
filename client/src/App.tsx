@@ -52,6 +52,7 @@ import ClientPortalProjects from "@/pages/client-portal-projects";
 import ClientPortalTasks from "@/pages/client-portal-tasks";
 import ClientPortalProjectDetail from "@/pages/client-portal-project-detail";
 import { ClientPortalSidebar } from "@/components/client-portal-sidebar";
+import { ClientPortalMobileNav } from "@/components/client-portal-mobile-nav";
 import { Loader2, MessageCircle } from "lucide-react";
 import { useEffect } from "react";
 import { GlobalActiveTimer } from "@/features/timer";
@@ -406,6 +407,7 @@ function TenantLayout() {
 }
 
 function ClientPortalLayout() {
+  const isMobile = useIsMobile();
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
@@ -416,21 +418,22 @@ function ClientPortalLayout() {
       <div className="flex h-screen w-full">
         <ClientPortalSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex items-center justify-between h-12 px-4 border-b border-border bg-background shrink-0">
+          <header className="flex items-center justify-between h-12 px-2 md:px-4 border-b border-border bg-background shrink-0">
             <div className="flex items-center gap-2">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden md:flex" />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 md:gap-2">
               <NotificationCenter />
-              <ThemeToggle />
+              <ThemeToggle className="hidden md:flex" />
               <UserMenu />
             </div>
           </header>
-          <main className="flex-1 overflow-hidden">
+          <main className={`flex-1 overflow-hidden ${isMobile ? "pb-16" : ""}`}>
             <ClientPortalRouter />
           </main>
         </div>
       </div>
+      {isMobile && <ClientPortalMobileNav />}
     </SidebarProvider>
   );
 }

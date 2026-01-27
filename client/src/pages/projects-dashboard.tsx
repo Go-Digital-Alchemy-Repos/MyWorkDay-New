@@ -220,20 +220,20 @@ export default function ProjectsDashboard() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="container max-w-7xl mx-auto py-6 px-4">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <FolderKanban className="h-8 w-8 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold">Projects</h1>
-              <p className="text-muted-foreground text-sm">
+      <div className="container max-w-7xl mx-auto py-4 md:py-6 px-3 md:px-4">
+        <div className="flex items-center justify-between mb-4 md:mb-6 gap-2">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            <FolderKanban className="h-6 w-6 md:h-8 md:w-8 text-primary shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold truncate">Projects</h1>
+              <p className="text-muted-foreground text-xs md:text-sm hidden md:block">
                 View and manage all projects across your workspace
               </p>
             </div>
           </div>
-          <Button onClick={() => setCreateProjectOpen(true)} data-testid="button-new-project">
-            <Plus className="h-4 w-4 mr-2" />
-            New Project
+          <Button onClick={() => setCreateProjectOpen(true)} data-testid="button-new-project" size="sm" className="md:h-9 shrink-0">
+            <Plus className="h-4 w-4 md:mr-2" />
+            <span className="hidden md:inline">New Project</span>
           </Button>
         </div>
 
@@ -284,77 +284,75 @@ export default function ProjectsDashboard() {
           </div>
         )}
 
-        <div className="flex flex-col gap-4 mb-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search projects..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-projects"
-              />
-            </div>
+        <div className="flex flex-col gap-3 md:gap-4 mb-4 md:mb-6">
+          <div className="relative w-full md:max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search projects..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-projects"
+            />
+          </div>
+          
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
+            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[130px]" data-testid="select-status-filter">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
-                </SelectContent>
-              </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[100px] md:w-[130px] shrink-0" data-testid="select-status-filter">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
+              </SelectContent>
+            </Select>
 
-              <Select value={clientFilter} onValueChange={handleClientFilterChange}>
-                <SelectTrigger className="w-[150px]" data-testid="select-client-filter">
-                  <SelectValue placeholder="Client" />
+            <Select value={clientFilter} onValueChange={handleClientFilterChange}>
+              <SelectTrigger className="w-[110px] md:w-[150px] shrink-0" data-testid="select-client-filter">
+                <SelectValue placeholder="Client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clients</SelectItem>
+                {clients?.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.displayName || client.companyName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {selectedClientHasDivisions && (
+              <Select value={divisionFilter} onValueChange={setDivisionFilter}>
+                <SelectTrigger className="w-[110px] md:w-[150px] shrink-0" data-testid="select-division-filter">
+                  <SelectValue placeholder="Division" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Clients</SelectItem>
-                  {clients?.map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.displayName || client.companyName}
+                  <SelectItem value="all">All Divisions</SelectItem>
+                  {clientDivisions.map((division) => (
+                    <SelectItem key={division.id} value={division.id}>
+                      {division.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            )}
 
-              {selectedClientHasDivisions && (
-                <Select value={divisionFilter} onValueChange={setDivisionFilter}>
-                  <SelectTrigger className="w-[150px]" data-testid="select-division-filter">
-                    <SelectValue placeholder="Division" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Divisions</SelectItem>
-                    {clientDivisions.map((division) => (
-                      <SelectItem key={division.id} value={division.id}>
-                        {division.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-
-              <Select value={teamFilter} onValueChange={setTeamFilter}>
-                <SelectTrigger className="w-[150px]" data-testid="select-team-filter">
-                  <SelectValue placeholder="Team" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Teams</SelectItem>
-                  {teams?.map((team) => (
-                    <SelectItem key={team.id} value={team.id}>
-                      {team.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <Select value={teamFilter} onValueChange={setTeamFilter}>
+              <SelectTrigger className="w-[100px] md:w-[150px] shrink-0" data-testid="select-team-filter">
+                <SelectValue placeholder="Team" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Teams</SelectItem>
+                {teams?.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                    {team.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -410,8 +408,73 @@ export default function ProjectsDashboard() {
             )}
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
+          <>
+            {/* Mobile card view */}
+            <div className="md:hidden space-y-3">
+              {filteredProjects.map((project) => {
+                const stats = getProjectStats(project.id);
+                return (
+                  <Card
+                    key={project.id}
+                    className="hover-elevate cursor-pointer"
+                    onClick={() => handleRowClick(project)}
+                    data-testid={`card-project-${project.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="h-8 w-8 rounded-md flex items-center justify-center text-white text-sm font-medium shrink-0"
+                          style={{ backgroundColor: project.color || "#3B82F6" }}
+                        >
+                          {project.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-medium truncate">{project.name}</h3>
+                            <Badge variant={project.status === "archived" ? "secondary" : "default"} className="shrink-0">
+                              {project.status === "archived" ? "Archived" : "Active"}
+                            </Badge>
+                          </div>
+                          {project.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-1 mb-2">{project.description}</p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            {getClientName(project.clientId) !== "-" && (
+                              <span className="flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                {getClientName(project.clientId)}
+                              </span>
+                            )}
+                            {stats && (
+                              <>
+                                <span className="flex items-center gap-1">
+                                  <CheckSquare className="h-3 w-3" />
+                                  {stats.openTasks} open
+                                </span>
+                                {stats.overdueTasks > 0 && (
+                                  <Badge variant="destructive" className="text-xs px-1.5 py-0">
+                                    {stats.overdueTasks} overdue
+                                  </Badge>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          {stats && (
+                            <div className="mt-2">
+                              <Progress value={stats.completionPercent} className="h-1.5" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Desktop table view */}
+            <div className="hidden md:block border rounded-lg overflow-hidden">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[250px]">Project Name</TableHead>
@@ -601,7 +664,8 @@ export default function ProjectsDashboard() {
                 ))}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </>
         )}
 
         <div className="mt-4 text-sm text-muted-foreground">

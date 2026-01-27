@@ -147,32 +147,32 @@ export default function ClientsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground" data-testid="text-clients-title">
+      <div className="flex items-center justify-between px-3 md:px-6 py-3 md:py-4 border-b border-border shrink-0 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold text-foreground truncate" data-testid="text-clients-title">
             Clients
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs md:text-sm text-muted-foreground hidden md:block">
             Manage your clients and their projects
           </p>
         </div>
-        <Button onClick={() => setCreateDrawerOpen(true)} data-testid="button-add-client">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Client
+        <Button onClick={() => setCreateDrawerOpen(true)} data-testid="button-add-client" size="sm" className="md:h-9 shrink-0">
+          <Plus className="h-4 w-4 md:mr-2" />
+          <span className="hidden md:inline">Add Client</span>
         </Button>
       </div>
 
-      <div className="px-6 py-4 border-b border-border shrink-0">
+      <div className="px-3 md:px-6 py-3 md:py-4 border-b border-border shrink-0">
         <Input
           placeholder="Search clients..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-sm"
+          className="w-full md:max-w-sm"
           data-testid="input-search-clients"
         />
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-3 md:p-6">
         {filteredClients && filteredClients.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filteredClients.map((client) => (

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskCard, TaskDetailDrawer } from "@/features/tasks";
 import { CreateProjectDialog } from "@/features/projects";
+import { TaskProgressBar } from "@/components/task-progress-bar";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Project, TaskWithRelations, Team, Workspace, Client } from "@shared/schema";
 
@@ -117,6 +118,17 @@ export default function Home() {
 
   const upcomingTasks = myTasks?.slice(0, 5) || [];
 
+  const taskStats = useMemo(() => {
+    const allTasks = myTasks || [];
+    return {
+      total: allTasks.length,
+      done: allTasks.filter(t => t.status === "done").length,
+      inProgress: allTasks.filter(t => t.status === "in_progress").length,
+      todo: allTasks.filter(t => t.status === "todo").length,
+      blocked: allTasks.filter(t => t.status === "blocked").length,
+    };
+  }, [myTasks]);
+
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="border-b border-border bg-background sticky top-0 z-10">
@@ -186,6 +198,17 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        {taskStats.total > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Your Task Journey</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TaskProgressBar stats={taskStats} showMilestones />
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>

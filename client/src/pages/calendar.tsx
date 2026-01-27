@@ -306,14 +306,27 @@ export default function CalendarPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-3">
-          <CalendarDays className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-lg font-semibold">Calendar</h1>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between px-3 md:px-6 py-2 md:py-3 border-b border-border bg-muted/30 gap-2">
+        <div className="flex items-center justify-between md:justify-start gap-2 md:gap-3">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-muted-foreground" />
+            <h1 className="text-base md:text-lg font-semibold">Calendar</h1>
+          </div>
+          <div className="flex items-center gap-1 md:hidden">
+            <Button variant="outline" size="icon" onClick={handlePrev} data-testid="button-calendar-prev-mobile">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleToday} data-testid="button-calendar-today-mobile">
+              Today
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleNext} data-testid="button-calendar-next-mobile">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 border rounded-lg p-1">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
+          <div className="flex items-center gap-0.5 border rounded-lg p-0.5 shrink-0">
             <Button
               variant={currentView === "dayGridMonth" ? "default" : "ghost"}
               size="sm"
@@ -340,7 +353,7 @@ export default function CalendarPage() {
             </Button>
           </div>
           
-          <div className="flex items-center gap-1">
+          <div className="hidden md:flex items-center gap-1">
             <Button variant="outline" size="sm" onClick={handlePrev} data-testid="button-calendar-prev">
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -354,11 +367,11 @@ export default function CalendarPage() {
           
           <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2" data-testid="button-calendar-filters">
+              <Button variant="outline" size="sm" className="gap-1 md:gap-2 shrink-0" data-testid="button-calendar-filters">
                 <Filter className="h-4 w-4" />
-                Filters
+                <span className="hidden md:inline">Filters</span>
                 {activeFiltersCount > 0 && (
-                  <Badge variant="secondary" className="ml-1 h-5 px-1.5">
+                  <Badge variant="secondary" className="h-5 px-1.5">
                     {activeFiltersCount}
                   </Badge>
                 )}
