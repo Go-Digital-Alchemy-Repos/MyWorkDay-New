@@ -149,6 +149,48 @@ app.get("/healthz", (_req, res) => {
   res.status(200).send("ok");
 });
 
+// Database health endpoint - public, no auth required
+// Returns database connectivity, latency, pool stats, and migration count
+app.get("/api/v1/system/health/db", async (_req, res) => {
+  try {
+    const { checkDbHealth, getPoolStats } = await import("./db");
+    const dbHealth = await checkDbHealth();
+    
+    let migrationCount = 0;
+    try {
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const result = await db.execute(
+        sql`SELECT COUNT(*)::int as count FROM drizzle.__drizzle_migrations`
+      );
+      migrationCount = (result.rows[0] as any)?.count || 0;
+    } catch {
+      // Migrations table may not exist yet
+    }
+    
+    res.json({
+      connected: dbHealth.connected,
+      latency: dbHealth.latencyMs,
+      pool: dbHealth.pool,
+      migrations: {
+        applied: migrationCount,
+      },
+      timestamp: new Date().toISOString(),
+      ...(dbHealth.error && { error: dbHealth.error }),
+    });
+  } catch (error: any) {
+    console.error("[health/db] Health check failed:", error);
+    res.status(500).json({
+      connected: false,
+      latency: 0,
+      pool: { total: 0, active: 0, idle: 0, waiting: 0 },
+      migrations: { applied: 0 },
+      timestamp: new Date().toISOString(),
+      error: error?.message || "Health check failed",
+    });
+  }
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;

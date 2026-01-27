@@ -14,7 +14,7 @@
  */
 import { Router } from "express";
 import { requireSuperUser } from "../../middleware/tenantContext";
-import { db } from "../../db";
+import { db, getPoolStats } from "../../db";
 import { sql } from "drizzle-orm";
 import { isS3Configured } from "../../s3";
 import { isEncryptionAvailable } from "../../lib/encryption";
@@ -332,6 +332,9 @@ router.get("/status/db", requireSuperUser, async (_req, res) => {
         failOnSchemaIssues: process.env.FAIL_ON_SCHEMA_ISSUES !== "false",
         nodeEnv: process.env.NODE_ENV || "development",
       },
+      
+      // Connection pool stats
+      pool: getPoolStats(),
       
       errors: allErrors,
       checkedAt: new Date().toISOString(),
