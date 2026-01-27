@@ -313,17 +313,36 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
     }
   }, [open]);
 
-  const startEditing = () => {
+  const resetEditFields = () => {
     if (user) {
       setEditFirstName(user.firstName || "");
       setEditLastName(user.lastName || "");
       setEditEmail(user.email || "");
       setEditRole(user.role || "employee");
-      setIsEditing(true);
     }
   };
 
+  const startEditing = () => {
+    resetEditFields();
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    resetEditFields();
+    setIsEditing(false);
+  };
+
   const saveUserChanges = () => {
+    // Validation
+    if (!editEmail || !editEmail.includes("@")) {
+      toast({ title: "Valid email is required", variant: "destructive" });
+      return;
+    }
+    if (!editRole || !["admin", "employee", "client"].includes(editRole)) {
+      toast({ title: "Please select a valid role", variant: "destructive" });
+      return;
+    }
+
     const updates: { firstName?: string; lastName?: string; email?: string; role?: string } = {};
     
     if (editFirstName !== (user?.firstName || "")) {
@@ -435,7 +454,7 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
                         <Button 
                           variant="outline" 
                           size="sm" 
-                          onClick={() => setIsEditing(false)}
+                          onClick={cancelEditing}
                           data-testid="button-cancel-edit"
                         >
                           <X className="h-4 w-4 mr-2" />
