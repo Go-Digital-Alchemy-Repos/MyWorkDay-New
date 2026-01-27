@@ -27,7 +27,7 @@ import crypto from "crypto";
 import { storage } from "./storage";
 import { z } from "zod";
 import { captureError } from "./middleware/errorLogging";
-import { AppError, handleRouteError, sendError } from "./lib/errors";
+import { AppError, handleRouteError, sendError, validateBody } from "./lib/errors";
 import subRoutes from "./routes/index";
 import webhookRoutes from "./routes/webhooks";
 import {
@@ -59,6 +59,27 @@ import {
   clientNoteVersions,
   clientNoteCategories,
   users,
+  updateWorkspaceSchema,
+  updateTeamSchema,
+  updateProjectSchema,
+  updateSectionSchema,
+  updateTaskSchema,
+  updateSubtaskSchema,
+  updateTagSchema,
+  updateCommentSchema,
+  updateClientSchema,
+  updateClientContactSchema,
+  updatePersonalTaskSectionSchema,
+  moveTaskSchema,
+  moveSubtaskSchema,
+  reorderTasksSchema,
+  addAssigneeSchema,
+  addTagToTaskSchema,
+  movePersonalTaskSchema,
+  assignClientSchema,
+  addProjectMemberSchema,
+  addDivisionMemberSchema,
+  createNoteCategorySchema,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count, inArray } from "drizzle-orm";
@@ -466,7 +487,10 @@ export async function registerRoutes(
 
   app.patch("/api/workspaces/:id", async (req, res) => {
     try {
-      const workspace = await storage.updateWorkspace(req.params.id, req.body);
+      const data = validateBody(req.body, updateWorkspaceSchema, res);
+      if (!data) return;
+      
+      const workspace = await storage.updateWorkspace(req.params.id, data);
       if (!workspace) {
         return sendError(res, AppError.notFound("Workspace"), req);
       }
@@ -666,6 +690,9 @@ export async function registerRoutes(
 
   app.patch("/api/projects/:id", async (req, res) => {
     try {
+      const data = validateBody(req.body, updateProjectSchema, res);
+      if (!data) return;
+      
       const tenantId = getEffectiveTenantId(req);
       
       // Get current project to determine effective clientId
@@ -680,8 +707,8 @@ export async function registerRoutes(
       }
       
       // Determine the effective clientId (updated or existing)
-      const effectiveClientId = req.body.clientId !== undefined ? req.body.clientId : existingProject.clientId;
-      const effectiveDivisionId = req.body.divisionId !== undefined ? req.body.divisionId : existingProject.divisionId;
+      const effectiveClientId = data.clientId !== undefined ? data.clientId : existingProject.clientId;
+      const effectiveDivisionId = data.divisionId !== undefined ? data.divisionId : existingProject.divisionId;
       
       // Validate clientId belongs to tenant if being updated and tenantId available
       if (effectiveClientId && tenantId) {
@@ -705,27 +732,27 @@ export async function registerRoutes(
           }
         } else if (effectiveDivisionId) {
           // Client has no divisions but divisionId was provided - clear it
-          req.body.divisionId = null;
+          (data as any).divisionId = null;
         }
       }
       
       let project;
       if (tenantId) {
-        project = await storage.updateProjectWithTenant(req.params.id, tenantId, req.body);
+        project = await storage.updateProjectWithTenant(req.params.id, tenantId, data);
       } else if (isSuperUser(req)) {
         // Only superusers can use legacy non-scoped methods
-        project = await storage.updateProject(req.params.id, req.body);
+        project = await storage.updateProject(req.params.id, data);
       } else {
         return sendError(res, AppError.internal("User tenant not configured"), req);
       }
       
       // Emit real-time event after successful DB operation
-      emitProjectUpdated(project!.id, req.body);
+      emitProjectUpdated(project!.id, data);
 
       // Send project update notifications to project members (fire and forget)
       const currentUserId = getCurrentUserId(req);
       const members = await storage.getProjectMembers(project!.id);
-      const updateDescription = getProjectUpdateDescription(req.body);
+      const updateDescription = getProjectUpdateDescription(data);
       const currentUser = await storage.getUser(currentUserId);
       
       if (updateDescription) {
@@ -1049,14 +1076,17 @@ export async function registerRoutes(
 
   app.patch("/api/teams/:id", async (req, res) => {
     try {
+      const data = validateBody(req.body, updateTeamSchema, res);
+      if (!data) return;
+      
       const tenantId = getEffectiveTenantId(req);
       
       let team;
       if (tenantId) {
-        team = await storage.updateTeamWithTenant(req.params.id, tenantId, req.body);
+        team = await storage.updateTeamWithTenant(req.params.id, tenantId, data);
       } else if (isSuperUser(req)) {
         // Only superusers can use legacy non-scoped methods
-        team = await storage.updateTeam(req.params.id, req.body);
+        team = await storage.updateTeam(req.params.id, data);
       } else {
         return sendError(res, AppError.internal("User tenant not configured"), req);
       }
@@ -1184,13 +1214,16 @@ export async function registerRoutes(
 
   app.patch("/api/sections/:id", async (req, res) => {
     try {
-      const section = await storage.updateSection(req.params.id, req.body);
+      const data = validateBody(req.body, updateSectionSchema, res);
+      if (!data) return;
+      
+      const section = await storage.updateSection(req.params.id, data);
       if (!section) {
         return sendError(res, AppError.notFound("Section"), req);
       }
 
       // Emit real-time event after successful DB operation
-      emitSectionUpdated(section.id, section.projectId, req.body);
+      emitSectionUpdated(section.id, section.projectId, data);
 
       res.json(section);
     } catch (error) {
@@ -1711,6 +1744,9 @@ export async function registerRoutes(
   app.patch("/api/tasks/:id", async (req, res) => {
     const requestId = (req as any).requestId || 'unknown';
     try {
+      const data = validateBody(req.body, updateTaskSchema, res);
+      if (!data) return;
+      
       const userId = getCurrentUserId(req);
       const tenantId = getEffectiveTenantId(req);
       
@@ -1718,7 +1754,7 @@ export async function registerRoutes(
       const taskBefore = await storage.getTaskWithRelations(req.params.id);
       
       // If converting to personal task, force clear project ties
-      const updateData = { ...req.body };
+      const updateData: any = { ...data };
       if (updateData.isPersonal === true) {
         updateData.projectId = null;
         updateData.sectionId = null;
@@ -1735,17 +1771,17 @@ export async function registerRoutes(
       
       const task = await storage.updateTask(req.params.id, updateData);
       if (!task) {
-        return res.status(404).json({ error: "Task not found", requestId });
+        return sendError(res, AppError.notFound("Task"), req);
       }
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
       // Emit real-time event after successful DB operation
       if (task.isPersonal && task.createdBy) {
         // Personal task - emit to workspace
-        emitMyTaskUpdated(task.createdBy, task.id, req.body, getCurrentWorkspaceId(req));
+        emitMyTaskUpdated(task.createdBy, task.id, data, getCurrentWorkspaceId(req));
       } else if (task.projectId) {
         // Project task - emit to project room
-        emitTaskUpdated(task.id, task.projectId, task.parentTaskId, req.body);
+        emitTaskUpdated(task.id, task.projectId, task.parentTaskId, data);
       }
 
       // Send notifications for task changes (fire and forget - don't block response)
@@ -1859,7 +1895,10 @@ export async function registerRoutes(
 
   app.post("/api/tasks/:taskId/assignees", async (req, res) => {
     try {
-      const { userId: assigneeUserId } = req.body;
+      const data = validateBody(req.body, addAssigneeSchema, res);
+      if (!data) return;
+      
+      const assigneeUserId = data.userId;
       const currentUserId = getCurrentUserId(req);
       const tenantId = getEffectiveTenantId(req);
       
@@ -1924,10 +1963,12 @@ export async function registerRoutes(
 
   app.post("/api/tasks/:taskId/watchers", async (req, res) => {
     try {
-      const { userId } = req.body;
+      const data = validateBody(req.body, addAssigneeSchema, res);
+      if (!data) return;
+      
       const watcher = await storage.addTaskWatcher({
         taskId: req.params.taskId,
-        userId,
+        userId: data.userId,
       });
       res.status(201).json(watcher);
     } catch (error) {
@@ -1985,10 +2026,13 @@ export async function registerRoutes(
 
   app.patch("/api/subtasks/:id", async (req, res) => {
     try {
+      const data = validateBody(req.body, updateSubtaskSchema, res);
+      if (!data) return;
+      
       // Convert date strings to Date objects for database
-      const updateData = { ...req.body };
+      const updateData = { ...data };
       if (updateData.dueDate !== undefined) {
-        updateData.dueDate = updateData.dueDate ? new Date(updateData.dueDate) : null;
+        updateData.dueDate = updateData.dueDate ? new Date(updateData.dueDate as string) : null;
       }
       
       const subtask = await storage.updateSubtask(req.params.id, updateData);
@@ -2005,7 +2049,7 @@ export async function registerRoutes(
           subtask.id,
           subtask.taskId,
           parentTask.projectId,
-          req.body,
+          data,
         );
       }
 
@@ -2169,14 +2213,16 @@ export async function registerRoutes(
 
   app.patch("/api/tags/:id", async (req, res) => {
     try {
-      const tag = await storage.updateTag(req.params.id, req.body);
+      const data = validateBody(req.body, updateTagSchema, res);
+      if (!data) return;
+      
+      const tag = await storage.updateTag(req.params.id, data);
       if (!tag) {
-        return res.status(404).json({ error: "Tag not found" });
+        return sendError(res, AppError.notFound("Tag"), req);
       }
       res.json(tag);
     } catch (error) {
-      console.error("Error updating tag:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/tags/:id", req);
     }
   });
 
@@ -2192,15 +2238,16 @@ export async function registerRoutes(
 
   app.post("/api/tasks/:taskId/tags", async (req, res) => {
     try {
-      const { tagId } = req.body;
+      const data = validateBody(req.body, addTagToTaskSchema, res);
+      if (!data) return;
+      
       const taskTag = await storage.addTaskTag({
         taskId: req.params.taskId,
-        tagId,
+        tagId: data.tagId,
       });
       res.status(201).json(taskTag);
     } catch (error) {
-      console.error("Error adding tag to task:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "POST /api/tasks/:taskId/tags", req);
     }
   });
 
@@ -2326,23 +2373,25 @@ export async function registerRoutes(
 
   app.patch("/api/comments/:id", async (req, res) => {
     try {
+      const data = validateBody(req.body, updateCommentSchema, res);
+      if (!data) return;
+      
       const currentUserId = getCurrentUserId(req);
       const existingComment = await storage.getComment(req.params.id);
       if (!existingComment) {
-        return res.status(404).json({ error: "Comment not found" });
+        return sendError(res, AppError.notFound("Comment"), req);
       }
       
       // Permission check: only the comment owner can edit
       if (existingComment.userId !== currentUserId) {
-        return res.status(403).json({ error: "You can only edit your own comments" });
+        return sendError(res, AppError.forbidden("You can only edit your own comments"), req);
       }
 
       // Only allow updating the body
-      const comment = await storage.updateComment(req.params.id, { body: req.body.body });
+      const comment = await storage.updateComment(req.params.id, { body: data.content });
       res.json(comment);
     } catch (error) {
-      console.error("Error updating comment:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/comments/:id", req);
     }
   });
 
@@ -2765,29 +2814,31 @@ export async function registerRoutes(
 
   app.patch("/api/clients/:id", async (req, res) => {
     try {
+      const data = validateBody(req.body, updateClientSchema, res);
+      if (!data) return;
+      
       const tenantId = getEffectiveTenantId(req);
       
       let client;
       if (tenantId) {
-        client = await storage.updateClientWithTenant(req.params.id, tenantId, req.body);
+        client = await storage.updateClientWithTenant(req.params.id, tenantId, data);
       } else if (isSuperUser(req)) {
         // Only superusers can use legacy non-scoped methods
-        client = await storage.updateClient(req.params.id, req.body);
+        client = await storage.updateClient(req.params.id, data);
       } else {
-        return res.status(500).json({ error: "User tenant not configured" });
+        return sendError(res, AppError.internal("User tenant not configured"), req);
       }
       
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        return sendError(res, AppError.notFound("Client"), req);
       }
 
       // Emit real-time event
-      emitClientUpdated(client.id, client.workspaceId, req.body);
+      emitClientUpdated(client.id, client.workspaceId, data);
 
       res.json(client);
     } catch (error) {
-      console.error("Error updating client:", error);
-      res.status(500).json({ error: "Internal server error" });
+      return handleRouteError(res, error, "PATCH /api/clients/:id", req);
     }
   });
 

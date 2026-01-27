@@ -2546,3 +2546,84 @@ export type ChatMessageWithAuthor = ChatMessage & {
 
 export type ChatMention = typeof chatMentions.$inferSelect;
 export type InsertChatMention = z.infer<typeof insertChatMentionSchema>;
+
+// ============================================================================
+// UPDATE SCHEMAS (for PATCH endpoints - all fields optional)
+// ============================================================================
+
+export const updateWorkspaceSchema = insertWorkspaceSchema.partial();
+export const updateTeamSchema = insertTeamSchema.partial();
+export const updateProjectSchema = insertProjectSchema.partial();
+export const updateSectionSchema = insertSectionSchema.partial();
+export const updateTaskSchema = insertTaskSchema.partial();
+export const updateSubtaskSchema = insertSubtaskSchema.partial();
+export const updateTagSchema = insertTagSchema.partial();
+export const updateCommentSchema = z.object({
+  content: z.string().optional(),
+  contentJson: z.unknown().optional(),
+});
+export const updateClientSchema = insertClientSchema.partial();
+export const updateClientContactSchema = insertClientContactSchema.partial();
+export const updatePersonalTaskSectionSchema = insertPersonalTaskSectionSchema.pick({
+  name: true,
+  sortOrder: true,
+}).partial();
+
+// Move task/subtask schemas
+export const moveTaskSchema = z.object({
+  projectId: z.string().uuid().nullable().optional(),
+  sectionId: z.string().uuid().nullable().optional(),
+  newIndex: z.number().int().min(0).optional(),
+});
+
+export const moveSubtaskSchema = z.object({
+  parentTaskId: z.string().uuid().optional(),
+  newIndex: z.number().int().min(0).optional(),
+});
+
+// Task reorder schema
+export const reorderTasksSchema = z.object({
+  moves: z.array(z.object({
+    taskId: z.string().uuid(),
+    sectionId: z.string().uuid().nullable(),
+    sortOrder: z.number().int(),
+  })),
+});
+
+// Assignee/watcher add schema
+export const addAssigneeSchema = z.object({
+  userId: z.string().uuid(),
+});
+
+export const addTagToTaskSchema = z.object({
+  tagId: z.string().uuid(),
+});
+
+// Personal task move schema
+export const movePersonalTaskSchema = z.object({
+  personalSectionId: z.string().uuid().nullable().optional(),
+  newIndex: z.number().int().min(0).optional(),
+});
+
+// Client assignment schema
+export const assignClientSchema = z.object({
+  clientId: z.string().uuid().nullable(),
+});
+
+// Project member add schema
+export const addProjectMemberSchema = z.object({
+  userId: z.string().uuid(),
+  role: z.enum(["owner", "editor", "viewer"]).optional(),
+});
+
+// Division member add schema
+export const addDivisionMemberSchema = z.object({
+  userId: z.string().uuid(),
+  role: z.enum(["member", "manager"]).optional(),
+});
+
+// Note category schema
+export const createNoteCategorySchema = z.object({
+  name: z.string().min(1).max(100),
+  color: z.string().optional(),
+});
