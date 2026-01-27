@@ -1,0 +1,63 @@
+2026-01-27T18:30:22Z info: Deployment: c0d989c7-856a-4731-a833-52e929e44594
+2026-01-27T18:30:22Z info: Build: 2deecb6e-a2c1-4158-886e-26af18cd12b5
+2026-01-27T18:30:22Z info: Running Security Scan
+2026-01-27T18:30:23Z info: Security Scan Complete
+2026-01-27T18:30:23Z info: Connecting to builder
+2026-01-27T18:30:23Z info: Builder connected
+2026-01-27T18:30:23Z info: Installing packages
+2026-01-27T18:30:23Z info: Starting Build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+
+building client...
+
+vite v7.3.0 building client environment for production...
+
+transforming...
+
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+
+✓ 3538 modules transformed.
+
+rendering chunks...
+
+computing gzip size...
+
+../dist/public/index.html                                    2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/Symbol_1767994625714-B-GngxbW.png     54.96 kB
+../dist/public/assets/index-vmpZWWb3.css                   123.24 kB │ gzip:  19.24 kB
+../dist/public/assets/index-BNdVrZaq.js                  2,926.79 kB │ gzip: 759.53 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+building server...
+
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 619ms
+
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.8.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.8.0
+npm notice To update run: npm install -g npm@11.8.0
+npm notice
+
+2026-01-27T18:30:48Z info: Pushing pid1 binary layer...
+2026-01-27T18:30:49Z info: Pushing hosting layer...
+2026-01-27T18:30:50Z info: Retrieved cached nix layer
+2026-01-27T18:30:50Z info: Created hosting layer
+2026-01-27T18:30:51Z info: Created pid1 binary layer
+2026-01-27T18:31:12Z info: Created Repl layer
+2026-01-27T18:31:15Z info: Pushed image manifest
+2026-01-27T18:31:16Z info: Pushed soci index manifest
+2026-01-27T18:31:19Z info: Creating Autoscale service
+6:31:44 PM [socket.io] Socket.IO server initialized
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-01-27T18:32:29Z error: The deployment is failing health checks. This can happen if the application isn't responding, responds with an error, or doesn't respond in time. Health checks are sent to the / endpoint by default and must respond as soon as possible. Make sure that the / endpoint is implemented and returns a 200 status code in a timely manner. Avoid doing expensive or long running operations on the / endpoint, prefer deferring them to a different route. Check the logs for more information.
