@@ -34,7 +34,8 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Notifications**: Customizable real-time notification system with user preferences for various event types (task, comment, project updates).
 - **Rich Text Editor**: JSON-only rich text storage using TipTap for descriptions and comments with server-side validation and mention parsing.
 - **Client Portal**: External client access to projects/tasks with restricted permissions (viewer/collaborator roles) and a token-based invitation flow.
-- **System Robustness**: Includes centralized error logging with request ID correlation, standardized API error handling, data purge capabilities, and tenant data health remediation tools.
+- **System Robustness**: Includes centralized error logging with request ID correlation, standardized API error handling, data purge capabilities, tenant data health remediation tools, startup production parity check (validates schema against expected tables/columns on server boot), and tenant core flows smoke tests.
+- **Super Admin Capabilities**: Full tenant user management including inline editing (firstName, lastName, email, role), permanent user deletion with confirmation dialogs, password reset with session invalidation, and comprehensive tenant health diagnostics with repair automation.
 - **User Experience**: Global command palette, keyboard shortcuts, `useUnsavedChanges` hook for dirty state management, and a professional UI design with dark mode support.
 - **SaaS Agreement System**: Manages tenant SaaS agreements with lifecycle, versioning, and user acceptance tracking.
 - **Hierarchical S3 Storage**: Configurable 3-tier S3 storage (tenant-specific → system-level → env vars) for file attachments.
