@@ -30,6 +30,7 @@ import { captureError } from "./middleware/errorLogging";
 import { AppError, handleRouteError, sendError, validateBody } from "./lib/errors";
 import subRoutes from "./routes/index";
 import webhookRoutes from "./routes/webhooks";
+import { extractMentionsFromTipTapJson, getPlainTextFromTipTapJson } from "./utils/mentionUtils";
 import {
   insertTaskSchema,
   insertSectionSchema,
@@ -2396,22 +2397,18 @@ export async function registerRoutes(
       });
       const comment = await storage.createComment(data);
 
-      // Parse @mentions and create notifications
-      const mentionRegex = /@\[([^\]]+)\]\(([a-f0-9-]+)\)/g;
-      const mentions: { name: string; userId: string }[] = [];
-      let match;
-      while ((match = mentionRegex.exec(data.body)) !== null) {
-        mentions.push({ name: match[1], userId: match[2] });
-      }
+      // Parse @mentions from TipTap JSON content and create notifications
+      const mentionedUserIds = extractMentionsFromTipTapJson(data.body);
+      const plainTextBody = getPlainTextFromTipTapJson(data.body);
 
       // Get task and project info for the notification
       const task = await storage.getTask(req.params.taskId);
       const commenter = await storage.getUser(currentUserId);
       const tenantId = task?.tenantId || null;
 
-      for (const mention of mentions) {
+      for (const mentionedUserId of mentionedUserIds) {
         // Validate mentioned user exists and is in the same tenant
-        const mentionedUser = await storage.getUser(mention.userId);
+        const mentionedUser = await storage.getUser(mentionedUserId);
         if (!mentionedUser || (tenantId && mentionedUser.tenantId !== tenantId)) {
           continue; // Skip if user doesn't exist or is in different tenant
         }
@@ -2419,16 +2416,16 @@ export async function registerRoutes(
         // Create mention record
         await storage.createCommentMention({
           commentId: comment.id,
-          mentionedUserId: mention.userId,
+          mentionedUserId: mentionedUserId,
         });
 
         // Send in-app notification for mention (fire and forget)
         notifyCommentMention(
-          mention.userId,
+          mentionedUserId,
           req.params.taskId,
           task?.title || "a task",
           commenter?.name || commenter?.email || "Someone",
-          data.body.replace(mentionRegex, '@$1'),
+          plainTextBody,
           { tenantId, excludeUserId: currentUserId }
         ).catch(() => {});
 
@@ -2441,7 +2438,7 @@ export async function registerRoutes(
               messageType: "mention_notification",
               toEmail: mentionedUser.email,
               subject: `${commenter?.name || 'Someone'} mentioned you in a comment`,
-              textBody: `${commenter?.name || 'Someone'} mentioned you in a comment on task "${task?.title || 'a task'}":\n\n"${data.body.replace(mentionRegex, '@$1')}"`,
+              textBody: `${commenter?.name || 'Someone'} mentioned you in a comment on task "${task?.title || 'a task'}":\n\n"${plainTextBody}"`,
               metadata: {
                 taskId: task?.id,
                 taskTitle: task?.title,
@@ -2460,16 +2457,16 @@ export async function registerRoutes(
       if (task) {
         const taskWithRelations = await storage.getTaskWithRelations(req.params.taskId);
         const assignees = (taskWithRelations as any)?.assignees || [];
-        const mentionedUserIds = new Set(mentions.map(m => m.userId));
+        const mentionedUserIdSet = new Set(mentionedUserIds);
         
         for (const assignee of assignees) {
-          if (assignee.id !== currentUserId && !mentionedUserIds.has(assignee.id)) {
+          if (assignee.id !== currentUserId && !mentionedUserIdSet.has(assignee.id)) {
             notifyCommentAdded(
               assignee.id,
               req.params.taskId,
               task.title,
               commenter?.name || commenter?.email || "Someone",
-              data.body.replace(mentionRegex, '@$1'),
+              plainTextBody,
               { tenantId, excludeUserId: currentUserId }
             ).catch(() => {});
           }
