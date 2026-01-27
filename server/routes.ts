@@ -619,7 +619,12 @@ export async function registerRoutes(
       if (body.clientId && tenantId) {
         const client = await storage.getClientByIdAndTenant(body.clientId, tenantId);
         if (!client) {
-          return sendError(res, AppError.badRequest("Client not found or does not belong to tenant"), req);
+          // Check if client exists to differentiate 403 vs 404
+          const clientExists = await storage.getClient(body.clientId);
+          if (clientExists) {
+            return sendError(res, AppError.forbidden("Access denied: client belongs to a different tenant"), req);
+          }
+          return sendError(res, AppError.notFound("Client not found"), req);
         }
         
         // Check if client has divisions - if so, divisionId is required
@@ -664,7 +669,7 @@ export async function registerRoutes(
         // Only superusers can use legacy non-scoped methods
         project = await storage.createProject(data);
       } else {
-        return sendError(res, AppError.internal("User tenant not configured"), req);
+        return sendError(res, AppError.badRequest("Tenant context required - user not associated with a tenant"), req);
       }
 
       // Add creator as project member automatically
@@ -1635,14 +1640,26 @@ export async function registerRoutes(
       
       // Validate projectId belongs to tenant (if provided and not personal task)
       if (data.projectId && !data.isPersonal) {
-        const project = tenantId 
-          ? await storage.getProjectByIdAndTenant(data.projectId, tenantId)
-          : await storage.getProject(data.projectId);
-        if (!project) {
-          return res.status(400).json({ 
-            error: "Invalid project: project not found or does not belong to this tenant",
-            requestId 
-          });
+        if (!tenantId) {
+          // Non-tenant user (super admin) can access any project
+          const project = await storage.getProject(data.projectId);
+          if (!project) {
+            return res.status(404).json({ error: "Project not found", requestId });
+          }
+        } else {
+          // Tenant user - project must belong to their tenant
+          const project = await storage.getProjectByIdAndTenant(data.projectId, tenantId);
+          if (!project) {
+            // Check if project exists at all to differentiate 403 vs 404
+            const projectExists = await storage.getProject(data.projectId);
+            if (projectExists) {
+              return res.status(403).json({ 
+                error: "Access denied: project belongs to a different tenant",
+                requestId 
+              });
+            }
+            return res.status(404).json({ error: "Project not found", requestId });
+          }
         }
       }
       

@@ -54,7 +54,7 @@ router.get("/", async (req, res) => {
       return res.json(clients);
     }
     
-    return res.status(500).json({ error: "User tenant not configured" });
+    return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
   } catch (error) {
     console.error("Error fetching clients:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -82,7 +82,7 @@ router.get("/:id", async (req, res) => {
       return res.json(client);
     }
     
-    return res.status(500).json({ error: "User tenant not configured" });
+    return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
   } catch (error) {
     console.error("Error fetching client:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -105,7 +105,7 @@ router.post("/", async (req, res) => {
     } else if (isSuperUser(req)) {
       client = await storage.createClient(data);
     } else {
-      return res.status(500).json({ error: "User tenant not configured" });
+      return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
     }
 
     emitClientCreated(
@@ -140,7 +140,7 @@ router.patch("/:id", async (req, res) => {
     } else if (isSuperUser(req)) {
       client = await storage.updateClient(req.params.id, req.body);
     } else {
-      return res.status(500).json({ error: "User tenant not configured" });
+      return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
     }
     
     if (!client) {
@@ -180,7 +180,7 @@ router.delete("/:id", async (req, res) => {
       workspaceId = client.workspaceId;
       await storage.deleteClient(req.params.id);
     } else {
-      return res.status(500).json({ error: "User tenant not configured" });
+      return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
     }
 
     emitClientDeleted(req.params.id, workspaceId);
