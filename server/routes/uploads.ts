@@ -50,7 +50,7 @@ const presignRequestSchema = z.object({
 
 function requireAuth(req: Request, res: Response, next: () => void) {
   if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
-    const requestId = (req as any).requestId || "unknown";
+    const requestId = req.requestId || "unknown";
     return res.status(401).json({
       error: { 
         code: "UNAUTHORIZED", 
@@ -150,7 +150,7 @@ router.post("/presign", requireAuth, async (req: Request, res: Response) => {
       });
     }
 
-    const tenantId = (req as any).tenantId || user.tenantId;
+    const tenantId = req.tenant?.effectiveTenantId || user.tenantId;
 
     if (config.requiresTenantAdmin) {
       const isSuperUser = user.role === UserRole.SUPER_USER;
@@ -261,7 +261,7 @@ router.post("/presign", requireAuth, async (req: Request, res: Response) => {
 router.get("/status", requireAuth, async (req: Request, res: Response) => {
   try {
     const user = req.user as any;
-    const tenantId = (req as any).tenantId || user.tenantId || null;
+    const tenantId = req.tenant?.effectiveTenantId || user.tenantId || null;
     
     const status = await getStorageStatus(tenantId);
     

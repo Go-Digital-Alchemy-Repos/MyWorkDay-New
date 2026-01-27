@@ -7823,7 +7823,7 @@ router.post("/integrations/stripe/test", requireSuperUser, async (req, res) => {
 
     res.json({ ok: true });
   } catch (error: any) {
-    const requestId = (req as any).requestId || "unknown";
+    const requestId = req.requestId || "unknown";
     console.error("[integrations] Stripe test failed:", error.message);
     res.json({ 
       ok: false, 
@@ -8634,7 +8634,7 @@ router.post("/system/health/tenancy/repair-apply", requireSuperUser, async (req,
     
     const data = repairApplySchema.parse(req.body);
     const requestId = req.headers["x-request-id"] as string || `repair_${Date.now()}`;
-    const userId = (req as any).user?.id || "unknown";
+    const userId = req.user?.id || "unknown";
     
     const result = await tenancyHealthService.applyRepairs(
       {

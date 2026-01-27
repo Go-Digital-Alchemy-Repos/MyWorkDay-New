@@ -503,7 +503,7 @@ export function setupBootstrapEndpoints(app: Express): void {
             event: "bootstrap_register_created_super_admin",
             userId: userWithoutPassword.id,
             email: userWithoutPassword.email,
-            requestId: (req as any).requestId || "unknown",
+            requestId: req.requestId || "unknown",
             timestamp: new Date().toISOString(),
           }));
 
@@ -1166,7 +1166,7 @@ export function setupPasswordResetEndpoints(app: Express): void {
                 <p style="color: #666; font-size: 14px;">If you did not request this reset, you can safely ignore this email.</p>
               </div>
             `,
-            requestId: (req as any).requestId,
+            requestId: req.requestId,
             metadata: { userId: user.id },
           });
           

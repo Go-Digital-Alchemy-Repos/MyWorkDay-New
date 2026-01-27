@@ -124,7 +124,7 @@ const WORKSPACE_CACHE_TTL = 60000; // 1 minute
 
 async function getCurrentWorkspaceIdAsync(req: Request): Promise<string> {
   // Get the effective tenant ID from middleware or user
-  const tenantId = (req as any).tenant?.effectiveTenantId || (req.user as any)?.tenantId;
+  const tenantId = req.tenant?.effectiveTenantId || req.user?.tenantId;
   
   if (!tenantId) {
     // No tenant context - fall back to demo workspace for super users
@@ -173,7 +173,7 @@ async function getCurrentWorkspaceIdAsync(req: Request): Promise<string> {
 
 // Sync version for backward compatibility - uses cached value or falls back to demo
 function getCurrentWorkspaceId(req: Request): string {
-  const tenantId = (req as any).tenant?.effectiveTenantId || (req.user as any)?.tenantId;
+  const tenantId = req.tenant?.effectiveTenantId || req.user?.tenantId;
   
   if (!tenantId) {
     return "demo-workspace-id";
@@ -1399,7 +1399,7 @@ export async function registerRoutes(
 
   // Create a personal task (no project)
   app.post("/api/tasks/personal", async (req, res) => {
-    const requestId = (req as any).requestId || 'unknown';
+    const requestId = req.requestId || 'unknown';
     try {
       const userId = getCurrentUserId(req);
       const tenantId = getEffectiveTenantId(req);
@@ -1618,7 +1618,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/tasks", async (req, res) => {
-    const requestId = (req as any).requestId || 'unknown';
+    const requestId = req.requestId || 'unknown';
     try {
       const tenantId = getEffectiveTenantId(req);
       const userId = getCurrentUserId(req);
@@ -1698,7 +1698,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/tasks/:taskId/childtasks", async (req, res) => {
-    const requestId = (req as any).requestId || 'unknown';
+    const requestId = req.requestId || 'unknown';
     try {
       const parentTaskId = req.params.taskId;
       const tenantId = getEffectiveTenantId(req);
@@ -1761,7 +1761,7 @@ export async function registerRoutes(
   });
 
   app.patch("/api/tasks/:id", async (req, res) => {
-    const requestId = (req as any).requestId || 'unknown';
+    const requestId = req.requestId || 'unknown';
     try {
       const data = validateBody(req.body, updateTaskSchema, res);
       if (!data) return;

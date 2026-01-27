@@ -43,7 +43,7 @@ export function requireClientAccess(
       }
       
       // Attach access level to request for downstream use
-      (req as any).clientAccess = access;
+      req.clientAccess = access;
       next();
     } catch (error) {
       console.error("Error checking client access:", error);

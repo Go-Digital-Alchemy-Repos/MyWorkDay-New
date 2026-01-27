@@ -28,17 +28,9 @@ export interface TenantRequest extends Request {
   tenant?: TenantContext;
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      tenant?: TenantContext;
-    }
-  }
-}
-
 export async function tenantContextMiddleware(req: Request, res: Response, next: NextFunction) {
-  const user = req.user as any;
-  const session = req.session as any;
+  const user = req.user;
+  const session = req.session as Record<string, any>;
 
   if (!user) {
     req.tenant = {

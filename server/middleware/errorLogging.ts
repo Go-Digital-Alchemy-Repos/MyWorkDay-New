@@ -83,11 +83,9 @@ function getEnvironment(): string {
  * Get effective tenant ID from request
  */
 function getEffectiveTenantId(req: Request): string | null {
-  const reqAny = req as any;
-  // Check multiple possible locations for tenant ID
-  return reqAny.tenant?.effectiveTenantId 
-    || reqAny.tenant?.tenantId 
-    || reqAny.user?.tenantId 
+  return req.tenant?.effectiveTenantId 
+    || req.tenant?.tenantId 
+    || req.user?.tenantId 
     || null;
 }
 
@@ -95,8 +93,7 @@ function getEffectiveTenantId(req: Request): string | null {
  * Get user ID from request
  */
 function getUserId(req: Request): string | null {
-  const user = (req as any).user;
-  return user?.id || null;
+  return req.user?.id || null;
 }
 
 /**
