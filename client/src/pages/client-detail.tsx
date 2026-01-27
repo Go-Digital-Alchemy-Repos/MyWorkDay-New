@@ -290,8 +290,25 @@ export default function ClientDetailPage() {
           ...previousClient,
           companyName: newData.companyName,
           displayName: newData.displayName || null,
+          legalName: newData.legalName || null,
           status: newData.status,
           industry: newData.industry || null,
+          companySize: newData.companySize || null,
+          website: newData.website || null,
+          taxId: newData.taxId || null,
+          foundedDate: newData.foundedDate || null,
+          description: newData.description || null,
+          phone: newData.phone || null,
+          email: newData.email || null,
+          addressLine1: newData.addressLine1 || null,
+          addressLine2: newData.addressLine2 || null,
+          city: newData.city || null,
+          state: newData.state || null,
+          postalCode: newData.postalCode || null,
+          country: newData.country || null,
+          primaryContactName: newData.primaryContactName || null,
+          primaryContactEmail: newData.primaryContactEmail || null,
+          primaryContactPhone: newData.primaryContactPhone || null,
           notes: newData.notes || null,
         });
       }
@@ -380,14 +397,14 @@ export default function ClientDetailPage() {
     values: client ? {
       companyName: client.companyName,
       displayName: client.displayName || "",
-      legalName: (client as any).legalName || "",
+      legalName: client.legalName || "",
       status: client.status as "active" | "inactive" | "prospect",
       industry: client.industry || "",
-      companySize: (client as any).companySize || "",
+      companySize: client.companySize || "",
       website: client.website || "",
-      taxId: (client as any).taxId || "",
-      foundedDate: (client as any).foundedDate || "",
-      description: (client as any).description || "",
+      taxId: client.taxId || "",
+      foundedDate: client.foundedDate || "",
+      description: client.description || "",
       phone: client.phone || "",
       email: client.email || "",
       addressLine1: client.addressLine1 || "",
@@ -396,9 +413,9 @@ export default function ClientDetailPage() {
       state: client.state || "",
       postalCode: client.postalCode || "",
       country: client.country || "",
-      primaryContactName: (client as any).primaryContactName || "",
-      primaryContactEmail: (client as any).primaryContactEmail || "",
-      primaryContactPhone: (client as any).primaryContactPhone || "",
+      primaryContactName: client.primaryContactName || "",
+      primaryContactEmail: client.primaryContactEmail || "",
+      primaryContactPhone: client.primaryContactPhone || "",
       notes: client.notes || "",
     } : undefined,
   });
@@ -666,7 +683,7 @@ export default function ClientDetailPage() {
           <TabsContent value="overview" className="p-6 overflow-auto">
             <Form {...clientForm}>
               <form onSubmit={clientForm.handleSubmit(handleUpdateClient)} className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <h2 className="text-lg font-semibold">Client Profile</h2>
                   <Button 
                     type="submit" 
