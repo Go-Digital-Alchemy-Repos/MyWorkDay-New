@@ -14,9 +14,10 @@ const router = Router();
 router.get("/notifications", async (req, res) => {
   try {
     const userId = getCurrentUserId(req);
+    const tenantId = getEffectiveTenantId(req);
     const { unreadOnly, limit, offset } = req.query;
     
-    const notifications = await storage.getNotificationsByUser(userId, {
+    const notifications = await storage.getNotificationsByUser(userId, tenantId, {
       unreadOnly: unreadOnly === "true",
       limit: limit ? parseInt(limit as string) : 50,
       offset: offset ? parseInt(offset as string) : 0,
@@ -33,7 +34,8 @@ router.get("/notifications", async (req, res) => {
 router.get("/notifications/unread-count", async (req, res) => {
   try {
     const userId = getCurrentUserId(req);
-    const count = await storage.getUnreadNotificationCount(userId);
+    const tenantId = getEffectiveTenantId(req);
+    const count = await storage.getUnreadNotificationCount(userId, tenantId);
     res.json({ count });
   } catch (error) {
     console.error("Error fetching unread count:", error);
@@ -45,9 +47,10 @@ router.get("/notifications/unread-count", async (req, res) => {
 router.patch("/notifications/:id/read", async (req, res) => {
   try {
     const userId = getCurrentUserId(req);
+    const tenantId = getEffectiveTenantId(req);
     const { id } = req.params;
     
-    const notification = await storage.markNotificationRead(id, userId);
+    const notification = await storage.markNotificationRead(id, userId, tenantId);
     if (!notification) {
       return res.status(404).json({ error: "Notification not found" });
     }
@@ -63,7 +66,8 @@ router.patch("/notifications/:id/read", async (req, res) => {
 router.post("/notifications/mark-all-read", async (req, res) => {
   try {
     const userId = getCurrentUserId(req);
-    await storage.markAllNotificationsRead(userId);
+    const tenantId = getEffectiveTenantId(req);
+    await storage.markAllNotificationsRead(userId, tenantId);
     res.json({ success: true });
   } catch (error) {
     console.error("Error marking all notifications read:", error);
@@ -75,9 +79,10 @@ router.post("/notifications/mark-all-read", async (req, res) => {
 router.delete("/notifications/:id", async (req, res) => {
   try {
     const userId = getCurrentUserId(req);
+    const tenantId = getEffectiveTenantId(req);
     const { id } = req.params;
     
-    await storage.deleteNotification(id, userId);
+    await storage.deleteNotification(id, userId, tenantId);
     res.json({ success: true });
   } catch (error) {
     console.error("Error deleting notification:", error);

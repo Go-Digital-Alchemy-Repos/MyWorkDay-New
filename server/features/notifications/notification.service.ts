@@ -36,7 +36,13 @@ async function validateUserTenant(userId: string, tenantId: string | null): Prom
 async function shouldNotifyUser(userId: string, type: NotificationType): Promise<boolean> {
   try {
     const prefs = await storage.getNotificationPreferences(userId);
-    const typeToField: Record<NotificationType, string> = {
+    
+    // If no preferences exist, default to sending notifications
+    if (!prefs) {
+      return true;
+    }
+    
+    const typeToField: Record<NotificationType, keyof typeof prefs> = {
       task_deadline: "taskDeadline",
       task_assigned: "taskAssigned",
       task_completed: "taskCompleted",
@@ -47,8 +53,10 @@ async function shouldNotifyUser(userId: string, type: NotificationType): Promise
       task_status_changed: "taskStatusChanged",
     };
     const field = typeToField[type];
-    return (prefs as any)[field] !== false;
+    // Default to true if preference is not explicitly set to false
+    return prefs[field] !== false;
   } catch {
+    // On any error, default to sending notifications
     return true;
   }
 }

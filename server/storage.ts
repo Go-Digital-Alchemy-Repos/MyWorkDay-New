@@ -477,11 +477,11 @@ export interface IStorage {
 
   // Notifications
   createNotification(notification: InsertNotification): Promise<Notification>;
-  getNotificationsByUser(userId: string, options?: { unreadOnly?: boolean; limit?: number; offset?: number }): Promise<Notification[]>;
-  getUnreadNotificationCount(userId: string): Promise<number>;
-  markNotificationRead(id: string, userId: string): Promise<Notification | undefined>;
-  markAllNotificationsRead(userId: string): Promise<void>;
-  deleteNotification(id: string, userId: string): Promise<void>;
+  getNotificationsByUser(userId: string, tenantId: string | null, options?: { unreadOnly?: boolean; limit?: number; offset?: number }): Promise<Notification[]>;
+  getUnreadNotificationCount(userId: string, tenantId: string | null): Promise<number>;
+  markNotificationRead(id: string, userId: string, tenantId: string | null): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: string, tenantId: string | null): Promise<void>;
+  deleteNotification(id: string, userId: string, tenantId: string | null): Promise<void>;
 
   // Notification Preferences
   getNotificationPreferences(userId: string): Promise<NotificationPreferences | undefined>;
@@ -3710,10 +3710,18 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getNotificationsByUser(userId: string, options?: { unreadOnly?: boolean; limit?: number; offset?: number }): Promise<Notification[]> {
+  async getNotificationsByUser(userId: string, tenantId: string | null, options?: { unreadOnly?: boolean; limit?: number; offset?: number }): Promise<Notification[]> {
     const { unreadOnly = false, limit = 50, offset = 0 } = options || {};
     
     const conditions = [eq(notifications.userId, userId)];
+    
+    // Tenant scoping: include notifications where tenantId matches OR is null (system notifications)
+    if (tenantId) {
+      conditions.push(
+        sql`(${notifications.tenantId} = ${tenantId} OR ${notifications.tenantId} IS NULL)`
+      );
+    }
+    
     if (unreadOnly) {
       conditions.push(isNull(notifications.readAt));
     }
@@ -3726,42 +3734,78 @@ export class DatabaseStorage implements IStorage {
       .offset(offset);
   }
 
-  async getUnreadNotificationCount(userId: string): Promise<number> {
+  async getUnreadNotificationCount(userId: string, tenantId: string | null): Promise<number> {
+    const conditions = [
+      eq(notifications.userId, userId),
+      isNull(notifications.readAt)
+    ];
+    
+    // Tenant scoping: include notifications where tenantId matches OR is null
+    if (tenantId) {
+      conditions.push(
+        sql`(${notifications.tenantId} = ${tenantId} OR ${notifications.tenantId} IS NULL)`
+      );
+    }
+    
     const [result] = await db.select({ count: sql<number>`count(*)::int` })
       .from(notifications)
-      .where(and(
-        eq(notifications.userId, userId),
-        isNull(notifications.readAt)
-      ));
+      .where(and(...conditions));
     return result?.count ?? 0;
   }
 
-  async markNotificationRead(id: string, userId: string): Promise<Notification | undefined> {
+  async markNotificationRead(id: string, userId: string, tenantId: string | null): Promise<Notification | undefined> {
+    const conditions = [
+      eq(notifications.id, id),
+      eq(notifications.userId, userId)
+    ];
+    
+    // Tenant scoping for security
+    if (tenantId) {
+      conditions.push(
+        sql`(${notifications.tenantId} = ${tenantId} OR ${notifications.tenantId} IS NULL)`
+      );
+    }
+    
     const [updated] = await db.update(notifications)
       .set({ readAt: new Date() })
-      .where(and(
-        eq(notifications.id, id),
-        eq(notifications.userId, userId)
-      ))
+      .where(and(...conditions))
       .returning();
     return updated || undefined;
   }
 
-  async markAllNotificationsRead(userId: string): Promise<void> {
+  async markAllNotificationsRead(userId: string, tenantId: string | null): Promise<void> {
+    const conditions = [
+      eq(notifications.userId, userId),
+      isNull(notifications.readAt)
+    ];
+    
+    // Tenant scoping
+    if (tenantId) {
+      conditions.push(
+        sql`(${notifications.tenantId} = ${tenantId} OR ${notifications.tenantId} IS NULL)`
+      );
+    }
+    
     await db.update(notifications)
       .set({ readAt: new Date() })
-      .where(and(
-        eq(notifications.userId, userId),
-        isNull(notifications.readAt)
-      ));
+      .where(and(...conditions));
   }
 
-  async deleteNotification(id: string, userId: string): Promise<void> {
+  async deleteNotification(id: string, userId: string, tenantId: string | null): Promise<void> {
+    const conditions = [
+      eq(notifications.id, id),
+      eq(notifications.userId, userId)
+    ];
+    
+    // Tenant scoping for security
+    if (tenantId) {
+      conditions.push(
+        sql`(${notifications.tenantId} = ${tenantId} OR ${notifications.tenantId} IS NULL)`
+      );
+    }
+    
     await db.delete(notifications)
-      .where(and(
-        eq(notifications.id, id),
-        eq(notifications.userId, userId)
-      ));
+      .where(and(...conditions));
   }
 
   // =============================================================================
