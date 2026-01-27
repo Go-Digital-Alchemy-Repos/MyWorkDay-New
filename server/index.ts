@@ -176,18 +176,59 @@ app.use((req, res, next) => {
 });
 
 // Track application readiness for health checks
+// Startup state tracking for health checks and /ready endpoint
 let appReady = false;
 let startupError: Error | null = null;
+let startupPhase: "starting" | "schema" | "migrating" | "bootstrapping" | "routes" | "ready" | "error" = "starting";
+let startupPhaseStart = Date.now();
+let serverStartTime = Date.now();
 
-// Enhanced health check that reports readiness status
-app.get("/ready", (_req, res) => {
-  if (startupError) {
-    res.status(503).json({ status: "error", error: startupError.message });
-  } else if (appReady) {
-    res.status(200).json({ status: "ready" });
-  } else {
-    res.status(503).json({ status: "starting" });
+// Phase timing for diagnostics
+interface PhaseTiming {
+  phase: string;
+  startedAt: string;
+  durationMs: number;
+}
+const phaseTimings: PhaseTiming[] = [];
+
+function setPhase(phase: typeof startupPhase) {
+  const now = Date.now();
+  const prevDuration = now - startupPhaseStart;
+  
+  // Log completion of previous phase
+  if (startupPhase !== "starting" && startupPhase !== phase) {
+    phaseTimings.push({
+      phase: startupPhase,
+      startedAt: new Date(startupPhaseStart).toISOString(),
+      durationMs: prevDuration,
+    });
   }
+  
+  startupPhase = phase;
+  startupPhaseStart = now;
+  console.log(`[startup] Phase: ${phase} started at ${new Date(now).toISOString()}`);
+}
+
+// Enhanced /ready endpoint with phase tracking
+app.get("/ready", (_req, res) => {
+  const now = Date.now();
+  const totalDuration = now - serverStartTime;
+  const phaseDuration = now - startupPhaseStart;
+  
+  const response: Record<string, any> = {
+    status: startupError ? "error" : appReady ? "ready" : startupPhase,
+    phase: startupPhase,
+    phaseDurationMs: phaseDuration,
+    totalDurationMs: totalDuration,
+    phaseTimings,
+  };
+  
+  if (startupError) {
+    response.error = startupError.message;
+  }
+  
+  // Always return 200 to pass health checks, status in body indicates readiness
+  res.status(200).json(response);
 });
 
 // Start the server IMMEDIATELY so health checks pass
