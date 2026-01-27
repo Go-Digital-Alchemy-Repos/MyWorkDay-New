@@ -235,8 +235,41 @@ app.get("/ready", (_req, res) => {
 // Bind to 0.0.0.0 explicitly for Replit Autoscale deployment
 const port = parseInt(process.env.PORT || "5000", 10);
 const host = "0.0.0.0";
+const PHASE_TIMEOUT_MS = 25000; // Warn if any phase takes >25 seconds
+
+// Helper to run a phase with timing and timeout warning
+async function runPhase<T>(
+  phaseName: typeof startupPhase,
+  phaseNumber: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  setPhase(phaseName);
+  const phaseStart = Date.now();
+  console.log(`[startup] Phase ${phaseNumber}: ${phaseName} started at ${new Date(phaseStart).toISOString()}`);
+  
+  // Set up timeout warning (doesn't cancel the operation)
+  const timeoutId = setTimeout(() => {
+    console.error(`[startup] ERROR: Phase ${phaseName} is taking longer than ${PHASE_TIMEOUT_MS}ms - may cause health check timeout`);
+  }, PHASE_TIMEOUT_MS);
+  
+  try {
+    const result = await fn();
+    clearTimeout(timeoutId);
+    const duration = Date.now() - phaseStart;
+    console.log(`[startup] Phase ${phaseNumber}: ${phaseName} completed in ${duration}ms`);
+    return result;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const duration = Date.now() - phaseStart;
+    console.error(`[startup] Phase ${phaseNumber}: ${phaseName} FAILED after ${duration}ms`);
+    throw err;
+  }
+}
+
 httpServer.listen(port, host, () => {
-  log(`[boot] Server listening on ${host}:${port}`);
+  serverStartTime = Date.now();
+  console.log(`[startup] Phase 1/6: Server listening started at ${new Date(serverStartTime).toISOString()}`);
+  console.log(`[startup] Server listening on ${host}:${port}`);
 });
 
 // Run async initialization in the background
@@ -248,15 +281,17 @@ httpServer.listen(port, host, () => {
     || "dev";
   console.log(`[boot] environment=${env} version=${version}`);
   
-  // Schema readiness check - runs migrations if AUTO_MIGRATE=true
-  // Fails fast if schema is not ready (missing tables/columns)
+  // Phase 2: Schema readiness check - runs migrations if AUTO_MIGRATE=true
   try {
-    await ensureSchemaReady();
+    await runPhase("schema", "2/6", async () => {
+      await ensureSchemaReady();
+    });
   } catch (schemaErr) {
+    setPhase("error");
     console.error("[boot] FATAL: Schema readiness check failed");
     console.error("[boot]", schemaErr instanceof Error ? schemaErr.message : schemaErr);
     console.error("[boot] Application cannot start with incomplete schema.");
-    console.error("[boot] Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate");
+    console.error("[boot] Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate");
     startupError = schemaErr instanceof Error ? schemaErr : new Error(String(schemaErr));
     // Don't exit - keep server running for health checks to report the error
     return;
@@ -265,44 +300,65 @@ httpServer.listen(port, host, () => {
   // Log app version and configuration
   logAppInfo();
   
-  // Log migration status at startup (already verified above, but provides visibility)
-  await logMigrationStatus();
+  // Phase 3: Migration status logging (already applied above, but provides visibility)
+  await runPhase("migrating", "3/6", async () => {
+    await logMigrationStatus();
+    // Run production parity check (logs issues but doesn't crash)
+    await runProductionParityCheck();
+    // Check for NULL tenantId values (logs warnings, doesn't crash)
+    await logNullTenantIdWarnings();
+  });
   
-  // Run production parity check (logs issues but doesn't crash)
-  await runProductionParityCheck();
+  // Phase 4: Bootstrap admin user if not exists (for production first run)
+  try {
+    await runPhase("bootstrapping", "4/6", async () => {
+      await bootstrapAdminUser();
+    });
+  } catch (bootstrapErr) {
+    setPhase("error");
+    console.error("[boot] Bootstrap failed:", bootstrapErr instanceof Error ? bootstrapErr.message : bootstrapErr);
+    console.error("[boot] Fix: Check database permissions and user table schema");
+    startupError = bootstrapErr instanceof Error ? bootstrapErr : new Error(String(bootstrapErr));
+    return;
+  }
   
-  // Check for NULL tenantId values (logs warnings, doesn't crash)
-  await logNullTenantIdWarnings();
-  
-  // Bootstrap admin user if not exists (for production first run)
-  await bootstrapAdminUser();
-  
-  await registerRoutes(httpServer, app);
-
-  // API 404 handler - BEFORE error handlers to catch unmatched /api routes first
-  // This ensures /api routes that don't exist return JSON 404 instead of HTML
-  app.use(apiNotFoundHandler);
-
-  // Error logging middleware (captures 500+ errors to database)
-  app.use(errorLoggingMiddleware);
-
-  // Global error handler (uses standard error envelope)
-  app.use(errorHandler);
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+  // Phase 5: Register routes
+  try {
+    await runPhase("routes", "5/6", async () => {
+      await registerRoutes(httpServer, app);
+      
+      // API 404 handler - BEFORE error handlers to catch unmatched /api routes first
+      app.use(apiNotFoundHandler);
+      
+      // Error logging middleware (captures 500+ errors to database)
+      app.use(errorLoggingMiddleware);
+      
+      // Global error handler (uses standard error envelope)
+      app.use(errorHandler);
+      
+      // Setup static serving or Vite dev server
+      if (process.env.NODE_ENV === "production") {
+        serveStatic(app);
+      } else {
+        const { setupVite } = await import("./vite");
+        await setupVite(httpServer, app);
+      }
+    });
+  } catch (routesErr) {
+    setPhase("error");
+    console.error("[boot] Routes registration failed:", routesErr instanceof Error ? routesErr.message : routesErr);
+    startupError = routesErr instanceof Error ? routesErr : new Error(String(routesErr));
+    return;
   }
 
-  // Mark app as ready
+  // Phase 6: Mark app as ready
+  setPhase("ready");
   appReady = true;
+  const totalDuration = Date.now() - serverStartTime;
+  console.log(`[startup] Phase 6/6: App fully ready in ${totalDuration}ms`);
   log(`[boot] Application fully initialized and ready`);
 })().catch((err) => {
+  setPhase("error");
   console.error("[boot] Unhandled startup error:", err);
   startupError = err instanceof Error ? err : new Error(String(err));
 });

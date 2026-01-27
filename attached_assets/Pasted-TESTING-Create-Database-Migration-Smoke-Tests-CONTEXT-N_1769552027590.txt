@@ -1,0 +1,68 @@
+TESTING: Create Database Migration Smoke Tests
+
+CONTEXT:
+- Need automated tests to verify migrations work correctly
+- Want to catch migration issues before Railway deployment
+- Tests should run in CI and before deploy
+
+REQUIREMENTS:
+1. Create server/tests/migrations-smoke.test.ts:
+   
+   test("all migration files are committed", async () => {
+     // Verify migration files exist in git
+     // Check journal matches actual files
+   })
+   
+   test("all migrations use idempotent syntax", async () => {
+     // Parse SQL and check for IF NOT EXISTS
+     // Fail if non-idempotent CREATE/ALTER found
+   })
+   
+   test("no dangerous operations in migrations", async () => {
+     // Check for DROP, TRUNCATE, DELETE
+     // Warn about UPDATE (data mutations)
+   })
+   
+   test("required tables exist after migrations", async () => {
+     // Run migrations on test database
+     // Check all required tables exist
+     // Check all required columns exist
+   })
+   
+   test("migrations are reversible", async () => {
+     // Attempt to rollback latest migration
+     // Verify schema returns to previous state
+   })
+
+2. Create server/scripts/db-smoke.ts for manual testing:
+   - Connect to database
+   - Check each required table exists
+   - Check each required column exists
+   - Output: PASS/FAIL with missing items
+   - Usage: npm run db:smoke
+
+3. Add to package.json:
+   "scripts": {
+     "db:smoke": "tsx server/scripts/db-smoke.ts",
+     "test:migrations": "vitest run server/tests/migrations-smoke.test.ts"
+   }
+
+4. Create .github/workflows/test-migrations.yml:
+   - Run migration tests on every PR
+   - Fail if tests don't pass
+   - Comment on PR with migration status
+
+FILES TO CREATE:
+- server/tests/migrations-smoke.test.ts
+- server/scripts/db-smoke.ts
+- .github/workflows/test-migrations.yml (if GitHub Actions used)
+
+TESTING:
+- Run: npm run test:migrations - should pass
+- Run: npm run db:smoke - should show all tables present
+- Intentionally break a migration - tests should fail
+
+DO NOT:
+- Modify existing test files
+- Change migration file structure
+- Add tests that modify production database

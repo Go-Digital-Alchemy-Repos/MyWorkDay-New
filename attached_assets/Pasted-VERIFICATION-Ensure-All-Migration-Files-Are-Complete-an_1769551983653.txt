@@ -1,0 +1,61 @@
+VERIFICATION: Ensure All Migration Files Are Complete and Committed
+
+CONTEXT:
+- Migration 0004_add_missing_production_tables.sql should add missing tables
+- Need to verify all migrations are in git and will deploy to Railway
+- Need to ensure migrations are idempotent (can run multiple times safely)
+
+REQUIREMENTS:
+1. Verify these migrations exist and are committed to git:
+   ✓ migrations/0000_petite_spyke.sql
+   ✓ migrations/0001_cloudy_spot.sql
+   ✓ migrations/0002_safe_additive_fixes.sql
+   ✓ migrations/0003_fast_imperial_guard.sql
+   ✓ migrations/0004_add_missing_production_tables.sql
+   ✓ migrations/meta/_journal.json
+   ✓ All snapshot files in migrations/meta/
+
+2. Verify .gitignore does NOT exclude:
+   - /migrations/*.sql
+   - /migrations/meta/*.json
+
+3. Check migration 0004 includes ALL these tables:
+   - error_logs (with indexes on request_id, tenant_id, created_at)
+   - notification_preferences (with unique index on user_id)
+   - chat_channels, chat_channel_members
+   - chat_dm_threads, chat_dm_members
+   - chat_messages, chat_reads, chat_mentions, chat_attachments
+
+4. Check migration 0004 adds ALL these columns:
+   - active_timers.title (text)
+   - active_timers.tenant_id (varchar, FK to tenants)
+   - tenants.chat_retention_days (integer, default 365)
+   - tenant_settings.chat_retention_days (integer)
+   - system_settings.chat_retention_days (integer, default 365)
+
+5. Ensure all migrations use idempotent syntax:
+   - CREATE TABLE IF NOT EXISTS
+   - CREATE INDEX IF NOT EXISTS
+   - ADD COLUMN IF NOT EXISTS
+
+6. Create server/scripts/verify-migrations.ts that:
+   - Reads all migration files
+   - Checks for idempotent keywords
+   - Warns about dangerous operations (DROP, TRUNCATE, DELETE)
+   - Outputs: PASS/FAIL with specific issues
+
+FILES TO MODIFY:
+- .gitignore (verify migrations not excluded)
+- migrations/0004_add_missing_production_tables.sql (verify completeness)
+- server/scripts/verify-migrations.ts (create)
+- package.json (add "verify:migrations" script)
+
+TESTING:
+- Run: git status migrations/ - should show committed files
+- Run: npm run verify:migrations - should pass
+- Manually check migration SQL uses IF NOT EXISTS
+
+DO NOT:
+- Modify existing migration files (0000-0003)
+- Add DROP or DELETE statements to migrations
+- Remove any tables or columns

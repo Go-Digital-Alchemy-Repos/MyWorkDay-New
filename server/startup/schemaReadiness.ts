@@ -111,18 +111,40 @@ async function getMigrationInfo(): Promise<{ count: number; lastHash: string | n
   }
 }
 
-export async function runMigrations(): Promise<{ success: boolean; error?: string }> {
+export async function runMigrations(): Promise<{ success: boolean; error?: string; durationMs?: number; appliedCount?: number }> {
   const migrationsPath = path.resolve(process.cwd(), "migrations");
-  console.log(`[migrations] Starting migrations from: ${migrationsPath}`);
+  const startTime = Date.now();
+  console.log(`[migrations] Migrations started at ${new Date(startTime).toISOString()}`);
+  console.log(`[migrations] Migrations folder: ${migrationsPath}`);
+  
+  // Get count before migration
+  let beforeCount = 0;
+  try {
+    const beforeInfo = await getMigrationInfo();
+    beforeCount = beforeInfo.count;
+  } catch { /* ignore */ }
   
   try {
     await migrate(db, { migrationsFolder: migrationsPath });
-    console.log("[migrations] Migrations completed successfully");
-    return { success: true };
+    const durationMs = Date.now() - startTime;
+    
+    // Get count after migration
+    let afterCount = beforeCount;
+    try {
+      const afterInfo = await getMigrationInfo();
+      afterCount = afterInfo.count;
+    } catch { /* ignore */ }
+    
+    const appliedCount = afterCount - beforeCount;
+    console.log(`[migrations] Migrations completed in ${durationMs}ms - applied ${appliedCount} new migrations`);
+    return { success: true, durationMs, appliedCount };
   } catch (error: any) {
+    const durationMs = Date.now() - startTime;
     const errorMessage = error?.message || String(error);
-    console.error("[migrations] MIGRATION FAILED:", errorMessage);
-    return { success: false, error: errorMessage };
+    console.error(`[migrations] MIGRATION FAILED after ${durationMs}ms`);
+    console.error("[migrations] Error:", errorMessage);
+    console.error("[migrations] Fix: Check migration SQL syntax or database permissions");
+    return { success: false, error: errorMessage, durationMs };
   }
 }
 
@@ -200,7 +222,8 @@ export async function ensureSchemaReady(): Promise<void> {
   const isProduction = env === "production";
   const failOnSchemaIssues = process.env.FAIL_ON_SCHEMA_ISSUES !== "false";
 
-  console.log("[schema] Starting schema readiness check...");
+  const schemaCheckStart = Date.now();
+  console.log(`[schema] Schema check started at ${new Date(schemaCheckStart).toISOString()}`);
   console.log(`[schema] AUTO_MIGRATE=${autoMigrate}, NODE_ENV=${env}`);
 
   let preCheck = await checkSchemaReadiness();
@@ -209,6 +232,7 @@ export async function ensureSchemaReady(): Promise<void> {
   if (!preCheck.dbConnectionOk) {
     console.error("[schema] FATAL: Cannot connect to database");
     console.error("[schema] Errors:", preCheck.errors);
+    console.error("[schema] Fix: Check DATABASE_URL environment variable and database accessibility");
     throw new Error("Database connection failed - cannot start application");
   }
 
@@ -218,6 +242,7 @@ export async function ensureSchemaReady(): Promise<void> {
     if (!migResult.success) {
       console.error("[schema] FATAL: Migration failed");
       console.error("[schema] Error:", migResult.error);
+      console.error("[schema] Fix: Check migration SQL syntax or database permissions");
       throw new Error(`Migration failed: ${migResult.error}`);
     }
     preCheck = await checkSchemaReadiness();
@@ -238,32 +263,30 @@ export async function ensureSchemaReady(): Promise<void> {
   const missingColumns = preCheck.columnsCheck.filter((c) => !c.exists);
 
   if (missingTables.length > 0) {
-    console.error("[schema] Missing tables:", missingTables.map((t) => t.table).join(", "));
+    console.error("[schema] Schema readiness failed: Missing tables:", missingTables.map((t) => t.table).join(", "));
   }
 
   if (missingColumns.length > 0) {
-    console.error("[schema] Missing columns:", missingColumns.map((c) => `${c.table}.${c.column}`).join(", "));
+    console.error("[schema] Schema readiness failed: Missing columns:", missingColumns.map((c) => `${c.table}.${c.column}`).join(", "));
   }
 
+  const schemaCheckDuration = Date.now() - schemaCheckStart;
+
   if (preCheck.isReady) {
-    console.log("[schema] Schema is ready - all required tables and columns exist");
+    console.log(`[schema] Schema check completed in ${schemaCheckDuration}ms - all required tables and columns exist`);
   } else {
     // In production: always fail fast
     // In development: fail unless FAIL_ON_SCHEMA_ISSUES=false
     if (isProduction || failOnSchemaIssues) {
       console.error("[schema] FATAL: Schema is NOT ready");
       console.error("[schema] Errors:", preCheck.errors);
-      
-      if (!autoMigrate) {
-        console.error("[schema] ACTION REQUIRED: Set AUTO_MIGRATE=true environment variable to run migrations on boot");
-        console.error("[schema] Or manually run: npx drizzle-kit migrate");
-      }
+      console.error("[schema] Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate");
       
       throw new Error(`Schema not ready: ${preCheck.errors.join("; ")}`);
     } else {
-      console.warn("[schema] WARNING: Schema is NOT ready, but continuing in development mode");
+      console.warn(`[schema] Schema check completed in ${schemaCheckDuration}ms - WARNING: NOT ready, continuing in dev mode`);
       console.warn("[schema] Issues:", preCheck.errors);
-      console.warn("[schema] Set AUTO_MIGRATE=true or run migrations manually to fix");
+      console.warn("[schema] Fix: Set AUTO_MIGRATE=true or run migrations manually");
     }
   }
 }

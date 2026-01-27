@@ -1,0 +1,84 @@
+RESILIENCE: Graceful Feature Degradation for Missing Tables
+
+CONTEXT:
+- Current system fails completely if any table is missing
+- Some features (chat, notifications) should degrade gracefully
+- Want app to start even if optional tables are missing
+
+REQUIREMENTS:
+1. Categorize tables by criticality in server/startup/schemaReadiness.ts:
+   
+   CRITICAL (app won't start):
+   - users, tenants, sessions
+   - projects, tasks, clients
+   - workspaces, teams
+   
+   IMPORTANT (app starts with warnings):
+   - error_logs (falls back to console.error)
+   - notification_preferences (notifications disabled)
+   - email_outbox (email sending disabled)
+   
+   OPTIONAL (app starts, features disabled):
+   - chat_* (chat feature disabled)
+   - time_entries (time tracking disabled)
+   - client_notes (client notes disabled)
+
+2. Update ensureSchemaReady() to use three-tier validation:
+   - Check CRITICAL tables → fail immediately if missing
+   - Check IMPORTANT tables → log ERROR, continue with degraded mode
+   - Check OPTIONAL tables → log WARNING, feature auto-disabled
+
+3. Create feature flag system in server/lib/features.ts:
+   export const features = {
+     chat: checkTableExists('chat_channels'),
+     notifications: checkTableExists('notification_preferences'),
+     errorLogging: checkTableExists('error_logs'),
+     timeTracking: checkTableExists('time_entries'),
+     clientNotes: checkTableExists('client_notes'),
+   }
+   
+   // Use in routes:
+   if (!features.chat) {
+     return res.status(503).json({ 
+       error: "Chat feature is currently unavailable",
+       reason: "Database tables not initialized",
+       contact: "Please contact administrator"
+     })
+   }
+
+4. Add GET /api/v1/system/features endpoint:
+   {
+     features: {
+       chat: { enabled: boolean, reason?: string },
+       notifications: { enabled: boolean, reason?: string },
+       errorLogging: { enabled: boolean, reason?: string },
+       timeTracking: { enabled: boolean, reason?: string },
+       clientNotes: { enabled: boolean, reason?: string }
+     },
+     recommendations: [
+       "Run migrations to enable chat feature",
+       "Contact administrator to enable notifications"
+     ]
+   }
+
+5. Update client/src/App.tsx to check feature availability:
+   - Query /api/v1/system/features on app load
+   - Show banner if features are disabled
+   - Disable UI elements for unavailable features
+   - Provide helpful error messages
+
+FILES TO MODIFY:
+- server/startup/schemaReadiness.ts (add three-tier validation)
+- server/lib/features.ts (create feature flag system)
+- server/routes/systemStatus.ts (add /api/v1/system/features)
+- client/src/App.tsx (add feature availability check)
+
+TESTING:
+- Remove chat tables → app starts, chat disabled
+- Remove error_logs → app starts, logs to console
+- Remove critical table → app fails with clear error
+
+DO NOT:
+- Remove validation for critical tables
+- Allow app to start with corrupted data
+- Hide important error messages from users

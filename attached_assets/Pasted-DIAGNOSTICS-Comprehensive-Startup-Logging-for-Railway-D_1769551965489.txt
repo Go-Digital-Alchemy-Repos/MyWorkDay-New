@@ -1,0 +1,66 @@
+DIAGNOSTICS: Comprehensive Startup Logging for Railway Debugging
+
+CONTEXT:
+- Cannot diagnose Railway startup failures from logs
+- Need to see exactly where startup is slow or failing
+- Must identify which database tables/columns are missing
+
+REQUIREMENTS:
+1. Wrap every async startup function in try-catch with specific error messages:
+   
+   Schema readiness error:
+   - Log: "Schema readiness failed: Missing tables: [list]"
+   - Log: "Schema readiness failed: Missing columns: [table.column list]"
+   - Log: "Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate"
+   
+   Migration error:
+   - Log: "Migration failed: Migration file [name] failed"
+   - Log: "Error: [specific error message]"
+   - Log: "Fix: Check migration SQL syntax or database permissions"
+   
+   Bootstrap error:
+   - Log: "Bootstrap failed: [specific error]"
+   - Log: "Fix: [actionable advice based on error]"
+
+2. Add progress logging to server/index.ts startup sequence:
+   console.log("[startup] Phase 1/6: Server listening on port", port)
+   console.log("[startup] Phase 2/6: Checking schema readiness...")
+   console.log("[startup] Phase 3/6: Running migrations...")
+   console.log("[startup] Phase 4/6: Bootstrapping admin user...")
+   console.log("[startup] Phase 5/6: Registering routes...")
+   console.log("[startup] Phase 6/6: Application ready!")
+
+3. Create server/scripts/startup-health-check.ts:
+   - Check database connection
+   - Verify all required tables exist
+   - Verify all required columns exist
+   - Check migration status
+   - Output: { healthy: boolean, issues: string[], recommendations: string[] }
+   - Run this before ensureSchemaReady() in startup
+
+4. Add startup metrics to /ready endpoint:
+   {
+     status: "ready" | "starting" | "error",
+     phase: "listening" | "schema" | "migrations" | "bootstrap" | "routes" | "complete",
+     uptime: number,
+     startupDuration: number,
+     lastError?: string,
+     migrations: { applied: number, pending: number },
+     requiredTables: { present: string[], missing: string[] }
+   }
+
+FILES TO MODIFY:
+- server/index.ts (add detailed startup logging)
+- server/startup/schemaReadiness.ts (improve error messages)
+- server/scripts/startup-health-check.ts (create)
+- server/scripts/migration-status.ts (improve output)
+
+TESTING:
+- Intentionally break schema (rename a table) and verify error message is clear
+- Check Railway logs show each startup phase
+- /ready endpoint shows current phase during startup
+
+DO NOT:
+- Remove any existing startup checks
+- Change error handling that logs to error_logs table
+- Modify database connection logic

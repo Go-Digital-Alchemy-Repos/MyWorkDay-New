@@ -1,0 +1,69 @@
+PERFORMANCE: Optimize PostgreSQL Connection Pool for Railway
+
+CONTEXT:
+- Database connection overhead may be slowing startup
+- Railway has connection limits that need proper pooling
+- Need to optimize for cold starts and scale efficiently
+
+REQUIREMENTS:
+1. Update server/db.ts connection pool configuration:
+   {
+     connectionString: process.env.DATABASE_URL,
+     ssl: process.env.NODE_ENV === "production" 
+       ? { rejectUnauthorized: false } 
+       : false,
+     max: 10,                    // Max connections in pool
+     min: 2,                     // Min connections to maintain
+     idleTimeoutMillis: 30000,   // Close idle connections after 30s
+     connectionTimeoutMillis: 5000, // Fail fast if can't connect in 5s
+   }
+
+2. Add connection pool monitoring:
+   - Log pool stats on startup: "DB pool initialized: min=2 max=10"
+   - Track connection acquisition time
+   - Log warning if pool is exhausted
+   - Add pool stats to /api/v1/super/status/db:
+     { pool: { total: number, active: number, idle: number, waiting: number } }
+
+3. Add connection retry logic with exponential backoff:
+   async function connectWithRetry(maxRetries = 3) {
+     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+       try {
+         await db.execute(sql`SELECT 1`)
+         console.log(`[db] Connected successfully on attempt ${attempt}`)
+         return
+       } catch (err) {
+         if (attempt === maxRetries) throw err
+         const delay = Math.pow(2, attempt) * 1000 // 2s, 4s, 8s
+         console.log(`[db] Connection failed, retrying in ${delay}ms...`)
+         await new Promise(resolve => setTimeout(resolve, delay))
+       }
+     }
+   }
+
+4. Add database health check endpoint:
+   GET /api/v1/system/health/db
+   Returns:
+   {
+     connected: boolean,
+     latency: number, // ms
+     pool: { total, active, idle, waiting },
+     migrations: { applied: number },
+     timestamp: string
+   }
+
+FILES TO MODIFY:
+- server/db.ts (update connection pool config)
+- server/routes/super/systemStatus.router.ts (add pool stats)
+- server/routes/systemStatus.ts (add /api/v1/system/health/db)
+
+TESTING:
+- Startup logs show pool initialization
+- /api/v1/super/status/db shows pool stats
+- Connection retries work (test by breaking DB connection)
+- Pool doesn't exhaust under load
+
+DO NOT:
+- Change database connection string format
+- Remove SSL configuration for production
+- Modify existing database queries
