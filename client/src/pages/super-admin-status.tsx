@@ -2929,10 +2929,13 @@ export default function SuperAdminStatusPage() {
     runCheckMutation.mutate(action);
   };
 
+  const [toolsSubTab, setToolsSubTab] = useState("auth");
+  const [logsSubTab, setLogsSubTab] = useState("app");
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="p-6 border-b shrink-0">
-        <h1 className="text-2xl font-bold">System Status</h1>
+        <h1 className="text-2xl font-bold">System Health</h1>
         <p className="text-muted-foreground mt-1">Health checks, logs, and debugging tools</p>
       </div>
 
@@ -2947,37 +2950,13 @@ export default function SuperAdminStatusPage() {
               <Building2 className="h-4 w-4 mr-2" />
               Tenant Health
             </TabsTrigger>
-            <TabsTrigger value="tenant-repair" data-testid="tab-tenant-repair">
-              <Wrench className="h-4 w-4 mr-2" />
-              Repair Tools
-            </TabsTrigger>
             <TabsTrigger value="logs" data-testid="tab-logs">
               <ExternalLink className="h-4 w-4 mr-2" />
               Logs
             </TabsTrigger>
-            <TabsTrigger value="debug" data-testid="tab-debug">
+            <TabsTrigger value="tools" data-testid="tab-tools">
               <Wrench className="h-4 w-4 mr-2" />
-              Debug Tools
-            </TabsTrigger>
-            <TabsTrigger value="auth" data-testid="tab-auth">
-              <KeyRound className="h-4 w-4 mr-2" />
-              Auth Diagnostics
-            </TabsTrigger>
-            <TabsTrigger value="email" data-testid="tab-email">
-              <Mail className="h-4 w-4 mr-2" />
-              Email Logs
-            </TabsTrigger>
-            <TabsTrigger value="chat-debug" data-testid="tab-chat-debug">
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Chat Debug
-            </TabsTrigger>
-            <TabsTrigger value="error-logs" data-testid="tab-error-logs">
-              <AlertCircle className="h-4 w-4 mr-2" />
-              Error Logs
-            </TabsTrigger>
-            <TabsTrigger value="db-introspect" data-testid="tab-db-introspect">
-              <Database className="h-4 w-4 mr-2" />
-              DB Introspect
+              Tools & Diagnostics
             </TabsTrigger>
           </TabsList>
 
@@ -3359,53 +3338,103 @@ export default function SuperAdminStatusPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="tenant-repair">
-            <TenantHealthRepairPanel />
-          </TabsContent>
-
           <TabsContent value="logs">
-            <Card>
-              <CardHeader>
-                <CardTitle>Application Logs</CardTitle>
-                <CardDescription>View application logs for debugging and monitoring</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <ExternalLink className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">External Logging</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Application logs are available through your hosting provider's dashboard.
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    For Railway deployments, access logs via the Railway dashboard under your project's "Logs" tab.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-4">
+              <Tabs value={logsSubTab} onValueChange={setLogsSubTab}>
+                <TabsList data-testid="logs-sub-tabs">
+                  <TabsTrigger value="app" data-testid="tab-logs-app">
+                    <Server className="h-4 w-4 mr-2" />
+                    Application Logs
+                  </TabsTrigger>
+                  <TabsTrigger value="email" data-testid="tab-logs-email">
+                    <Mail className="h-4 w-4 mr-2" />
+                    Email Logs
+                  </TabsTrigger>
+                  <TabsTrigger value="error" data-testid="tab-logs-error">
+                    <AlertCircle className="h-4 w-4 mr-2" />
+                    Error Logs
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="app" className="mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Application Logs</CardTitle>
+                      <CardDescription>View application logs for debugging and monitoring</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-12">
+                        <ExternalLink className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium mb-2">External Logging</h3>
+                        <p className="text-muted-foreground mb-4">
+                          Application logs are available through your hosting provider's dashboard.
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          For Railway deployments, access logs via the Railway dashboard under your project's "Logs" tab.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="email" className="mt-4">
+                  <SuperEmailLogsPanel />
+                </TabsContent>
+
+                <TabsContent value="error" className="mt-4">
+                  <ErrorLogPanel />
+                </TabsContent>
+              </Tabs>
+            </div>
           </TabsContent>
 
-          <TabsContent value="debug">
-            <DebugToolsPanel />
-          </TabsContent>
+          <TabsContent value="tools">
+            <div className="space-y-4">
+              <Tabs value={toolsSubTab} onValueChange={setToolsSubTab}>
+                <TabsList data-testid="tools-sub-tabs">
+                  <TabsTrigger value="auth" data-testid="tab-tools-auth">
+                    <KeyRound className="h-4 w-4 mr-2" />
+                    Auth Diagnostics
+                  </TabsTrigger>
+                  <TabsTrigger value="debug" data-testid="tab-tools-debug">
+                    <Wrench className="h-4 w-4 mr-2" />
+                    Debug Tools
+                  </TabsTrigger>
+                  <TabsTrigger value="repair" data-testid="tab-tools-repair">
+                    <Shield className="h-4 w-4 mr-2" />
+                    Repair Tools
+                  </TabsTrigger>
+                  <TabsTrigger value="chat" data-testid="tab-tools-chat">
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Chat Debug
+                  </TabsTrigger>
+                  <TabsTrigger value="db" data-testid="tab-tools-db">
+                    <Database className="h-4 w-4 mr-2" />
+                    DB Introspect
+                  </TabsTrigger>
+                </TabsList>
 
-          <TabsContent value="auth">
-            <AuthDiagnosticsPanel />
-          </TabsContent>
+                <TabsContent value="auth" className="mt-4">
+                  <AuthDiagnosticsPanel />
+                </TabsContent>
 
-          <TabsContent value="email">
-            <SuperEmailLogsPanel />
-          </TabsContent>
+                <TabsContent value="debug" className="mt-4">
+                  <DebugToolsPanel />
+                </TabsContent>
 
-          <TabsContent value="chat-debug">
-            <ChatDebugPanel />
-          </TabsContent>
+                <TabsContent value="repair" className="mt-4">
+                  <TenantHealthRepairPanel />
+                </TabsContent>
 
-          <TabsContent value="error-logs">
-            <ErrorLogPanel />
-          </TabsContent>
+                <TabsContent value="chat" className="mt-4">
+                  <ChatDebugPanel />
+                </TabsContent>
 
-          <TabsContent value="db-introspect">
-            <DbIntrospectPanel onNavigateTab={setActiveTab} />
+                <TabsContent value="db" className="mt-4">
+                  <DbIntrospectPanel onNavigateTab={setActiveTab} />
+                </TabsContent>
+              </Tabs>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

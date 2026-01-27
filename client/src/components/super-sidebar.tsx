@@ -30,7 +30,7 @@ const superAdminNavItems = [
   { title: "Chat System", url: "/super-admin/chat", icon: MessageSquareText, exact: false },
   { title: "User Manager", url: "/super-admin/users", icon: Users, exact: false },
   { title: "System Settings", url: "/super-admin/settings", icon: Wrench, exact: false },
-  { title: "System Status", url: "/super-admin/status", icon: Activity, exact: false },
+  { title: "System Health", url: "/super-admin/status", icon: Activity, exact: false },
   { title: "App Docs", url: "/super-admin/docs", icon: FileText, exact: false },
 ];
 
