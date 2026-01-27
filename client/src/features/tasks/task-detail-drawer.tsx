@@ -630,7 +630,7 @@ export function TaskDetailDrawer({
                       variant="outline"
                       size="sm"
                       className={cn(
-                        "w-[140px] justify-start text-left font-normal h-8",
+                        "w-[140px] justify-start text-left font-normal",
                         !task.dueDate && "text-muted-foreground"
                       )}
                       data-testid="button-due-date"

@@ -1763,6 +1763,14 @@ export async function registerRoutes(
         updateData.parentTaskId = null;
       }
       
+      // Convert date strings to Date objects for database
+      if (updateData.dueDate !== undefined) {
+        updateData.dueDate = updateData.dueDate ? new Date(updateData.dueDate) : null;
+      }
+      if (updateData.startDate !== undefined) {
+        updateData.startDate = updateData.startDate ? new Date(updateData.startDate) : null;
+      }
+      
       const task = await storage.updateTask(req.params.id, updateData);
       if (!task) {
         return res.status(404).json({ error: "Task not found", requestId });
@@ -2029,7 +2037,13 @@ export async function registerRoutes(
 
   app.patch("/api/subtasks/:id", async (req, res) => {
     try {
-      const subtask = await storage.updateSubtask(req.params.id, req.body);
+      // Convert date strings to Date objects for database
+      const updateData = { ...req.body };
+      if (updateData.dueDate !== undefined) {
+        updateData.dueDate = updateData.dueDate ? new Date(updateData.dueDate) : null;
+      }
+      
+      const subtask = await storage.updateSubtask(req.params.id, updateData);
       if (!subtask) {
         return res.status(404).json({ error: "Subtask not found" });
       }
