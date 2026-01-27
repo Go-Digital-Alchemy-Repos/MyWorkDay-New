@@ -639,4 +639,111 @@ router.get("/diagnostics/schema", requireAuth, requireSuperUser, async (req: Req
   }
 });
 
+router.get("/error-logs", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+  const requestId = req.requestId || generateRequestId();
+  
+  try {
+    const tenantId = req.query.tenantId as string | undefined;
+    const status = req.query.status ? parseInt(req.query.status as string) : undefined;
+    const pathContains = req.query.path as string | undefined;
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const result = await storage.getErrorLogs({
+      tenantId,
+      status,
+      startDate,
+      endDate,
+      pathContains,
+      limit,
+      offset,
+    });
+
+    const isProduction = process.env.NODE_ENV === "production";
+
+    const logs = result.logs.map(log => ({
+      id: log.id,
+      requestId: log.requestId,
+      tenantId: log.tenantId,
+      userId: log.userId,
+      method: log.method,
+      path: log.path,
+      status: log.status,
+      errorName: log.errorName,
+      message: log.message,
+      dbCode: log.dbCode,
+      dbConstraint: log.dbConstraint,
+      environment: log.environment,
+      resolved: log.resolved,
+      createdAt: log.createdAt,
+      stack: !isProduction ? log.stack : undefined,
+      meta: !isProduction ? log.meta : undefined,
+    }));
+
+    res.json({
+      ok: true,
+      requestId,
+      logs,
+      total: result.total,
+      limit,
+      offset,
+    });
+  } catch (error: any) {
+    console.error("[status/error-logs] Failed:", error);
+    res.status(500).json({
+      ok: false,
+      requestId,
+      error: {
+        code: "ERROR_LOGS_FAILED",
+        message: "Failed to fetch error logs",
+        requestId,
+      },
+    });
+  }
+});
+
+router.patch("/error-logs/:id/resolve", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
+  const requestId = req.requestId || generateRequestId();
+  const { id } = req.params;
+  const { resolved } = req.body;
+
+  try {
+    const log = await storage.markErrorLogResolved(id, resolved === true);
+    
+    if (!log) {
+      return res.status(404).json({
+        ok: false,
+        requestId,
+        error: {
+          code: "NOT_FOUND",
+          message: "Error log not found",
+          requestId,
+        },
+      });
+    }
+
+    res.json({
+      ok: true,
+      requestId,
+      log: {
+        id: log.id,
+        resolved: log.resolved,
+      },
+    });
+  } catch (error: any) {
+    console.error("[status/error-logs] Mark resolved failed:", error);
+    res.status(500).json({
+      ok: false,
+      requestId,
+      error: {
+        code: "UPDATE_FAILED",
+        message: "Failed to update error log",
+        requestId,
+      },
+    });
+  }
+});
+
 export default router;

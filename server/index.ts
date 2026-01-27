@@ -16,6 +16,7 @@ import { apiJsonResponseGuard, apiNotFoundHandler } from "./middleware/apiJsonGu
 import { logMigrationStatus } from "./scripts/migration-status";
 import { ensureSchemaReady } from "./startup/schemaReadiness";
 import { logAppInfo } from "./startup/appInfo";
+import { logNullTenantIdWarnings } from "./startup/tenantIdHealthCheck";
 
 export const app = express();
 const httpServer = createServer(app);
@@ -129,6 +130,9 @@ app.use((req, res, next) => {
   
   // Run production parity check (logs issues but doesn't crash)
   await runProductionParityCheck();
+  
+  // Check for NULL tenantId values (logs warnings, doesn't crash)
+  await logNullTenantIdWarnings();
   
   // Bootstrap admin user if not exists (for production first run)
   await bootstrapAdminUser();
