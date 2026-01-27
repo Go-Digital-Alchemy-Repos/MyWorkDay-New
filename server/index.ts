@@ -76,6 +76,17 @@ app.use(apiJsonResponseGuard);
 import { log } from "./lib/log";
 export { log };
 
+// Health check endpoint for deployment platforms (Railway, etc.)
+// This must respond immediately without database/auth dependencies
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Also support /healthz for Kubernetes-style health checks
+app.get("/healthz", (_req, res) => {
+  res.status(200).send("ok");
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
