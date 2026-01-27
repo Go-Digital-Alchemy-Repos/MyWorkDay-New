@@ -38,7 +38,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { eq, sql, desc, and, ilike, count, gte, lt, isNull, isNotNull, ne, inArray } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
-import { tenantIntegrationService } from "../services/tenantIntegrations";
+import { tenantIntegrationService, IntegrationProvider } from "../services/tenantIntegrations";
 import multer from "multer";
 import { validateBrandAsset, generateBrandAssetKey, uploadToS3, isS3Configured } from "../s3";
 import * as schema from "@shared/schema";
