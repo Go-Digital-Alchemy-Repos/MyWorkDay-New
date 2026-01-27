@@ -99,6 +99,10 @@ const EXEMPT_EXACT_ROUTES = [
 ];
 
 function isExemptRoute(path: string): boolean {
+  // All non-API routes are exempt (frontend routes handled by React)
+  if (!path.startsWith("/api/")) {
+    return true;
+  }
   if (EXEMPT_EXACT_ROUTES.includes(path)) {
     return true;
   }
