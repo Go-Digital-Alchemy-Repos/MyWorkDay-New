@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { initializeSocketIO } from "./realtime/socket";
 import { setupAuth, setupBootstrapEndpoints, setupPlatformInviteEndpoints, setupTenantInviteEndpoints, setupPasswordResetEndpoints, setupGoogleAuth } from "./auth";
 import { bootstrapAdminUser } from "./bootstrap";
+import { runProductionParityCheck } from "./scripts/production-parity-check";
 import { tenantContextMiddleware } from "./middleware/tenantContext";
 import { agreementEnforcementGuard } from "./middleware/agreementEnforcement";
 import { requestIdMiddleware } from "./middleware/requestId";
@@ -106,6 +107,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run production parity check (logs issues but doesn't crash)
+  await runProductionParityCheck();
+  
   // Bootstrap admin user if not exists (for production first run)
   await bootstrapAdminUser();
   
