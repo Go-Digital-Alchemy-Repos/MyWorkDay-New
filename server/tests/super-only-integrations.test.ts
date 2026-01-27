@@ -3,8 +3,9 @@ import { db } from "../db";
 import { users, tenants, UserRole, TenantStatus } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import request from "supertest";
-import { app } from "../index";
+import { createTestApp } from "../test-app";
 import { hashPassword } from "../auth";
+import type { Express } from "express";
 
 const testSuperUserId = "test-super-soi-1";
 const testAdminUserId = "test-admin-soi-1";
@@ -12,11 +13,13 @@ const testEmployeeUserId = "test-emp-soi-1";
 const testTenantId = "test-tenant-soi-1";
 
 describe("Global Integrations - Super User Only Access", () => {
+  let app: Express;
   let superAuthCookie: string;
   let adminAuthCookie: string;
   let employeeAuthCookie: string;
 
   beforeAll(async () => {
+    app = await createTestApp();
     await db.delete(users).where(eq(users.id, testSuperUserId));
     await db.delete(users).where(eq(users.id, testAdminUserId));
     await db.delete(users).where(eq(users.id, testEmployeeUserId));

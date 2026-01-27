@@ -4,16 +4,19 @@ import { systemSettings, users, UserRole } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { encryptValue, decryptValue, isEncryptionAvailable } from "../lib/encryption";
 import request from "supertest";
-import { app } from "../index";
+import { createTestApp } from "../test-app";
 import { hashPassword } from "../auth";
+import type { Express } from "express";
 
 const testSuperUserId = "test-super-user-gi-1";
 const testSuperUserEmail = "super-gi@test.com";
 
 describe("Global Integrations - Persistence and Secret Masking", () => {
+  let app: Express;
   let authCookie: string;
 
   beforeAll(async () => {
+    app = await createTestApp();
     await db.delete(users).where(eq(users.id, testSuperUserId));
     
     const passwordHash = await hashPassword("testpass123");

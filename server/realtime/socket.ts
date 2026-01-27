@@ -25,7 +25,7 @@ import {
   ConnectionConnectedPayload
 } from '@shared/events';
 import { randomUUID } from 'crypto';
-import { log } from '../index';
+import { log } from '../lib/log';
 import { getSessionMiddleware } from '../auth';
 import passport from 'passport';
 import { chatDebugStore, isChatDebugEnabled } from './chatDebug';

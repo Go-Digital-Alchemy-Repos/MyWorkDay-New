@@ -66,7 +66,7 @@ import {
   MyTaskUpdatedPayload,
   MyTaskDeletedPayload,
 } from '@shared/events';
-import { log } from '../index';
+import { log } from '../lib/log';
 
 // =============================================================================
 // PROJECT EVENTS
