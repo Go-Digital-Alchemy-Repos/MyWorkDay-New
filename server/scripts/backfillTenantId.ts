@@ -37,11 +37,25 @@ interface BackfillReport {
 
 const isDryRun = process.argv.includes("--dry-run");
 
+const COUNT_QUERIES: Record<string, string> = {
+  workspaces: "SELECT COUNT(*) as count FROM workspaces WHERE tenant_id IS NULL",
+  teams: "SELECT COUNT(*) as count FROM teams WHERE tenant_id IS NULL",
+  clients: "SELECT COUNT(*) as count FROM clients WHERE tenant_id IS NULL",
+  projects: "SELECT COUNT(*) as count FROM projects WHERE tenant_id IS NULL",
+  tasks: "SELECT COUNT(*) as count FROM tasks WHERE tenant_id IS NULL",
+  users: "SELECT COUNT(*) as count FROM users WHERE tenant_id IS NULL",
+  time_entries: "SELECT COUNT(*) as count FROM time_entries WHERE tenant_id IS NULL",
+  active_timers: "SELECT COUNT(*) as count FROM active_timers WHERE tenant_id IS NULL",
+};
+
 async function countMissing(table: string): Promise<number> {
+  const query = COUNT_QUERIES[table];
+  if (!query) {
+    console.warn(`[${table}] No count query defined, skipping`);
+    return 0;
+  }
   try {
-    const result = await db.execute(sql.raw(`
-      SELECT COUNT(*) as count FROM ${table} WHERE tenant_id IS NULL
-    `));
+    const result = await db.execute(sql.raw(query));
     return parseInt((result.rows[0] as any)?.count || "0");
   } catch (error: any) {
     console.error(`[${table}] Error counting missing: ${error.message}`);
@@ -544,8 +558,7 @@ async function runBackfill(): Promise<BackfillReport> {
   results.push(await backfillUsers());
   results.push(await backfillTimeEntries());
   results.push(await backfillActiveTimers());
-  results.push(await backfillActivityLog());
-  results.push(await backfillComments());
+  // Note: activity_log and comments tables don't have tenant_id columns
 
   for (const r of results) {
     if (r.missingCount > 0) {
