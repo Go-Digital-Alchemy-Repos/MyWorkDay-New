@@ -32,6 +32,8 @@ import {
   type Subtask, type InsertSubtask,
   type Tag, type InsertTag,
   type TaskTag, type InsertTaskTag,
+  type SubtaskAssignee, type InsertSubtaskAssignee,
+  type SubtaskTag, type InsertSubtaskTag,
   type Comment, type InsertComment,
   type ActivityLog, type InsertActivityLog,
   type TaskAttachment, type InsertTaskAttachment,
@@ -62,7 +64,7 @@ import {
   type NotificationPreferences, type InsertNotificationPreferences,
   users, workspaces, workspaceMembers, teams, teamMembers,
   projects, projectMembers, sections, tasks, taskAssignees, taskWatchers,
-  subtasks, tags, taskTags, comments, commentMentions, activityLog, taskAttachments,
+  subtasks, subtaskAssignees, subtaskTags, tags, taskTags, comments, commentMentions, activityLog, taskAttachments,
   clients, clientContacts, clientInvites, clientUserAccess,
   clientDivisions, divisionMembers,
   timeEntries, activeTimers,
@@ -185,6 +187,16 @@ export interface IStorage {
   getTaskTags(taskId: string): Promise<(TaskTag & { tag?: Tag })[]>;
   addTaskTag(taskTag: InsertTaskTag): Promise<TaskTag>;
   removeTaskTag(taskId: string, tagId: string): Promise<void>;
+  
+  getSubtaskAssignees(subtaskId: string): Promise<(SubtaskAssignee & { user?: User })[]>;
+  addSubtaskAssignee(assignee: InsertSubtaskAssignee): Promise<SubtaskAssignee>;
+  removeSubtaskAssignee(subtaskId: string, userId: string): Promise<void>;
+  
+  getSubtaskTags(subtaskId: string): Promise<(SubtaskTag & { tag?: Tag })[]>;
+  addSubtaskTag(subtaskTag: InsertSubtaskTag): Promise<SubtaskTag>;
+  removeSubtaskTag(subtaskId: string, tagId: string): Promise<void>;
+  
+  getSubtaskWithRelations(id: string): Promise<(Subtask & { assignees: (SubtaskAssignee & { user?: User })[]; tags: (SubtaskTag & { tag?: Tag })[] }) | undefined>;
   
   getComment(id: string): Promise<Comment | undefined>;
   getCommentsByTask(taskId: string): Promise<(Comment & { user?: User })[]>;
@@ -1224,6 +1236,62 @@ export class DatabaseStorage implements IStorage {
     await db.delete(taskTags).where(
       and(eq(taskTags.taskId, taskId), eq(taskTags.tagId, tagId))
     );
+  }
+
+  async getSubtaskAssignees(subtaskId: string): Promise<(SubtaskAssignee & { user?: User })[]> {
+    const results = await db.select().from(subtaskAssignees)
+      .leftJoin(users, eq(subtaskAssignees.userId, users.id))
+      .where(eq(subtaskAssignees.subtaskId, subtaskId));
+    return results.map(r => ({
+      ...r.subtask_assignees,
+      user: r.users || undefined,
+    }));
+  }
+
+  async addSubtaskAssignee(assignee: InsertSubtaskAssignee): Promise<SubtaskAssignee> {
+    const [result] = await db.insert(subtaskAssignees).values(assignee).returning();
+    return result;
+  }
+
+  async removeSubtaskAssignee(subtaskId: string, userId: string): Promise<void> {
+    await db.delete(subtaskAssignees).where(
+      and(eq(subtaskAssignees.subtaskId, subtaskId), eq(subtaskAssignees.userId, userId))
+    );
+  }
+
+  async getSubtaskTags(subtaskId: string): Promise<(SubtaskTag & { tag?: Tag })[]> {
+    const results = await db.select().from(subtaskTags)
+      .leftJoin(tags, eq(subtaskTags.tagId, tags.id))
+      .where(eq(subtaskTags.subtaskId, subtaskId));
+    return results.map(r => ({
+      ...r.subtask_tags,
+      tag: r.tags || undefined,
+    }));
+  }
+
+  async addSubtaskTag(subtaskTag: InsertSubtaskTag): Promise<SubtaskTag> {
+    const [result] = await db.insert(subtaskTags).values(subtaskTag).returning();
+    return result;
+  }
+
+  async removeSubtaskTag(subtaskId: string, tagId: string): Promise<void> {
+    await db.delete(subtaskTags).where(
+      and(eq(subtaskTags.subtaskId, subtaskId), eq(subtaskTags.tagId, tagId))
+    );
+  }
+
+  async getSubtaskWithRelations(id: string): Promise<(Subtask & { assignees: (SubtaskAssignee & { user?: User })[]; tags: (SubtaskTag & { tag?: Tag })[] }) | undefined> {
+    const subtask = await this.getSubtask(id);
+    if (!subtask) return undefined;
+    
+    const assignees = await this.getSubtaskAssignees(id);
+    const subtaskTagsList = await this.getSubtaskTags(id);
+    
+    return {
+      ...subtask,
+      assignees,
+      tags: subtaskTagsList,
+    };
   }
 
   async getComment(id: string): Promise<Comment | undefined> {

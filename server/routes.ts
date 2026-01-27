@@ -2074,6 +2074,103 @@ export async function registerRoutes(
     }
   });
 
+  // Get subtask with all relations (assignees, tags)
+  app.get("/api/subtasks/:id/full", async (req, res) => {
+    try {
+      const subtask = await storage.getSubtaskWithRelations(req.params.id);
+      if (!subtask) {
+        return res.status(404).json({ error: "Subtask not found" });
+      }
+      res.json(subtask);
+    } catch (error) {
+      console.error("Error fetching subtask:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Subtask Assignees endpoints
+  app.get("/api/subtasks/:id/assignees", async (req, res) => {
+    try {
+      const assignees = await storage.getSubtaskAssignees(req.params.id);
+      res.json(assignees);
+    } catch (error) {
+      console.error("Error fetching subtask assignees:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/subtasks/:id/assignees", async (req, res) => {
+    try {
+      const { userId, tenantId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      const assignee = await storage.addSubtaskAssignee({
+        subtaskId: req.params.id,
+        userId,
+        tenantId: tenantId || null,
+      });
+      res.status(201).json(assignee);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        return res.status(409).json({ error: "User already assigned to subtask" });
+      }
+      console.error("Error adding subtask assignee:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/subtasks/:subtaskId/assignees/:userId", async (req, res) => {
+    try {
+      await storage.removeSubtaskAssignee(req.params.subtaskId, req.params.userId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing subtask assignee:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Subtask Tags endpoints
+  app.get("/api/subtasks/:id/tags", async (req, res) => {
+    try {
+      const tags = await storage.getSubtaskTags(req.params.id);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching subtask tags:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/subtasks/:id/tags", async (req, res) => {
+    try {
+      const { tagId } = req.body;
+      if (!tagId) {
+        return res.status(400).json({ error: "tagId is required" });
+      }
+      const subtaskTag = await storage.addSubtaskTag({
+        subtaskId: req.params.id,
+        tagId,
+      });
+      res.status(201).json(subtaskTag);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        return res.status(409).json({ error: "Tag already added to subtask" });
+      }
+      console.error("Error adding subtask tag:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/subtasks/:subtaskId/tags/:tagId", async (req, res) => {
+    try {
+      await storage.removeSubtaskTag(req.params.subtaskId, req.params.tagId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing subtask tag:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/workspaces/:workspaceId/tags", async (req, res) => {
     try {
       const tags = await storage.getTagsByWorkspace(req.params.workspaceId);

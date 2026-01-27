@@ -811,14 +811,41 @@ export const subtasks = pgTable("subtasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   taskId: varchar("task_id").references(() => tasks.id).notNull(),
   title: text("title").notNull(),
+  description: jsonb("description"),
   completed: boolean("completed").default(false).notNull(),
+  status: text("status").default("todo").notNull(),
+  priority: text("priority").default("medium").notNull(),
   assigneeId: varchar("assignee_id").references(() => users.id),
   dueDate: timestamp("due_date"),
+  estimateMinutes: integer("estimate_minutes"),
   orderIndex: integer("order_index").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("subtasks_task_order").on(table.taskId, table.orderIndex),
+]);
+
+// Subtask Assignees junction table (for multiple assignees)
+export const subtaskAssignees = pgTable("subtask_assignees", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id),
+  subtaskId: varchar("subtask_id").references(() => subtasks.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("subtask_assignees_unique").on(table.subtaskId, table.userId),
+  index("subtask_assignees_user").on(table.userId),
+  index("subtask_assignees_tenant_idx").on(table.tenantId),
+]);
+
+// Subtask Tags junction table
+export const subtaskTags = pgTable("subtask_tags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subtaskId: varchar("subtask_id").references(() => subtasks.id).notNull(),
+  tagId: varchar("tag_id").references(() => tags.id).notNull(),
+}, (table) => [
+  uniqueIndex("subtask_tags_unique").on(table.subtaskId, table.tagId),
+  index("subtask_tags_tag").on(table.tagId),
 ]);
 
 // Tags table
@@ -1509,7 +1536,7 @@ export const personalTaskSectionsRelations = relations(personalTaskSections, ({ 
   }),
 }));
 
-export const subtasksRelations = relations(subtasks, ({ one }) => ({
+export const subtasksRelations = relations(subtasks, ({ one, many }) => ({
   task: one(tasks, {
     fields: [subtasks.taskId],
     references: [tasks.id],
@@ -1517,6 +1544,34 @@ export const subtasksRelations = relations(subtasks, ({ one }) => ({
   assignee: one(users, {
     fields: [subtasks.assigneeId],
     references: [users.id],
+  }),
+  assignees: many(subtaskAssignees),
+  tags: many(subtaskTags),
+}));
+
+export const subtaskAssigneesRelations = relations(subtaskAssignees, ({ one }) => ({
+  subtask: one(subtasks, {
+    fields: [subtaskAssignees.subtaskId],
+    references: [subtasks.id],
+  }),
+  user: one(users, {
+    fields: [subtaskAssignees.userId],
+    references: [users.id],
+  }),
+  tenant: one(tenants, {
+    fields: [subtaskAssignees.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const subtaskTagsRelations = relations(subtaskTags, ({ one }) => ({
+  subtask: one(subtasks, {
+    fields: [subtaskTags.subtaskId],
+    references: [subtasks.id],
+  }),
+  tag: one(tags, {
+    fields: [subtaskTags.tagId],
+    references: [tags.id],
   }),
 }));
 
@@ -1526,6 +1581,7 @@ export const tagsRelations = relations(tags, ({ one, many }) => ({
     references: [workspaces.id],
   }),
   taskTags: many(taskTags),
+  subtaskTags: many(subtaskTags),
 }));
 
 export const taskTagsRelations = relations(taskTags, ({ one }) => ({
@@ -1849,6 +1905,15 @@ export const insertTaskTagSchema = createInsertSchema(taskTags).omit({
   id: true,
 });
 
+export const insertSubtaskAssigneeSchema = createInsertSchema(subtaskAssignees).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSubtaskTagSchema = createInsertSchema(subtaskTags).omit({
+  id: true,
+});
+
 export const insertCommentSchema = createInsertSchema(comments).omit({
   id: true,
   createdAt: true,
@@ -2091,6 +2156,12 @@ export type InsertTag = z.infer<typeof insertTagSchema>;
 
 export type TaskTag = typeof taskTags.$inferSelect;
 export type InsertTaskTag = z.infer<typeof insertTaskTagSchema>;
+
+export type SubtaskAssignee = typeof subtaskAssignees.$inferSelect;
+export type InsertSubtaskAssignee = z.infer<typeof insertSubtaskAssigneeSchema>;
+
+export type SubtaskTag = typeof subtaskTags.$inferSelect;
+export type InsertSubtaskTag = z.infer<typeof insertSubtaskTagSchema>;
 
 export type Comment = typeof comments.$inferSelect;
 export type InsertComment = z.infer<typeof insertCommentSchema>;

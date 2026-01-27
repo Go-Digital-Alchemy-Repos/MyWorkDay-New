@@ -876,6 +876,8 @@ export function TaskDetailDrawer({
       <SubtaskDetailDrawer
         subtask={selectedChildTask}
         parentTaskTitle={task.title}
+        projectId={task.projectId || undefined}
+        workspaceId={workspaceId}
         open={childDrawerOpen}
         onOpenChange={setChildDrawerOpen}
         onUpdate={handleChildTaskUpdate}
