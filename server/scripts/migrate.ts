@@ -18,8 +18,9 @@ import pg from "pg";
 import path from "path";
 import { readFileSync, existsSync } from "fs";
 
-// Use process.cwd() for bundled environments, fall back to __dirname in dev
-const __dirname = process.cwd();
+// Migrations folder is always at project root/migrations
+// process.cwd() is the project root in all environments
+const PROJECT_ROOT = process.cwd();
 
 interface JournalEntry {
   idx: number;
@@ -40,7 +41,7 @@ interface Journal {
  * This marks all existing migrations as "applied" without running them.
  */
 async function autoBaseline(pool: pg.Pool): Promise<void> {
-  const journalPath = path.resolve(__dirname, "../../migrations/meta/_journal.json");
+  const journalPath = path.resolve(PROJECT_ROOT, "migrations/meta/_journal.json");
   
   if (!existsSync(journalPath)) {
     console.log("[migrate] No migrations journal found, skipping baseline");
@@ -98,7 +99,7 @@ async function runMigrations() {
 
   try {
     const db = drizzle(pool);
-    const migrationsFolder = path.resolve(__dirname, "../../migrations");
+    const migrationsFolder = path.resolve(PROJECT_ROOT, "migrations");
     
     console.log(`[migrate] Running migrations from: ${migrationsFolder}`);
     

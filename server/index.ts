@@ -89,8 +89,65 @@ app.get("/", (req, res, next) => {
   next();
 });
 
+// Main health endpoint - always responds, reports readiness status
+// Minimal details for security; use /api/v1/super/diagnostics/schema for full details
 app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  const version = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
+    || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
+    || "dev";
+  
+  // Base response - minimal for public endpoint
+  const response: Record<string, any> = {
+    ok: appReady && !startupError,
+    timestamp: new Date().toISOString(),
+    version,
+    ready: appReady,
+  };
+  
+  // If startup failed, only show generic reason (no internal details)
+  if (startupError) {
+    response.ok = false;
+    response.ready = false;
+    response.reason = "startup_failed";
+    return res.status(503).json(response);
+  }
+  
+  // If still starting up
+  if (!appReady) {
+    response.reason = "starting";
+    return res.status(503).json(response);
+  }
+  
+  // All good
+  res.status(200).json(response);
+});
+
+// Backwards-compatible /api/health alias - same minimal response
+app.get("/api/health", (_req, res) => {
+  const version = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
+    || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
+    || "dev";
+  
+  const response: Record<string, any> = {
+    ok: appReady && !startupError,
+    timestamp: new Date().toISOString(),
+    version,
+    ready: appReady,
+  };
+  
+  if (startupError) {
+    response.ok = false;
+    response.ready = false;
+    response.reason = "startup_failed";
+    return res.status(503).json(response);
+  }
+  
+  if (!appReady) {
+    response.reason = "starting";
+    return res.status(503).json(response);
+  }
+  
+  res.status(200).json(response);
 });
 
 app.get("/healthz", (_req, res) => {

@@ -8739,4 +8739,47 @@ router.get("/system/db-introspect", requireSuperUser, async (req, res) => {
   }
 });
 
+// ==============================================================================
+// SCHEMA DIAGNOSTICS ENDPOINT
+// ==============================================================================
+
+// GET /api/v1/super/diagnostics/schema - Get schema readiness status (Super Admin only)
+router.get("/diagnostics/schema", requireSuperUser, async (_req, res) => {
+  try {
+    // Import dynamically to avoid circular dependencies
+    const { checkSchemaReadiness } = await import("../startup/schemaReadiness");
+    const schemaCheck = await checkSchemaReadiness();
+    
+    res.json({
+      generatedAt: new Date().toISOString(),
+      isReady: schemaCheck.isReady,
+      dbConnectionOk: schemaCheck.dbConnectionOk,
+      migrations: {
+        appliedCount: schemaCheck.migrationAppliedCount,
+        lastMigrationHash: schemaCheck.lastMigrationHash,
+        lastMigrationTimestamp: schemaCheck.lastMigrationTimestamp,
+      },
+      tables: schemaCheck.tablesCheck.map(t => ({
+        table: t.table,
+        exists: t.exists,
+      })),
+      columns: schemaCheck.columnsCheck.map(c => ({
+        table: c.table,
+        column: c.column,
+        exists: c.exists,
+      })),
+      summary: {
+        allTablesExist: schemaCheck.allTablesExist,
+        allColumnsExist: schemaCheck.allColumnsExist,
+        missingTables: schemaCheck.tablesCheck.filter(t => !t.exists).map(t => t.table),
+        missingColumns: schemaCheck.columnsCheck.filter(c => !c.exists).map(c => `${c.table}.${c.column}`),
+        errors: schemaCheck.errors,
+      },
+    });
+  } catch (error) {
+    console.error("[schema-diagnostics] Failed to check schema:", error);
+    res.status(500).json({ error: "Failed to check schema readiness" });
+  }
+});
+
 export default router;

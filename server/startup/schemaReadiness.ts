@@ -187,6 +187,13 @@ export async function checkSchemaReadiness(): Promise<SchemaCheckResult> {
   };
 }
 
+// Global state for health check reporting
+let lastSchemaCheck: SchemaCheckResult | null = null;
+
+export function getLastSchemaCheck(): SchemaCheckResult | null {
+  return lastSchemaCheck;
+}
+
 export async function ensureSchemaReady(): Promise<void> {
   const autoMigrate = process.env.AUTO_MIGRATE === "true";
   const env = process.env.NODE_ENV || "development";
@@ -197,6 +204,7 @@ export async function ensureSchemaReady(): Promise<void> {
   console.log(`[schema] AUTO_MIGRATE=${autoMigrate}, NODE_ENV=${env}`);
 
   let preCheck = await checkSchemaReadiness();
+  lastSchemaCheck = preCheck;
 
   if (!preCheck.dbConnectionOk) {
     console.error("[schema] FATAL: Cannot connect to database");
@@ -213,6 +221,7 @@ export async function ensureSchemaReady(): Promise<void> {
       throw new Error(`Migration failed: ${migResult.error}`);
     }
     preCheck = await checkSchemaReadiness();
+    lastSchemaCheck = preCheck;
   } else {
     console.log("[schema] AUTO_MIGRATE disabled - skipping automatic migrations");
     if (!preCheck.isReady) {

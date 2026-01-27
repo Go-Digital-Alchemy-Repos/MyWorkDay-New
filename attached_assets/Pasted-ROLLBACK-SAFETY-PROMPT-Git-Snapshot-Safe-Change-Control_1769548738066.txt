@@ -1,0 +1,85 @@
+ROLLBACK SAFETY PROMPT — Git Snapshot + Safe Change Control for MyWorkDay
+
+You are working on my React + Express + Postgres (Drizzle) multi-tenant app. We need to stabilize development and make it easy to roll back if a prompt causes regressions.
+
+ABSOLUTE RULES
+- Do NOT change any application logic in this prompt.
+- Do NOT modify database schema.
+- Do NOT refactor files.
+- This prompt is ONLY about Git safety, change control, and repeatable rollback procedures.
+
+GOALS
+1) Ensure we always have a clean rollback point before each prompt/phase.
+2) Ensure changes are isolated, reviewable, and reversible.
+3) Ensure Railway deployments can be rolled back quickly.
+
+PART 1 — Confirm Git is set up correctly
+1) Verify the project is a Git repo.
+2) Confirm current branch name and status.
+3) If there are uncommitted changes:
+   - create a WIP commit OR stash them (prefer WIP commit with clear message)
+4) Ensure .gitignore is correct and does NOT accidentally commit secrets:
+   - .env, .env.* files
+   - service credentials
+   - any local DB dumps
+   - node_modules
+   - build artifacts (dist, build) unless required
+
+PART 2 — Add a “Safety Branch + Tag” workflow
+Implement a simple workflow that will be used before EVERY future prompt:
+
+A) Before any prompt changes:
+1) Create a new branch:
+   - name format: safe/<YYYY-MM-DD>-<short-scope>
+   - example: safe/2026-01-27-schema-readiness
+2) Create a git tag on the pre-change commit:
+   - name format: pre/<YYYY-MM-DD>-<short-scope>
+   - example: pre/2026-01-27-schema-readiness
+3) Push branch + tag to origin.
+
+B) After changes are made and tests pass:
+1) Commit with message format:
+   - feat(scope): summary
+   - fix(scope): summary
+   - chore(scope): summary
+2) Push branch
+3) (Optional) open PR into main if you use PRs.
+
+PART 3 — Add docs: Rollback Procedure
+Create a file:
+/docs/ROLLBACK_PROCEDURE.md
+
+Include:
+1) How to roll back code locally:
+   - checkout the pre/* tag
+   - reset --hard to tag
+2) How to roll back a bad commit on the branch:
+   - git revert <sha> (preferred) vs reset (only if safe)
+3) How to roll back Railway:
+   - Identify last good deployment commit SHA
+   - Redeploy that SHA (Railway UI steps)
+   - Confirm /api/health ready:true
+4) DB rollback guidance:
+   - Prefer forward-only migrations
+   - If a migration causes problems:
+     - hotfix by adding a new corrective migration
+     - do NOT attempt destructive down-migrations in production
+5) “Emergency checklist”:
+   - rollback code to last good tag
+   - run db-smoke
+   - run railway-smoke
+   - verify login and tenant CRUD
+
+PART 4 — Add scripts for repeatability (non-destructive)
+Add npm scripts in package.json (if package.json exists) without changing existing scripts:
+- "safety:status" -> prints git status + branch + last commit
+- "safety:pre" -> prints instructions to create branch + tag (do not automate if risky)
+- "safety:smoke" -> runs build + tests + db-smoke + railway-smoke (only if those scripts exist)
+
+If the smoke scripts don’t exist, do NOT create them in this prompt; just document placeholders.
+
+OUTPUT REQUIRED
+- Print the exact branch name created (if created)
+- Print the exact tag name created (if created)
+- Provide the contents of /docs/ROLLBACK_PROCEDURE.md
+- Confirm no app logic files were changed (only docs/package.json if needed)
