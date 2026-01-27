@@ -418,8 +418,44 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
 
               <TabsContent value="overview" className="space-y-4 mt-4">
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="flex flex-row items-center justify-between gap-2">
                     <CardTitle className="text-base">User Information</CardTitle>
+                    {!isEditing ? (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={startEditing}
+                        data-testid="button-edit-user"
+                      >
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => setIsEditing(false)}
+                          data-testid="button-cancel-edit"
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Cancel
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          onClick={saveUserChanges}
+                          disabled={updateUserMutation.isPending}
+                          data-testid="button-save-user"
+                        >
+                          {updateUserMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Save className="h-4 w-4 mr-2" />
+                          )}
+                          Save
+                        </Button>
+                      </div>
+                    )}
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center gap-4">
@@ -432,34 +468,93 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-4 pt-4">
-                      <div>
-                        <Label className="text-xs text-muted-foreground">First Name</Label>
-                        <p className="font-medium">{user.firstName || "-"}</p>
+                    {isEditing ? (
+                      <div className="grid grid-cols-2 gap-4 pt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-first-name">First Name</Label>
+                          <Input
+                            id="edit-first-name"
+                            value={editFirstName}
+                            onChange={(e) => setEditFirstName(e.target.value)}
+                            placeholder="First name"
+                            data-testid="input-edit-first-name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-last-name">Last Name</Label>
+                          <Input
+                            id="edit-last-name"
+                            value={editLastName}
+                            onChange={(e) => setEditLastName(e.target.value)}
+                            placeholder="Last name"
+                            data-testid="input-edit-last-name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-email">Email</Label>
+                          <Input
+                            id="edit-email"
+                            type="email"
+                            value={editEmail}
+                            onChange={(e) => setEditEmail(e.target.value)}
+                            placeholder="user@example.com"
+                            data-testid="input-edit-email"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-role">Role</Label>
+                          <Select value={editRole} onValueChange={setEditRole}>
+                            <SelectTrigger id="edit-role" data-testid="select-edit-role">
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="employee">Employee</SelectItem>
+                              <SelectItem value="client">Client</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Status</Label>
+                          <Badge className={user.isActive ? "bg-green-600 mt-1" : "bg-gray-500 mt-1"}>
+                            {user.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Last Updated</Label>
+                          <p className="font-medium">{new Date(user.updatedAt).toLocaleDateString()}</p>
+                        </div>
                       </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Last Name</Label>
-                        <p className="font-medium">{user.lastName || "-"}</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4 pt-4">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">First Name</Label>
+                          <p className="font-medium">{user.firstName || "-"}</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Last Name</Label>
+                          <p className="font-medium">{user.lastName || "-"}</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Role</Label>
+                          <Badge variant="outline" className="mt-1">{user.role}</Badge>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Status</Label>
+                          <Badge className={user.isActive ? "bg-green-600 mt-1" : "bg-gray-500 mt-1"}>
+                            {user.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Created</Label>
+                          <p className="font-medium">{new Date(user.createdAt).toLocaleDateString()}</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Last Updated</Label>
+                          <p className="font-medium">{new Date(user.updatedAt).toLocaleDateString()}</p>
+                        </div>
                       </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Role</Label>
-                        <Badge variant="outline" className="mt-1">{user.role}</Badge>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Status</Label>
-                        <Badge className={user.isActive ? "bg-green-600 mt-1" : "bg-gray-500 mt-1"}>
-                          {user.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Created</Label>
-                        <p className="font-medium">{new Date(user.createdAt).toLocaleDateString()}</p>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Last Updated</Label>
-                        <p className="font-medium">{new Date(user.updatedAt).toLocaleDateString()}</p>
-                      </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -502,6 +597,40 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
                           <LogIn className="h-4 w-4 mr-2" />
                         )}
                         Impersonate
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-destructive/50">
+                  <CardHeader>
+                    <CardTitle className="text-base text-destructive flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Danger Zone
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-destructive/50">
+                      <div>
+                        <p className="font-medium">Delete User Permanently</p>
+                        <p className="text-sm text-muted-foreground">
+                          {user.isActive 
+                            ? "User must be deactivated before deletion. Toggle status above first." 
+                            : "Remove this user and all associated data. This cannot be undone."}
+                        </p>
+                      </div>
+                      <Button
+                        variant="destructive"
+                        onClick={() => setConfirmDeleteUser(true)}
+                        disabled={user.isActive || deleteUserMutation.isPending}
+                        data-testid="button-delete-user"
+                      >
+                        {deleteUserMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 mr-2" />
+                        )}
+                        Delete User
                       </Button>
                     </div>
                   </CardContent>
@@ -827,6 +956,52 @@ export function TenantUserDrawer({ open, onClose, tenantId, userId, tenantName }
               data-testid="button-confirm-delete-invite"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDeleteUser} onOpenChange={setConfirmDeleteUser}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Delete User Permanently?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                This will permanently delete <strong>{user?.name || user?.email}</strong> and all their associated data including:
+              </p>
+              <ul className="list-disc list-inside text-sm space-y-1 mt-2">
+                <li>Workspace memberships</li>
+                <li>Team memberships</li>
+                <li>Project memberships</li>
+                <li>Task assignments</li>
+                <li>Time entries</li>
+                <li>Comments</li>
+                <li>Activity logs</li>
+              </ul>
+              <p className="font-medium text-destructive mt-3">
+                This action cannot be undone.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-user">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              className="bg-destructive text-destructive-foreground"
+              onClick={() => {
+                deleteUserMutation.mutate();
+                setConfirmDeleteUser(false);
+              }}
+              data-testid="button-confirm-delete-user"
+            >
+              {deleteUserMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete User
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
