@@ -15,10 +15,9 @@
 import pg from "pg";
 import { readFileSync } from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Use process.cwd() for bundled environments
+const __dirname = process.cwd();
 
 interface JournalEntry {
   idx: number;

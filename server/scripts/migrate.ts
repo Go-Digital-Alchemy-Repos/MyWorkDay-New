@@ -16,11 +16,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import path from "path";
-import { fileURLToPath } from "url";
 import { readFileSync, existsSync } from "fs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Use process.cwd() for bundled environments, fall back to __dirname in dev
+const __dirname = process.cwd();
 
 interface JournalEntry {
   idx: number;

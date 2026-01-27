@@ -263,9 +263,8 @@ export async function runProductionParityCheck(): Promise<ParityCheckResult> {
   return result;
 }
 
-import { fileURLToPath } from "url";
-
-const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+// Only run as main module when explicitly called via CLI (not when bundled)
+const isMainModule = typeof require !== 'undefined' && require.main === module;
 
 if (isMainModule) {
   runProductionParityCheck()
