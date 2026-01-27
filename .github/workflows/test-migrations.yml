@@ -1,0 +1,106 @@
+name: Test Migrations
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'shared/schema.ts'
+      - 'server/startup/schemaReadiness.ts'
+      - 'server/tests/migrations-smoke.test.ts'
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+
+jobs:
+  migration-tests:
+    name: Migration Smoke Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migration smoke tests
+        run: npx vitest run server/tests/migrations-smoke.test.ts
+
+      - name: Verify migrations syntax
+        run: npx tsx server/scripts/verify-migrations.ts --strict
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            const journalPath = 'migrations/meta/_journal.json';
+            let migrationInfo = 'Unable to read migration journal';
+            
+            try {
+              const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'));
+              const count = journal.entries.length;
+              const latest = journal.entries[count - 1];
+              migrationInfo = `**Migrations:** ${count} total, latest: \`${latest.tag}\``;
+            } catch (e) {
+              console.log('Could not read journal:', e.message);
+            }
+            
+            const body = `## Migration Check Results ✅
+            
+            ${migrationInfo}
+            
+            All migration smoke tests passed:
+            - ✓ Migration files match journal
+            - ✓ Idempotent syntax validated
+            - ✓ No dangerous operations detected
+            - ✓ Required tables defined
+            - ✓ Required columns defined
+            - ✓ Sequential ordering verified
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  migration-tests-fail-comment:
+    name: Comment on Migration Failure
+    runs-on: ubuntu-latest
+    needs: migration-tests
+    if: failure() && github.event_name == 'pull_request'
+
+    steps:
+      - name: Comment on PR failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## Migration Check Results ❌
+            
+            Migration smoke tests failed. Please review the workflow logs for details.
+            
+            Common issues:
+            - Non-idempotent CREATE statements (add IF NOT EXISTS)
+            - Missing required tables or columns
+            - Dangerous operations (DROP, TRUNCATE) without safeguards
+            - Journal out of sync with migration files
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
