@@ -2013,10 +2013,20 @@ export const insertSectionSchema = createInsertSchema(sections).omit({
   createdAt: true,
 });
 
+// Helper to coerce date strings to Date objects (for JSON API compatibility)
+const coercedDate = z.preprocess(
+  (val) => (typeof val === 'string' ? new Date(val) : val),
+  z.date().nullable().optional()
+);
+
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  // Override date fields to accept ISO strings from JSON
+  startDate: coercedDate,
+  dueDate: coercedDate,
 });
 
 export const insertTaskAssigneeSchema = createInsertSchema(taskAssignees).omit({
@@ -2039,6 +2049,9 @@ export const insertSubtaskSchema = createInsertSchema(subtasks).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  // Override date field to accept ISO strings from JSON
+  dueDate: coercedDate,
 });
 
 export const insertTagSchema = createInsertSchema(tags).omit({
