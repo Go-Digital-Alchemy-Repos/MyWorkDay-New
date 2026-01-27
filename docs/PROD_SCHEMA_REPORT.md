@@ -2,7 +2,48 @@
 
 A read-only database introspection tool to verify schema state in any environment.
 
-## Commands
+## Super Admin UI Endpoint
+
+### GET /api/v1/super/system/db-introspect
+
+In-app schema introspection accessible from System Status → DB Introspect tab.
+
+**Authentication**: Super User role (`super_user`) required
+
+**Environment Variables**:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAINTENANCE_TOOLS` | `true` | Set to `false` to disable endpoint |
+
+**Response Format**:
+```json
+{
+  "generatedAt": "2026-01-27T01:30:00.000Z",
+  "database": { "hostHint": "railway-postgres", "nameHint": "rail...(masked)" },
+  "tables": [
+    { "name": "notifications", "exists": true, "columns": [...], "missingColumns": [] }
+  ],
+  "requiredChecks": [
+    { "check": "notifications.tenant_id exists", "ok": true }
+  ],
+  "summary": {
+    "totalTables": 45,
+    "checkedTables": 10,
+    "passedChecks": 6,
+    "failedChecks": 0,
+    "hasSchemaDrift": false
+  }
+}
+```
+
+**UI Features**:
+- Run DB Introspect button
+- Copy JSON / Download JSON buttons
+- Schema drift banner with links to Error Log and Tenant Health
+
+---
+
+## CLI Commands
 
 ### Run Locally
 ```bash
