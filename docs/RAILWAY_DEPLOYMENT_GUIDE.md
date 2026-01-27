@@ -96,7 +96,17 @@ Look for these log entries to confirm migrations ran:
 
 ### Verifying Migrations
 
-After deployment, check migration status:
+**Before Deployment (Local)**:
+
+```bash
+# Verify migration files are idempotent
+npx tsx server/scripts/verify-migrations.ts
+
+# Run startup health check
+npx tsx server/scripts/startup-health-check.ts
+```
+
+**After deployment**, check migration status:
 
 ```bash
 # Via Super Admin API (requires authentication)
