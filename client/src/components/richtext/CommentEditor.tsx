@@ -225,7 +225,7 @@ function MenuBar({ editor, onSubmit, isSubmitting }: { editor: Editor | null; on
           data-testid="button-comment-submit"
         >
           <Send className="h-3 w-3 mr-1" />
-          Send
+          Post Comment
         </Button>
       )}
     </div>
