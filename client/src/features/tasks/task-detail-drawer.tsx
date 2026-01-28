@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2, CheckSquare, Save } from "lucide-react";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2, CheckSquare, Save, Check } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,15 @@ import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -111,6 +120,13 @@ export function TaskDetailDrawer({
   const [selectedSubtask, setSelectedSubtask] = useState<any | null>(null);
   const [subtaskDrawerOpen, setSubtaskDrawerOpen] = useState(false);
   const [timerDrawerOpen, setTimerDrawerOpen] = useState(false);
+  
+  const [showTimeTrackingPrompt, setShowTimeTrackingPrompt] = useState(false);
+  const [showTimeEntryForm, setShowTimeEntryForm] = useState(false);
+  const [completionTimeHours, setCompletionTimeHours] = useState(0);
+  const [completionTimeMinutes, setCompletionTimeMinutes] = useState(0);
+  const [completionTimeDescription, setCompletionTimeDescription] = useState("");
+  const [isCompletingTask, setIsCompletingTask] = useState(false);
   
   const { isDirty, setDirty, markClean, confirmIfDirty, UnsavedChangesDialog } = useUnsavedChanges();
 
@@ -286,6 +302,122 @@ export function TaskDetailDrawer({
     },
   });
 
+  const createTimeEntryMutation = useMutation({
+    mutationFn: async (data: { 
+      durationSeconds: number; 
+      description: string;
+      taskId: string;
+      projectId: string | null;
+      clientId: string | null;
+    }) => {
+      return apiRequest("POST", "/api/time-entries", {
+        taskId: data.taskId,
+        projectId: data.projectId,
+        clientId: data.clientId,
+        description: data.description,
+        durationSeconds: data.durationSeconds,
+        startTime: new Date().toISOString(),
+        scope: "in_scope",
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [`/api/time-entries?taskId=${task?.id}`] });
+      qc.invalidateQueries({ queryKey: ["/api/time-entries"] });
+    },
+  });
+
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: async (status: string) => {
+      return apiRequest("PATCH", `/api/tasks/${task!.id}`, { status });
+    },
+    onSuccess: () => {
+      invalidateTaskQueries();
+    },
+  });
+
+  const handleMarkAsComplete = () => {
+    if (task?.status === "done" || timeEntriesLoading) return;
+    
+    if (timeEntries.length === 0) {
+      setShowTimeTrackingPrompt(true);
+    } else {
+      completeTaskDirectly();
+    }
+  };
+
+  const completeTaskDirectly = async () => {
+    setIsCompletingTask(true);
+    try {
+      await updateTaskStatusMutation.mutateAsync("done");
+      toast({ title: "Task completed", description: `"${task?.title}" marked as done` });
+      resetCompletionState();
+    } catch (error) {
+      toast({ title: "Failed to complete task", variant: "destructive" });
+    } finally {
+      setIsCompletingTask(false);
+    }
+  };
+
+  const handleTimeTrackingNo = () => {
+    setShowTimeTrackingPrompt(false);
+    completeTaskDirectly();
+  };
+
+  const handleTimeTrackingYes = () => {
+    setShowTimeTrackingPrompt(false);
+    setShowTimeEntryForm(true);
+  };
+
+  const handleTimeEntrySubmit = async () => {
+    const totalSeconds = (completionTimeHours * 60 + completionTimeMinutes) * 60;
+    
+    if (totalSeconds <= 0) {
+      toast({ title: "Please enter a valid time", variant: "destructive" });
+      return;
+    }
+
+    if (task?.projectId && !projectContext?.clientId) {
+      toast({ 
+        title: "Client context required", 
+        description: "Unable to log time for this project task. Completing without time entry.",
+        variant: "destructive" 
+      });
+      await completeTaskDirectly();
+      return;
+    }
+
+    setIsCompletingTask(true);
+    
+    try {
+      await createTimeEntryMutation.mutateAsync({
+        durationSeconds: totalSeconds,
+        description: completionTimeDescription || `Completed: ${task?.title}`,
+        taskId: task!.id,
+        projectId: task?.projectId || null,
+        clientId: projectContext?.clientId || null,
+      });
+      
+      await updateTaskStatusMutation.mutateAsync("done");
+      toast({ 
+        title: "Task completed with time logged", 
+        description: `Logged ${completionTimeHours}h ${completionTimeMinutes}m for "${task?.title}"` 
+      });
+      resetCompletionState();
+    } catch (error) {
+      toast({ title: "Failed to complete task", variant: "destructive" });
+    } finally {
+      setIsCompletingTask(false);
+    }
+  };
+
+  const resetCompletionState = () => {
+    setShowTimeTrackingPrompt(false);
+    setShowTimeEntryForm(false);
+    setCompletionTimeHours(0);
+    setCompletionTimeMinutes(0);
+    setCompletionTimeDescription("");
+  };
+
   const { data: userChannels = [] } = useQuery<Array<{ id: string; name: string }>>({
     queryKey: ["/api/v1/chat/channels"],
     enabled: open,
@@ -393,10 +525,26 @@ export function TaskDetailDrawer({
       >
         <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">
           <SheetDescription className="sr-only">Edit task details, add subtasks, and manage comments</SheetDescription>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
               <SheetTitle className="sr-only">Task Details</SheetTitle>
               <StatusBadge status={task.status as any} />
+              {task.status !== "done" && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleMarkAsComplete}
+                  disabled={timeEntriesLoading || isCompletingTask}
+                  data-testid="button-mark-complete"
+                >
+                  {isCompletingTask ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4 mr-1" />
+                  )}
+                  {isCompletingTask ? "Completing..." : "Mark Complete"}
+                </Button>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {isDirty && (
@@ -954,6 +1102,113 @@ export function TaskDetailDrawer({
         initialTaskId={task.id}
         initialProjectId={task.projectId || null}
       />
+
+      <Dialog open={showTimeTrackingPrompt} onOpenChange={setShowTimeTrackingPrompt}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Track time for this task?</DialogTitle>
+            <DialogDescription>
+              No time has been logged for this task. Would you like to add a time entry before completing it?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={handleTimeTrackingNo}
+              data-testid="button-time-tracking-no"
+            >
+              No, just complete
+            </Button>
+            <Button
+              onClick={handleTimeTrackingYes}
+              data-testid="button-time-tracking-yes"
+            >
+              Yes, add time
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTimeEntryForm} onOpenChange={(open) => {
+        if (!open) resetCompletionState();
+        else setShowTimeEntryForm(open);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Log time and complete task</DialogTitle>
+            <DialogDescription>
+              Enter the time spent on "{task.title}"
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Duration</Label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="24"
+                    value={completionTimeHours}
+                    onChange={(e) => setCompletionTimeHours(parseInt(e.target.value) || 0)}
+                    className="w-20"
+                    data-testid="input-completion-hours"
+                  />
+                  <span className="text-sm text-muted-foreground">hours</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={completionTimeMinutes}
+                    onChange={(e) => setCompletionTimeMinutes(parseInt(e.target.value) || 0)}
+                    className="w-20"
+                    data-testid="input-completion-minutes"
+                  />
+                  <span className="text-sm text-muted-foreground">minutes</span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Description (optional)</Label>
+              <Textarea
+                value={completionTimeDescription}
+                onChange={(e) => setCompletionTimeDescription(e.target.value)}
+                placeholder="What did you work on?"
+                className="resize-none"
+                data-testid="textarea-completion-description"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => resetCompletionState()}
+              data-testid="button-cancel-time-entry"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleTimeEntrySubmit}
+              disabled={isCompletingTask || (completionTimeHours === 0 && completionTimeMinutes === 0)}
+              data-testid="button-submit-time-complete"
+            >
+              {isCompletingTask ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4 mr-1" />
+                  Log Time & Complete
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </Sheet>
     </>
   );
