@@ -35,6 +35,10 @@ declare module "http" {
 // to ensure immediate responses during startup for deployment health checks
 // ============================================================================
 
+// Track application readiness for health checks (must be before health endpoints)
+let appReady = false;
+let startupError: Error | null = null;
+
 // Root endpoint for platforms that check / by default
 app.get("/", (req, res, next) => {
   // If it's a health check (no Accept: text/html), return JSON
@@ -241,10 +245,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Track application readiness for health checks
 // Startup state tracking for health checks and /ready endpoint
-let appReady = false;
-let startupError: Error | null = null;
+// Note: appReady and startupError are declared at the top of the file before health endpoints
 let startupPhase: "starting" | "schema" | "migrating" | "bootstrapping" | "routes" | "ready" | "error" = "starting";
 let startupPhaseStart = Date.now();
 let serverStartTime = Date.now();
@@ -324,7 +326,7 @@ app.get("/ready", (_req, res) => {
 // Bind to 0.0.0.0 explicitly for Replit Autoscale deployment
 const port = parseInt(process.env.PORT || "5000", 10);
 const host = "0.0.0.0";
-const PHASE_TIMEOUT_MS = 25000; // Warn if any phase takes >25 seconds
+const PHASE_TIMEOUT_MS = 10000; // Warn if any phase takes >10 seconds
 
 // Helper to run a phase with timing and timeout warning
 async function runPhase<T>(
@@ -393,7 +395,12 @@ httpServer.listen(port, host, () => {
   await runPhase("migrating", "3/6", async () => {
     await logMigrationStatus();
     // Run production parity check (logs issues but doesn't crash)
-    await runProductionParityCheck();
+    // Skip in production to speed up startup - can be run manually via super admin endpoints
+    if (process.env.SKIP_PARITY_CHECK !== "true" && process.env.NODE_ENV !== "production") {
+      await runProductionParityCheck();
+    } else if (process.env.NODE_ENV === "production") {
+      console.log("[Production Parity] Skipped in production for faster startup");
+    }
     // Check for NULL tenantId values (logs warnings, doesn't crash)
     await logNullTenantIdWarnings();
   });
