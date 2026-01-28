@@ -70,7 +70,13 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  TrendingUp,
+  Target,
+  Sparkles,
+  ListTodo,
+  Zap,
 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -95,9 +101,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SortableTaskCard, TaskDetailDrawer } from "@/features/tasks";
-import { isToday, isPast, isFuture } from "date-fns";
+import { isToday, isPast, isFuture, subDays } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { AccessInfoBanner } from "@/components/access-info-banner";
@@ -259,6 +264,238 @@ function TaskSectionList({ section, onTaskSelect, onStatusChange, localOrder, on
         )}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+interface DashboardStats {
+  todayCount: number;
+  overdueCount: number;
+  inProgressCount: number;
+  completedThisWeek: number;
+  recentlyAdded: TaskWithRelations[];
+  recentlyCompleted: TaskWithRelations[];
+  completionRate: number;
+  highPriorityCount: number;
+  personalTaskCount: number;
+  projectTaskCount: number;
+}
+
+function computeDashboardStats(tasks: TaskWithRelations[]): DashboardStats {
+  const now = new Date();
+  const weekAgo = subDays(now, 7);
+  
+  const todayTasks = tasks.filter(t => t.dueDate && isToday(new Date(t.dueDate)) && t.status !== "done");
+  const overdueTasks = tasks.filter(t => t.dueDate && isPast(new Date(t.dueDate)) && !isToday(new Date(t.dueDate)) && t.status !== "done");
+  const inProgressTasks = tasks.filter(t => t.status === "in_progress");
+  const completedThisWeek = tasks.filter(t => t.status === "done" && t.updatedAt && new Date(t.updatedAt) >= weekAgo);
+  
+  const recentlyAdded = tasks
+    .filter(t => t.createdAt && new Date(t.createdAt) >= weekAgo && t.status !== "done")
+    .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+    .slice(0, 5);
+  
+  const recentlyCompleted = tasks
+    .filter(t => t.status === "done" && t.updatedAt && new Date(t.updatedAt) >= weekAgo)
+    .sort((a, b) => new Date(b.updatedAt!).getTime() - new Date(a.updatedAt!).getTime())
+    .slice(0, 5);
+  
+  const totalTasks = tasks.length;
+  const doneTasks = tasks.filter(t => t.status === "done").length;
+  const completionRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+  
+  const highPriorityCount = tasks.filter(t => (t.priority === "high" || t.priority === "urgent") && t.status !== "done").length;
+  const personalTaskCount = tasks.filter(t => !t.projectId).length;
+  const projectTaskCount = tasks.filter(t => !!t.projectId).length;
+
+  return {
+    todayCount: todayTasks.length,
+    overdueCount: overdueTasks.length,
+    inProgressCount: inProgressTasks.length,
+    completedThisWeek: completedThisWeek.length,
+    recentlyAdded,
+    recentlyCompleted,
+    completionRate,
+    highPriorityCount,
+    personalTaskCount,
+    projectTaskCount,
+  };
+}
+
+interface DashboardSummaryProps {
+  stats: DashboardStats;
+  onTaskSelect: (task: TaskWithRelations) => void;
+  isLoading: boolean;
+}
+
+function DashboardSummary({ stats, onTaskSelect, isLoading }: DashboardSummaryProps) {
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-20 mb-2" />
+                <Skeleton className="h-8 w-12" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <Card className={stats.overdueCount > 0 ? "border-red-500/30 bg-red-500/5" : ""} data-testid="card-overdue-stats">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <AlertCircle className={`h-4 w-4 ${stats.overdueCount > 0 ? "text-red-500" : ""}`} />
+              <span className="text-xs font-medium">Overdue</span>
+            </div>
+            <p className={`text-2xl font-bold ${stats.overdueCount > 0 ? "text-red-500" : ""}`}>
+              {stats.overdueCount}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={stats.todayCount > 0 ? "border-blue-500/30 bg-blue-500/5" : ""} data-testid="card-today-stats">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <Clock className={`h-4 w-4 ${stats.todayCount > 0 ? "text-blue-500" : ""}`} />
+              <span className="text-xs font-medium">Due Today</span>
+            </div>
+            <p className={`text-2xl font-bold ${stats.todayCount > 0 ? "text-blue-500" : ""}`}>
+              {stats.todayCount}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-inprogress-stats">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <Zap className="h-4 w-4 text-yellow-500" />
+              <span className="text-xs font-medium">In Progress</span>
+            </div>
+            <p className="text-2xl font-bold">{stats.inProgressCount}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-green-500/30 bg-green-500/5" data-testid="card-completed-stats">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <span className="text-xs font-medium">Done This Week</span>
+            </div>
+            <p className="text-2xl font-bold text-green-500">{stats.completedThisWeek}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+        <Card data-testid="card-quick-insights">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-blue-500" />
+              Quick Insights
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Completion Rate</span>
+              <span className="font-medium">{stats.completionRate}%</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-2">
+              <div 
+                className="bg-primary h-2 rounded-full transition-all" 
+                style={{ width: `${stats.completionRate}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-sm pt-1">
+              <span className="text-muted-foreground">High Priority</span>
+              <span className={`font-medium ${stats.highPriorityCount > 0 ? "text-orange-500" : ""}`}>
+                {stats.highPriorityCount} tasks
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Personal / Project</span>
+              <span className="font-medium">{stats.personalTaskCount} / {stats.projectTaskCount}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-recently-added">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-purple-500" />
+              Recently Added
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            {stats.recentlyAdded.length > 0 ? (
+              <div className="space-y-1">
+                {stats.recentlyAdded.slice(0, 3).map((task) => (
+                  <Button
+                    key={task.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onTaskSelect(task)}
+                    className="w-full justify-start text-left gap-2"
+                    data-testid={`task-recent-${task.id}`}
+                  >
+                    <ListTodo className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="truncate">{task.title}</span>
+                  </Button>
+                ))}
+                {stats.recentlyAdded.length > 3 && (
+                  <p className="text-xs text-muted-foreground px-2 pt-1">
+                    +{stats.recentlyAdded.length - 3} more this week
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground py-2">No new tasks this week</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-recently-completed">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Target className="h-4 w-4 text-green-500" />
+              Recently Completed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            {stats.recentlyCompleted.length > 0 ? (
+              <div className="space-y-1">
+                {stats.recentlyCompleted.slice(0, 3).map((task) => (
+                  <Button
+                    key={task.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onTaskSelect(task)}
+                    className="w-full justify-start text-left gap-2"
+                    data-testid={`task-completed-${task.id}`}
+                  >
+                    <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                    <span className="truncate text-muted-foreground line-through">{task.title}</span>
+                  </Button>
+                ))}
+                {stats.recentlyCompleted.length > 3 && (
+                  <p className="text-xs text-muted-foreground px-2 pt-1">
+                    +{stats.recentlyCompleted.length - 3} more this week
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground py-2">Complete tasks to see them here</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -453,6 +690,10 @@ export default function MyTasks() {
     };
   }, [tasks]);
 
+  const dashboardStats = useMemo(() => {
+    return computeDashboardStats(tasks || []);
+  }, [tasks]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {isEmployee && (
@@ -543,57 +784,63 @@ export default function MyTasks() {
 
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        {isLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6 h-full">
-            <div className="space-y-4">
-              <Skeleton className="h-5 w-32" />
-              {[1, 2].map((section) => (
-                <div key={section} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-4 w-4 rounded" />
-                    <Skeleton className="h-5 w-24" />
-                    <Skeleton className="h-5 w-6 rounded-full" />
-                  </div>
-                  {[1, 2].map((task) => (
-                    <div key={task} className="flex items-center gap-3 p-3 rounded-lg border">
-                      <Skeleton className="h-5 w-5 rounded" />
-                      <div className="flex-1 space-y-1">
-                        <Skeleton className="h-4 w-48" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
-                      <Skeleton className="h-5 w-16 rounded-full" />
+      <div className="flex-1 overflow-auto">
+        <div className="p-4 md:p-6 space-y-6">
+          <DashboardSummary 
+            stats={dashboardStats} 
+            onTaskSelect={handleTaskSelect} 
+            isLoading={isLoading} 
+          />
+          
+          {isLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <div className="space-y-4">
+                <Skeleton className="h-5 w-32" />
+                {[1, 2].map((section) => (
+                  <div key={section} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4 rounded" />
+                      <Skeleton className="h-5 w-24" />
+                      <Skeleton className="h-5 w-6 rounded-full" />
                     </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div className="space-y-4">
-              <Skeleton className="h-5 w-40" />
-              {[1, 2].map((section) => (
-                <div key={section} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-4 w-4 rounded" />
-                    <Skeleton className="h-5 w-20" />
-                    <Skeleton className="h-5 w-6 rounded-full" />
-                  </div>
-                  {[1, 2].map((task) => (
-                    <div key={task} className="flex items-center gap-3 p-3 rounded-lg border">
-                      <Skeleton className="h-5 w-5 rounded" />
-                      <div className="flex-1 space-y-1">
-                        <Skeleton className="h-4 w-40" />
-                        <Skeleton className="h-3 w-20" />
+                    {[1, 2].map((task) => (
+                      <div key={task} className="flex items-center gap-3 p-3 rounded-lg border">
+                        <Skeleton className="h-5 w-5 rounded" />
+                        <div className="flex-1 space-y-1">
+                          <Skeleton className="h-4 w-48" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                        <Skeleton className="h-5 w-16 rounded-full" />
                       </div>
-                      <Skeleton className="h-5 w-14 rounded-full" />
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-4">
+                <Skeleton className="h-5 w-40" />
+                {[1, 2].map((section) => (
+                  <div key={section} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4 rounded" />
+                      <Skeleton className="h-5 w-20" />
+                      <Skeleton className="h-5 w-6 rounded-full" />
                     </div>
-                  ))}
-                </div>
-              ))}
+                    {[1, 2].map((task) => (
+                      <div key={task} className="flex items-center gap-3 p-3 rounded-lg border">
+                        <Skeleton className="h-5 w-5 rounded" />
+                        <div className="flex-1 space-y-1">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                        <Skeleton className="h-5 w-14 rounded-full" />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : totalTasks > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 p-4 md:p-6 h-full">
-            <ScrollArea className="h-full pr-2">
+          ) : totalTasks > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
               <div className="space-y-4">
                 <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Scheduled Tasks</h2>
                 {leftColumn.map((section) => (
@@ -607,9 +854,7 @@ export default function MyTasks() {
                   />
                 ))}
               </div>
-            </ScrollArea>
 
-            <ScrollArea className="h-full pr-2">
               <div className="space-y-4">
                 <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Personal & Unscheduled</h2>
                 {rightColumn.map((section) => (
@@ -625,28 +870,28 @@ export default function MyTasks() {
                   />
                 ))}
               </div>
-            </ScrollArea>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full py-16 text-center">
-            <CheckCircle2 className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-1">You're all caught up!</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              {statusFilter !== "all" || priorityFilter !== "all"
-                ? "No tasks match your current filters"
-                : "Tasks assigned to you will appear here"}
-            </p>
-            <Button
-              variant="outline"
-              className="mt-4"
-              onClick={() => setShowNewTaskDialog(true)}
-              data-testid="button-add-first-task"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add a personal task
-            </Button>
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <CheckCircle2 className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium mb-1">You're all caught up!</h3>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                {statusFilter !== "all" || priorityFilter !== "all"
+                  ? "No tasks match your current filters"
+                  : "Tasks assigned to you will appear here"}
+              </p>
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => setShowNewTaskDialog(true)}
+                data-testid="button-add-first-task"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add a personal task
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       <TaskDetailDrawer
