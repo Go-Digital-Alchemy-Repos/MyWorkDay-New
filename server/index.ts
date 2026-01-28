@@ -30,6 +30,79 @@ declare module "http" {
   }
 }
 
+// ============================================================================
+// CRITICAL: Health check endpoints MUST be registered BEFORE all middleware
+// to ensure immediate responses during startup for deployment health checks
+// ============================================================================
+
+// Root endpoint for platforms that check / by default
+app.get("/", (req, res, next) => {
+  // If it's a health check (no Accept: text/html), return JSON
+  const acceptHeader = req.headers.accept || "";
+  if (!acceptHeader.includes("text/html")) {
+    return res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  }
+  // Otherwise, let it fall through to static file serving for the React app
+  next();
+});
+
+// Main health endpoint - always responds 200 for load balancer health checks
+// IMPORTANT: Always returns 200 to pass Cloud Run/Railway health checks during startup
+app.get("/health", (_req, res) => {
+  const version = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
+    || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
+    || "dev";
+  
+  const response: Record<string, any> = {
+    ok: appReady && !startupError,
+    timestamp: new Date().toISOString(),
+    version,
+    ready: appReady,
+  };
+  
+  if (startupError) {
+    response.ok = false;
+    response.ready = false;
+    response.reason = "startup_failed";
+  } else if (!appReady) {
+    response.reason = "starting";
+  }
+  
+  res.status(200).json(response);
+});
+
+// Backwards-compatible /api/health alias
+app.get("/api/health", (_req, res) => {
+  const version = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
+    || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
+    || "dev";
+  
+  const response: Record<string, any> = {
+    ok: appReady && !startupError,
+    timestamp: new Date().toISOString(),
+    version,
+    ready: appReady,
+  };
+  
+  if (startupError) {
+    response.ok = false;
+    response.ready = false;
+    response.reason = "startup_failed";
+  } else if (!appReady) {
+    response.reason = "starting";
+  }
+  
+  res.status(200).json(response);
+});
+
+app.get("/healthz", (_req, res) => {
+  res.status(200).send("ok");
+});
+
+// ============================================================================
+// Now register middleware after health checks
+// ============================================================================
+
 // Request ID middleware (must be first for error correlation)
 app.use(requestIdMiddleware);
 
@@ -75,79 +148,6 @@ app.use(apiJsonResponseGuard);
 
 import { log } from "./lib/log";
 export { log };
-
-// Health check endpoints for deployment platforms (Railway, Replit, etc.)
-// These must respond immediately without database/auth dependencies
-// Root endpoint for platforms that check / by default
-app.get("/", (req, res, next) => {
-  // If it's a health check (no Accept: text/html), return JSON
-  const acceptHeader = req.headers.accept || "";
-  if (!acceptHeader.includes("text/html")) {
-    return res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
-  }
-  // Otherwise, let it fall through to static file serving for the React app
-  next();
-});
-
-// Main health endpoint - always responds 200 for load balancer health checks
-// Returns readiness status in body for monitoring; use /api/v1/super/diagnostics/schema for full details
-// IMPORTANT: Always returns 200 to pass Cloud Run/Railway health checks during startup
-app.get("/health", (_req, res) => {
-  const version = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
-    || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
-    || "dev";
-  
-  // Base response - minimal for public endpoint
-  const response: Record<string, any> = {
-    ok: appReady && !startupError,
-    timestamp: new Date().toISOString(),
-    version,
-    ready: appReady,
-  };
-  
-  // If startup failed, report in body but still return 200 for health check
-  if (startupError) {
-    response.ok = false;
-    response.ready = false;
-    response.reason = "startup_failed";
-  } else if (!appReady) {
-    // If still starting up, report in body but return 200
-    response.reason = "starting";
-  }
-  
-  // Always return 200 to pass health checks during initialization
-  res.status(200).json(response);
-});
-
-// Backwards-compatible /api/health alias - same behavior as /health
-// IMPORTANT: Always returns 200 to pass Cloud Run/Railway health checks during startup
-app.get("/api/health", (_req, res) => {
-  const version = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
-    || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
-    || "dev";
-  
-  const response: Record<string, any> = {
-    ok: appReady && !startupError,
-    timestamp: new Date().toISOString(),
-    version,
-    ready: appReady,
-  };
-  
-  if (startupError) {
-    response.ok = false;
-    response.ready = false;
-    response.reason = "startup_failed";
-  } else if (!appReady) {
-    response.reason = "starting";
-  }
-  
-  // Always return 200 to pass health checks during initialization
-  res.status(200).json(response);
-});
-
-app.get("/healthz", (_req, res) => {
-  res.status(200).send("ok");
-});
 
 // Database health endpoint - public, no auth required
 // Returns database connectivity, latency, pool stats, and migration count

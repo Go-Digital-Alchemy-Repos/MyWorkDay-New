@@ -304,19 +304,6 @@ export async function registerRoutes(
   // Mount webhook routes (bypasses auth, uses signature verification)
   app.use("/api/v1/webhooks", webhookRoutes);
 
-  // Health check endpoint for Docker/Railway
-  // Returns minimal, non-sensitive information for deployment verification
-  app.get("/api/health", (req, res) => {
-    res.json({ 
-      ok: true,
-      service: "api",
-      timestamp: new Date().toISOString(),
-      version: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) 
-        || process.env.GIT_COMMIT_SHA?.slice(0, 7) 
-        || "dev",
-    });
-  });
-
   /**
    * Global Search Endpoint for Command Palette
    * 
