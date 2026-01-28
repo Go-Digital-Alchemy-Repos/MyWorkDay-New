@@ -1410,7 +1410,7 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const tenantId = getEffectiveTenantId(req);
       const workspaceId = getCurrentWorkspaceId(req);
-      const { personalSectionId, ...restBody } = req.body;
+      const { personalSectionId, assigneeIds, ...restBody } = req.body;
       
       const data = insertTaskSchema.parse({
         ...restBody,
@@ -1427,22 +1427,30 @@ export async function registerRoutes(
         ? await storage.createTaskWithTenant(data, tenantId)
         : await storage.createTask(data);
 
-      // Auto-assign the task to the creating user with proper tenantId
-      try {
-        await storage.addTaskAssignee({
-          taskId: task.id,
-          userId: userId,
-          tenantId: tenantId || undefined,
-        });
-      } catch (assigneeError) {
-        console.warn(`[Personal Task Create] Failed to auto-assign task ${task.id} to user ${userId}:`, assigneeError);
+      // Handle assignees - if assigneeIds provided use those, otherwise auto-assign to creator
+      const assigneesToAdd = Array.isArray(assigneeIds) && assigneeIds.length > 0 
+        ? assigneeIds 
+        : [userId];
+      
+      for (const assigneeId of assigneesToAdd) {
+        try {
+          await storage.addTaskAssignee({
+            taskId: task.id,
+            userId: assigneeId,
+            tenantId: tenantId || undefined,
+          });
+        } catch (assigneeError) {
+          console.warn(`[Personal Task Create] Failed to assign task ${task.id} to user ${assigneeId}:`, assigneeError);
+        }
       }
 
       const taskWithRelations = await storage.getTaskWithRelations(task.id);
 
-      // Emit real-time event for personal task
+      // Emit real-time event for personal task to all assignees
       if (taskWithRelations) {
-        emitMyTaskCreated(userId, taskWithRelations as any, workspaceId);
+        for (const assigneeId of assigneesToAdd) {
+          emitMyTaskCreated(assigneeId, taskWithRelations as any, workspaceId);
+        }
       }
 
       res.status(201).json(taskWithRelations);

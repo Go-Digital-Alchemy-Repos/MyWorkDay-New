@@ -16,6 +16,10 @@ export interface CreateTaskData {
 
 export interface CreatePersonalTaskData {
   title: string;
+  description?: string;
+  dueDate?: string | null;
+  priority?: "low" | "medium" | "high" | "urgent";
+  assigneeIds?: string[];
   personalSectionId?: string;
 }
 

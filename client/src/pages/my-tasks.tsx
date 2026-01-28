@@ -74,6 +74,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -81,6 +83,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Collapsible,
   CollapsibleContent,
@@ -93,7 +102,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { AccessInfoBanner } from "@/components/access-info-banner";
 import { TaskProgressBar } from "@/components/task-progress-bar";
-import type { TaskWithRelations, Workspace } from "@shared/schema";
+import type { TaskWithRelations, Workspace, User as UserType } from "@shared/schema";
 import { UserRole } from "@shared/schema";
 
 type TaskSection = {
@@ -257,9 +266,14 @@ export default function MyTasks() {
   const { user } = useAuth();
   const isEmployee = user?.role === UserRole.EMPLOYEE;
   const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(null);
+  const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
+  
+  // Personal task form state
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [showNewTaskInput, setShowNewTaskInput] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+  const [newTaskAssignees, setNewTaskAssignees] = useState<string[]>([]);
 
   const savedFilters = useMemo(() => loadSavedFilters(), []);
   const [statusFilter, setStatusFilter] = useState<string>(savedFilters.statusFilter);
@@ -283,10 +297,22 @@ export default function MyTasks() {
     queryKey: ["/api/workspaces/current"],
   });
 
+  const { data: tenantUsers } = useQuery<UserType[]>({
+    queryKey: ["/api/v1/users"],
+  });
+
+  const resetNewTaskForm = useCallback(() => {
+    setNewTaskTitle("");
+    setNewTaskDescription("");
+    setNewTaskDueDate("");
+    setNewTaskPriority("medium");
+    setNewTaskAssignees([]);
+    setShowNewTaskDialog(false);
+  }, []);
+
   const createPersonalTaskMutation = useCreatePersonalTask({
     onSuccess: () => {
-      setNewTaskTitle("");
-      setShowNewTaskInput(false);
+      resetNewTaskForm();
     },
   });
 
@@ -343,7 +369,13 @@ export default function MyTasks() {
 
   const handleCreatePersonalTask = () => {
     if (newTaskTitle.trim()) {
-      createPersonalTaskMutation.mutate({ title: newTaskTitle.trim() });
+      createPersonalTaskMutation.mutate({ 
+        title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || undefined,
+        dueDate: newTaskDueDate || null,
+        priority: newTaskPriority,
+        assigneeIds: newTaskAssignees.length > 0 ? newTaskAssignees : undefined,
+      });
     }
   };
 
@@ -425,10 +457,7 @@ export default function MyTasks() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setShowNewTaskInput(true);
-                setTimeout(() => inputRef.current?.focus(), 0);
-              }}
+              onClick={() => setShowNewTaskDialog(true)}
               data-testid="button-add-personal-task"
               className="md:hidden"
             >
@@ -437,10 +466,7 @@ export default function MyTasks() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setShowNewTaskInput(true);
-                setTimeout(() => inputRef.current?.focus(), 0);
-              }}
+              onClick={() => setShowNewTaskDialog(true)}
               data-testid="button-add-personal-task-desktop"
               className="hidden md:flex"
             >
@@ -503,51 +529,6 @@ export default function MyTasks() {
           </div>
         )}
 
-        {showNewTaskInput && (
-          <div className="px-6 pb-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Personal</span>
-              </div>
-              <Input
-                ref={inputRef}
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleCreatePersonalTask();
-                  } else if (e.key === "Escape") {
-                    setShowNewTaskInput(false);
-                    setNewTaskTitle("");
-                  }
-                }}
-                placeholder="What do you need to do?"
-                className="flex-1"
-                data-testid="input-new-personal-task"
-              />
-              <Button
-                size="sm"
-                onClick={handleCreatePersonalTask}
-                disabled={!newTaskTitle.trim() || createPersonalTaskMutation.isPending}
-                data-testid="button-create-personal-task"
-              >
-                {createPersonalTaskMutation.isPending ? "Creating..." : "Add Task"}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setShowNewTaskInput(false);
-                  setNewTaskTitle("");
-                }}
-                data-testid="button-cancel-personal-task"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="flex-1 overflow-hidden">
@@ -627,7 +608,7 @@ export default function MyTasks() {
                     onStatusChange={handleStatusChange}
                     localOrder={sectionOrders[section.id] || []}
                     onDragEnd={handleDragEnd}
-                    onAddTask={section.id === "personal" ? () => setShowNewTaskInput(true) : undefined}
+                    onAddTask={section.id === "personal" ? () => setShowNewTaskDialog(true) : undefined}
                     supportsAddTask={section.id === "personal"}
                   />
                 ))}
@@ -646,10 +627,7 @@ export default function MyTasks() {
             <Button
               variant="outline"
               className="mt-4"
-              onClick={() => {
-                setShowNewTaskInput(true);
-                setTimeout(() => inputRef.current?.focus(), 0);
-              }}
+              onClick={() => setShowNewTaskDialog(true)}
               data-testid="button-add-first-task"
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -678,6 +656,109 @@ export default function MyTasks() {
         }}
         workspaceId={selectedTask?.project?.workspaceId || currentWorkspace?.id}
       />
+
+      <Dialog open={showNewTaskDialog} onOpenChange={(open) => {
+        if (!open) resetNewTaskForm();
+        setShowNewTaskDialog(open);
+      }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Create Personal Task
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="task-title">Title *</Label>
+              <Input
+                id="task-title"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder="What do you need to do?"
+                data-testid="input-new-personal-task-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="task-description">Description</Label>
+              <Textarea
+                id="task-description"
+                value={newTaskDescription}
+                onChange={(e) => setNewTaskDescription(e.target.value)}
+                placeholder="Add more details..."
+                rows={3}
+                data-testid="input-new-personal-task-description"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="task-due-date">Due Date</Label>
+                <Input
+                  id="task-due-date"
+                  type="date"
+                  value={newTaskDueDate}
+                  onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  data-testid="input-new-personal-task-due-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="task-priority">Priority</Label>
+                <Select value={newTaskPriority} onValueChange={(v) => setNewTaskPriority(v as any)}>
+                  <SelectTrigger data-testid="select-new-personal-task-priority">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Assign To</Label>
+              <Select 
+                value={newTaskAssignees.length > 0 ? newTaskAssignees[0] : ""} 
+                onValueChange={(v) => setNewTaskAssignees(v ? [v] : [])}
+              >
+                <SelectTrigger data-testid="select-new-personal-task-assignee">
+                  <SelectValue placeholder="Assign to yourself (default)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Myself</SelectItem>
+                  {tenantUsers?.filter(u => u.id !== user?.id).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.firstName && u.lastName 
+                        ? `${u.firstName} ${u.lastName}` 
+                        : u.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Leave as default to assign to yourself
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={resetNewTaskForm}
+              data-testid="button-cancel-personal-task"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreatePersonalTask}
+              disabled={!newTaskTitle.trim() || createPersonalTaskMutation.isPending}
+              data-testid="button-create-personal-task"
+            >
+              {createPersonalTaskMutation.isPending ? "Creating..." : "Create Task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
