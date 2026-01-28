@@ -1688,11 +1688,30 @@ export async function registerRoutes(
         : await storage.createTask(data);
 
       // Handle assignees - either from request body or auto-assign creator
-      const assigneeIds: string[] = req.body.assigneeIds || [];
+      const rawAssigneeIds = req.body.assigneeIds;
+      const assigneeIds: string[] = Array.isArray(rawAssigneeIds) 
+        ? rawAssigneeIds.filter((id: unknown) => typeof id === 'string' && id.length > 0)
+        : [];
       
       if (assigneeIds.length > 0) {
-        // Add specified assignees
-        for (const assigneeId of assigneeIds) {
+        // Validate assignees belong to the tenant
+        let validatedAssigneeIds: string[] = [];
+        if (tenantId) {
+          const tenantUsers = await storage.getUsersByTenant(tenantId);
+          const tenantUserIds = new Set(tenantUsers.map(u => u.id));
+          validatedAssigneeIds = assigneeIds.filter(id => tenantUserIds.has(id));
+          
+          const invalidIds = assigneeIds.filter(id => !tenantUserIds.has(id));
+          if (invalidIds.length > 0) {
+            console.warn(`[Task Create] Rejected invalid assignee IDs for tenant ${tenantId}: ${invalidIds.join(', ')}`);
+          }
+        } else {
+          // Super admin can assign any user
+          validatedAssigneeIds = assigneeIds;
+        }
+        
+        // Add validated assignees
+        for (const assigneeId of validatedAssigneeIds) {
           try {
             await storage.addTaskAssignee({
               taskId: task.id,
@@ -1701,6 +1720,19 @@ export async function registerRoutes(
             });
           } catch (assigneeError) {
             console.warn(`[Task Create] Failed to add assignee ${assigneeId} to task ${task.id}:`, assigneeError);
+          }
+        }
+        
+        // If no valid assignees, fallback to auto-assign creator
+        if (validatedAssigneeIds.length === 0) {
+          try {
+            await storage.addTaskAssignee({
+              taskId: task.id,
+              userId: userId,
+              tenantId: tenantId || undefined,
+            });
+          } catch (assigneeError) {
+            console.warn(`[Task Create] Failed to auto-assign task ${task.id} to user ${userId}:`, assigneeError);
           }
         }
       } else {
