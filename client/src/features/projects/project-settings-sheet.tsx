@@ -294,14 +294,14 @@ export function ProjectSettingsSheet({
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Team</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
+                            <Select onValueChange={(v) => field.onChange(v === "_none" ? "" : v)} value={field.value || "_none"}>
                               <FormControl>
                                 <SelectTrigger data-testid="select-edit-team">
                                   <SelectValue placeholder="Select team" />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="">No team</SelectItem>
+                                <SelectItem value="_none">No team</SelectItem>
                                 {teams.map((team) => (
                                   <SelectItem key={team.id} value={team.id}>
                                     {team.name}

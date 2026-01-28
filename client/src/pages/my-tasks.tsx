@@ -268,6 +268,18 @@ export default function MyTasks() {
   const [selectedTask, setSelectedTask] = useState<TaskWithRelations | null>(null);
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   
+  // Handle quick action from mobile nav (opens new task dialog via URL param)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'new') {
+      setShowNewTaskDialog(true);
+      // Clean up the URL without causing a page reload
+      const url = new URL(window.location.href);
+      url.searchParams.delete('action');
+      window.history.replaceState({}, '', url.pathname);
+    }
+  }, []);
+  
   // Personal task form state
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
