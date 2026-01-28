@@ -719,14 +719,14 @@ export default function MyTasks() {
             <div className="space-y-2">
               <Label>Assign To</Label>
               <Select 
-                value={newTaskAssignees.length > 0 ? newTaskAssignees[0] : ""} 
-                onValueChange={(v) => setNewTaskAssignees(v ? [v] : [])}
+                value={newTaskAssignees.length > 0 ? newTaskAssignees[0] : "_self"} 
+                onValueChange={(v) => setNewTaskAssignees(v === "_self" ? [] : [v])}
               >
                 <SelectTrigger data-testid="select-new-personal-task-assignee">
                   <SelectValue placeholder="Assign to yourself (default)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Myself</SelectItem>
+                  <SelectItem value="_self">Myself</SelectItem>
                   {tenantUsers?.filter(u => u.id !== user?.id).map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.firstName && u.lastName 
