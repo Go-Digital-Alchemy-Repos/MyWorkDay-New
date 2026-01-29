@@ -263,20 +263,6 @@ export async function runProductionParityCheck(): Promise<ParityCheckResult> {
   return result;
 }
 
-// Only run as main module when explicitly called via CLI (not when bundled)
-const isMainModule = typeof require !== 'undefined' && require.main === module;
-
-if (isMainModule) {
-  runProductionParityCheck()
-    .then(result => {
-      console.log("\n=== Production Parity Check Result ===");
-      console.log(`Passed: ${result.passed}`);
-      console.log(`Critical Issues: ${result.criticalIssues.length}`);
-      console.log(`Warnings: ${result.warnings.length}`);
-      process.exit(result.passed ? 0 : 1);
-    })
-    .catch(err => {
-      console.error("Parity check failed:", err);
-      process.exit(1);
-    });
-}
+// CLI entry point removed - was causing issues in production bundles
+// To run manually: npx tsx server/scripts/production-parity-check.ts --run
+// and import and call runProductionParityCheck() in your script
