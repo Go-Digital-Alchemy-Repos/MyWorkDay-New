@@ -255,6 +255,21 @@ export function getDegradedFeatures(): DegradedFeatures {
 }
 
 export async function ensureSchemaReady(): Promise<void> {
+
+  // FAST_STARTUP mode: Skip detailed checks for faster cold starts
+  if (process.env.FAST_STARTUP === "true") {
+    console.log("[schema] FAST_STARTUP enabled - skipping detailed schema checks");
+    console.log("[schema] Only verifying database connection...");
+    try {
+      await db.execute(sql`SELECT 1`);
+      console.log("[schema] Database connection OK - startup complete");
+      return;
+    } catch (error: any) {
+      console.error("[schema] FATAL: Database connection failed:", error?.message);
+      throw new Error("Database connection failed");
+    }
+  }
+
   const autoMigrate = process.env.AUTO_MIGRATE === "true";
   const env = process.env.NODE_ENV || "development";
   const isProduction = env === "production";
