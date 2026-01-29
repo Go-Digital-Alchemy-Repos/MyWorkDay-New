@@ -1,6 +1,6 @@
 /**
  * Schema Readiness Check
- * 
+ *
  * Ensures database schema is ready before the app starts serving traffic.
  * - Runs Drizzle migrations if AUTO_MIGRATE=true
  * - Validates required tables/columns exist
@@ -41,7 +41,11 @@ const OPTIONAL_TABLES = [
   "notifications",
 ];
 
-const REQUIRED_TABLES = [...CRITICAL_TABLES, ...IMPORTANT_TABLES, ...OPTIONAL_TABLES];
+const REQUIRED_TABLES = [
+  ...CRITICAL_TABLES,
+  ...IMPORTANT_TABLES,
+  ...OPTIONAL_TABLES,
+];
 
 const CRITICAL_COLUMNS: { table: string; column: string }[] = [
   { table: "users", column: "tenant_id" },
@@ -86,7 +90,10 @@ async function checkTableExists(tableName: string): Promise<boolean> {
   }
 }
 
-async function checkColumnExists(tableName: string, columnName: string): Promise<boolean> {
+async function checkColumnExists(
+  tableName: string,
+  columnName: string,
+): Promise<boolean> {
   try {
     const result = await db.execute(sql`
       SELECT EXISTS (
@@ -102,7 +109,11 @@ async function checkColumnExists(tableName: string, columnName: string): Promise
   }
 }
 
-async function getMigrationInfo(): Promise<{ count: number; lastHash: string | null; lastTimestamp: string | null }> {
+async function getMigrationInfo(): Promise<{
+  count: number;
+  lastHash: string | null;
+  lastTimestamp: string | null;
+}> {
   try {
     const countResult = await db.execute(sql`
       SELECT COUNT(*)::int as total FROM drizzle.__drizzle_migrations
@@ -132,39 +143,54 @@ async function getMigrationInfo(): Promise<{ count: number; lastHash: string | n
   }
 }
 
-export async function runMigrations(): Promise<{ success: boolean; error?: string; durationMs?: number; appliedCount?: number }> {
+export async function runMigrations(): Promise<{
+  success: boolean;
+  error?: string;
+  durationMs?: number;
+  appliedCount?: number;
+}> {
   const migrationsPath = path.resolve(process.cwd(), "migrations");
   const startTime = Date.now();
-  console.log(`[migrations] Migrations started at ${new Date(startTime).toISOString()}`);
+  console.log(
+    `[migrations] Migrations started at ${new Date(startTime).toISOString()}`,
+  );
   console.log(`[migrations] Migrations folder: ${migrationsPath}`);
-  
+
   // Get count before migration
   let beforeCount = 0;
   try {
     const beforeInfo = await getMigrationInfo();
     beforeCount = beforeInfo.count;
-  } catch { /* ignore */ }
-  
+  } catch {
+    /* ignore */
+  }
+
   try {
     await migrate(db, { migrationsFolder: migrationsPath });
     const durationMs = Date.now() - startTime;
-    
+
     // Get count after migration
     let afterCount = beforeCount;
     try {
       const afterInfo = await getMigrationInfo();
       afterCount = afterInfo.count;
-    } catch { /* ignore */ }
-    
+    } catch {
+      /* ignore */
+    }
+
     const appliedCount = afterCount - beforeCount;
-    console.log(`[migrations] Migrations completed in ${durationMs}ms - applied ${appliedCount} new migrations`);
+    console.log(
+      `[migrations] Migrations completed in ${durationMs}ms - applied ${appliedCount} new migrations`,
+    );
     return { success: true, durationMs, appliedCount };
   } catch (error: any) {
     const durationMs = Date.now() - startTime;
     const errorMessage = error?.message || String(error);
     console.error(`[migrations] MIGRATION FAILED after ${durationMs}ms`);
     console.error("[migrations] Error:", errorMessage);
-    console.error("[migrations] Fix: Check migration SQL syntax or database permissions");
+    console.error(
+      "[migrations] Fix: Check migration SQL syntax or database permissions",
+    );
     return { success: false, error: errorMessage, durationMs };
   }
 }
@@ -205,18 +231,25 @@ export async function checkSchemaReadiness(): Promise<SchemaCheckResult> {
 
   const columnsCheck: { table: string; column: string; exists: boolean }[] = [];
   for (const { table, column } of REQUIRED_COLUMNS) {
-    const exists = dbConnectionOk ? await checkColumnExists(table, column) : false;
+    const exists = dbConnectionOk
+      ? await checkColumnExists(table, column)
+      : false;
     columnsCheck.push({ table, column, exists });
-    if (!exists && CRITICAL_COLUMNS.some(c => c.table === table && c.column === column)) {
+    if (
+      !exists &&
+      CRITICAL_COLUMNS.some((c) => c.table === table && c.column === column)
+    ) {
       errors.push(`Critical column missing: ${table}.${column}`);
     }
   }
 
-  const criticalTablesExist = CRITICAL_TABLES.every(t => 
-    tablesCheck.find(tc => tc.table === t)?.exists ?? false
+  const criticalTablesExist = CRITICAL_TABLES.every(
+    (t) => tablesCheck.find((tc) => tc.table === t)?.exists ?? false,
   );
-  const criticalColumnsExist = CRITICAL_COLUMNS.every(c =>
-    columnsCheck.find(cc => cc.table === c.table && cc.column === c.column)?.exists ?? false
+  const criticalColumnsExist = CRITICAL_COLUMNS.every(
+    (c) =>
+      columnsCheck.find((cc) => cc.table === c.table && cc.column === c.column)
+        ?.exists ?? false,
   );
   const allTablesExist = tablesCheck.every((t) => t.exists);
   const allColumnsExist = columnsCheck.every((c) => c.exists);
@@ -248,24 +281,31 @@ export interface DegradedFeatures {
   missingOptional: string[];
 }
 
-let degradedFeatures: DegradedFeatures = { missingImportant: [], missingOptional: [] };
+let degradedFeatures: DegradedFeatures = {
+  missingImportant: [],
+  missingOptional: [],
+};
 
 export function getDegradedFeatures(): DegradedFeatures {
   return degradedFeatures;
 }
 
 export async function ensureSchemaReady(): Promise<void> {
-
   // FAST_STARTUP mode: Skip detailed checks for faster cold starts
   if (process.env.FAST_STARTUP === "true") {
-    console.log("[schema] FAST_STARTUP enabled - skipping detailed schema checks");
+    console.log(
+      "[schema] FAST_STARTUP enabled - skipping detailed schema checks",
+    );
     console.log("[schema] Only verifying database connection...");
     try {
-      await db.execute(sql`SELECT 1`);
+      await db.execute(sql`SELECT 1`); // <-- Make sure this says "sql" not "sq"
       console.log("[schema] Database connection OK - startup complete");
       return;
     } catch (error: any) {
-      console.error("[schema] FATAL: Database connection failed:", error?.message);
+      console.error(
+        "[schema] FATAL: Database connection failed:",
+        error?.message,
+      );
       throw new Error("Database connection failed");
     }
   }
@@ -276,7 +316,9 @@ export async function ensureSchemaReady(): Promise<void> {
   const failOnSchemaIssues = process.env.FAIL_ON_SCHEMA_ISSUES !== "false";
 
   const schemaCheckStart = Date.now();
-  console.log(`[schema] Schema check started at ${new Date(schemaCheckStart).toISOString()}`);
+  console.log(
+    `[schema] Schema check started at ${new Date(schemaCheckStart).toISOString()}`,
+  );
   console.log(`[schema] AUTO_MIGRATE=${autoMigrate}, NODE_ENV=${env}`);
 
   let preCheck = await checkSchemaReadiness();
@@ -285,7 +327,9 @@ export async function ensureSchemaReady(): Promise<void> {
   if (!preCheck.dbConnectionOk) {
     console.error("[schema] FATAL: Cannot connect to database");
     console.error("[schema] Errors:", preCheck.errors);
-    console.error("[schema] Fix: Check DATABASE_URL environment variable and database accessibility");
+    console.error(
+      "[schema] Fix: Check DATABASE_URL environment variable and database accessibility",
+    );
     throw new Error("Database connection failed - cannot start application");
   }
 
@@ -293,22 +337,30 @@ export async function ensureSchemaReady(): Promise<void> {
     // Skip migrations if schema is already ready (avoids "table already exists" errors)
     // This happens when schema was created via drizzle-kit push instead of migrations
     if (preCheck.isReady) {
-      console.log("[schema] AUTO_MIGRATE enabled but schema already ready - skipping migrations");
-      console.log("[schema] All required tables and columns present, no migration needed");
+      console.log(
+        "[schema] AUTO_MIGRATE enabled but schema already ready - skipping migrations",
+      );
+      console.log(
+        "[schema] All required tables and columns present, no migration needed",
+      );
     } else {
       console.log("[schema] AUTO_MIGRATE enabled - running migrations...");
       const migResult = await runMigrations();
       if (!migResult.success) {
         console.error("[schema] FATAL: Migration failed");
         console.error("[schema] Error:", migResult.error);
-        console.error("[schema] Fix: Check migration SQL syntax or database permissions");
+        console.error(
+          "[schema] Fix: Check migration SQL syntax or database permissions",
+        );
         throw new Error(`Migration failed: ${migResult.error}`);
       }
       preCheck = await checkSchemaReadiness();
       lastSchemaCheck = preCheck;
     }
   } else {
-    console.log("[schema] AUTO_MIGRATE disabled - skipping automatic migrations");
+    console.log(
+      "[schema] AUTO_MIGRATE disabled - skipping automatic migrations",
+    );
   }
 
   console.log(`[schema] Migrations applied: ${preCheck.migrationAppliedCount}`);
@@ -316,52 +368,89 @@ export async function ensureSchemaReady(): Promise<void> {
     console.log(`[schema] Last migration: ${preCheck.lastMigrationHash}`);
   }
 
-  const tableStatus = preCheck.tablesCheck.reduce((acc, t) => {
-    acc[t.table] = t.exists;
-    return acc;
-  }, {} as Record<string, boolean>);
+  const tableStatus = preCheck.tablesCheck.reduce(
+    (acc, t) => {
+      acc[t.table] = t.exists;
+      return acc;
+    },
+    {} as Record<string, boolean>,
+  );
 
-  const columnStatus = preCheck.columnsCheck.reduce((acc, c) => {
-    acc[`${c.table}.${c.column}`] = c.exists;
-    return acc;
-  }, {} as Record<string, boolean>);
+  const columnStatus = preCheck.columnsCheck.reduce(
+    (acc, c) => {
+      acc[`${c.table}.${c.column}`] = c.exists;
+      return acc;
+    },
+    {} as Record<string, boolean>,
+  );
 
-  const missingCriticalTables = CRITICAL_TABLES.filter(t => !tableStatus[t]);
-  const missingCriticalColumns = CRITICAL_COLUMNS.filter(c => !columnStatus[`${c.table}.${c.column}`]);
+  const missingCriticalTables = CRITICAL_TABLES.filter((t) => !tableStatus[t]);
+  const missingCriticalColumns = CRITICAL_COLUMNS.filter(
+    (c) => !columnStatus[`${c.table}.${c.column}`],
+  );
 
   if (missingCriticalTables.length > 0 || missingCriticalColumns.length > 0) {
-    console.error("[schema] FATAL: Missing CRITICAL tables:", missingCriticalTables.join(", ") || "none");
-    console.error("[schema] FATAL: Missing CRITICAL columns:", missingCriticalColumns.map(c => `${c.table}.${c.column}`).join(", ") || "none");
-    console.error("[schema] Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate");
-    throw new Error(`Critical schema missing: tables=[${missingCriticalTables.join(", ")}] columns=[${missingCriticalColumns.map(c => `${c.table}.${c.column}`).join(", ")}]`);
+    console.error(
+      "[schema] FATAL: Missing CRITICAL tables:",
+      missingCriticalTables.join(", ") || "none",
+    );
+    console.error(
+      "[schema] FATAL: Missing CRITICAL columns:",
+      missingCriticalColumns.map((c) => `${c.table}.${c.column}`).join(", ") ||
+        "none",
+    );
+    console.error(
+      "[schema] Fix: Set AUTO_MIGRATE=true or run: npx drizzle-kit migrate",
+    );
+    throw new Error(
+      `Critical schema missing: tables=[${missingCriticalTables.join(", ")}] columns=[${missingCriticalColumns.map((c) => `${c.table}.${c.column}`).join(", ")}]`,
+    );
   }
 
-  const missingImportantTables = IMPORTANT_TABLES.filter(t => !tableStatus[t]);
+  const missingImportantTables = IMPORTANT_TABLES.filter(
+    (t) => !tableStatus[t],
+  );
   if (missingImportantTables.length > 0) {
-    console.error(`[schema] ERROR: Missing IMPORTANT tables (degraded mode): ${missingImportantTables.join(", ")}`);
-    console.error("[schema] Features affected: error logging, notifications, email sending");
+    console.error(
+      `[schema] ERROR: Missing IMPORTANT tables (degraded mode): ${missingImportantTables.join(", ")}`,
+    );
+    console.error(
+      "[schema] Features affected: error logging, notifications, email sending",
+    );
     degradedFeatures.missingImportant = missingImportantTables;
   }
 
-  const missingOptionalTables = OPTIONAL_TABLES.filter(t => !tableStatus[t]);
-  const missingOptionalColumns = OPTIONAL_COLUMNS.filter(c => !columnStatus[`${c.table}.${c.column}`]);
+  const missingOptionalTables = OPTIONAL_TABLES.filter((t) => !tableStatus[t]);
+  const missingOptionalColumns = OPTIONAL_COLUMNS.filter(
+    (c) => !columnStatus[`${c.table}.${c.column}`],
+  );
   if (missingOptionalTables.length > 0) {
-    console.warn(`[schema] WARNING: Missing OPTIONAL tables (features disabled): ${missingOptionalTables.join(", ")}`);
+    console.warn(
+      `[schema] WARNING: Missing OPTIONAL tables (features disabled): ${missingOptionalTables.join(", ")}`,
+    );
     degradedFeatures.missingOptional = missingOptionalTables;
   }
   if (missingOptionalColumns.length > 0) {
-    console.warn(`[schema] WARNING: Missing OPTIONAL columns: ${missingOptionalColumns.map(c => `${c.table}.${c.column}`).join(", ")}`);
+    console.warn(
+      `[schema] WARNING: Missing OPTIONAL columns: ${missingOptionalColumns.map((c) => `${c.table}.${c.column}`).join(", ")}`,
+    );
   }
 
   const schemaCheckDuration = Date.now() - schemaCheckStart;
 
-  const hasCritical = missingCriticalTables.length > 0 || missingCriticalColumns.length > 0;
+  const hasCritical =
+    missingCriticalTables.length > 0 || missingCriticalColumns.length > 0;
   const hasImportant = missingImportantTables.length > 0;
-  const hasOptional = missingOptionalTables.length > 0 || missingOptionalColumns.length > 0;
+  const hasOptional =
+    missingOptionalTables.length > 0 || missingOptionalColumns.length > 0;
 
   if (!hasCritical && !hasImportant && !hasOptional) {
-    console.log(`[schema] Schema check completed in ${schemaCheckDuration}ms - all tables and columns exist`);
+    console.log(
+      `[schema] Schema check completed in ${schemaCheckDuration}ms - all tables and columns exist`,
+    );
   } else if (!hasCritical) {
-    console.log(`[schema] Schema check completed in ${schemaCheckDuration}ms - app starting with degraded features`);
+    console.log(
+      `[schema] Schema check completed in ${schemaCheckDuration}ms - app starting with degraded features`,
+    );
   }
 }

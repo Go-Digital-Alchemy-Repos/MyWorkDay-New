@@ -48,6 +48,7 @@ integrations = ["javascript_database:1.0.0"]
 APP_ENCRYPTION_KEY = "7daNCify1MZK5HwLNw+ajASnFnSStKbgOgVmkJIWRFY="
 
 [userenv.production]
+FAST_STARTUP="true"
 AUTO_MIGRATE = "true"
 APP_ENCRYPTION_KEY = "7daNCify1MZK5HwLNw+ajASnFnSStKbgOgVmkJIWRFY="
 SKIP_PARITY_CHECK = "true"
