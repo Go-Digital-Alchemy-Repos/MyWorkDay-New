@@ -198,7 +198,7 @@ export function SubtaskList({
               AI Suggest
             </Button>
           )}
-          {!isAdding && (
+          {!isAdding && subtasks.length > 0 && (
             <Button
               variant="ghost"
               size="sm"
@@ -460,9 +460,16 @@ export function SubtaskList({
       )}
 
       {subtasks.length === 0 && !isAdding && (
-        <p className="text-xs text-muted-foreground py-2">
-          No subtasks yet. Click "Add" to create one.
-        </p>
+        <div 
+          className="flex items-center justify-center py-6 border-2 border-dashed rounded-lg cursor-pointer hover:bg-accent/50 transition-colors group" 
+          onClick={() => setIsAdding(true)}
+          data-testid="div-empty-subtask-add"
+        >
+          <div className="flex flex-col items-center gap-1 text-muted-foreground group-hover:text-primary transition-colors">
+            <Plus className="h-5 w-5" />
+            <p className="text-xs font-medium">Add a subtask</p>
+          </div>
+        </div>
       )}
     </div>
   );
