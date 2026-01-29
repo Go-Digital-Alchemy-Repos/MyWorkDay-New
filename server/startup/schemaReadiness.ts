@@ -291,16 +291,18 @@ export function getDegradedFeatures(): DegradedFeatures {
 }
 
 export async function ensureSchemaReady(): Promise<void> {
-  // FAST_STARTUP mode: Skip detailed checks for faster cold starts
-  if (process.env.FAST_STARTUP === "true") {
+  const autoMigrate = process.env.AUTO_MIGRATE === "true";
+  const fastStartup = process.env.FAST_STARTUP === "true";
+  
+  // FAST_STARTUP mode: Skip detailed checks BUT still run migrations if AUTO_MIGRATE is set
+  if (fastStartup) {
     console.log(
-      "[schema] FAST_STARTUP enabled - skipping detailed schema checks",
+      "[schema] FAST_STARTUP enabled - running minimal startup checks",
     );
-    console.log("[schema] Only verifying database connection...");
+    console.log("[schema] Verifying database connection...");
     try {
-      await db.execute(sql`SELECT 1`); // <-- Make sure this says "sql" not "sq"
-      console.log("[schema] Database connection OK - startup complete");
-      return;
+      await db.execute(sql`SELECT 1`);
+      console.log("[schema] Database connection OK");
     } catch (error: any) {
       console.error(
         "[schema] FATAL: Database connection failed:",
@@ -308,9 +310,30 @@ export async function ensureSchemaReady(): Promise<void> {
       );
       throw new Error("Database connection failed");
     }
+    
+    // Still run migrations even in FAST_STARTUP mode if AUTO_MIGRATE is enabled
+    if (autoMigrate) {
+      console.log("[schema] AUTO_MIGRATE enabled - checking if migrations needed...");
+      const preCheck = await checkSchemaReadiness();
+      lastSchemaCheck = preCheck;
+      
+      if (!preCheck.isReady) {
+        console.log("[schema] Schema not ready - running migrations...");
+        const migResult = await runMigrations();
+        if (!migResult.success) {
+          console.error("[schema] FATAL: Migration failed:", migResult.error);
+          throw new Error(`Migration failed: ${migResult.error}`);
+        }
+        console.log("[schema] Migrations completed successfully");
+      } else {
+        console.log("[schema] Schema already ready - skipping migrations");
+      }
+    }
+    
+    console.log("[schema] FAST_STARTUP complete");
+    return;
   }
 
-  const autoMigrate = process.env.AUTO_MIGRATE === "true";
   const env = process.env.NODE_ENV || "development";
   const isProduction = env === "production";
   const failOnSchemaIssues = process.env.FAIL_ON_SCHEMA_ISSUES !== "false";
