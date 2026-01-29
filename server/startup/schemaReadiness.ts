@@ -275,16 +275,23 @@ export async function ensureSchemaReady(): Promise<void> {
   }
 
   if (autoMigrate) {
-    console.log("[schema] AUTO_MIGRATE enabled - running migrations...");
-    const migResult = await runMigrations();
-    if (!migResult.success) {
-      console.error("[schema] FATAL: Migration failed");
-      console.error("[schema] Error:", migResult.error);
-      console.error("[schema] Fix: Check migration SQL syntax or database permissions");
-      throw new Error(`Migration failed: ${migResult.error}`);
+    // Skip migrations if schema is already ready (avoids "table already exists" errors)
+    // This happens when schema was created via drizzle-kit push instead of migrations
+    if (preCheck.isReady) {
+      console.log("[schema] AUTO_MIGRATE enabled but schema already ready - skipping migrations");
+      console.log("[schema] All required tables and columns present, no migration needed");
+    } else {
+      console.log("[schema] AUTO_MIGRATE enabled - running migrations...");
+      const migResult = await runMigrations();
+      if (!migResult.success) {
+        console.error("[schema] FATAL: Migration failed");
+        console.error("[schema] Error:", migResult.error);
+        console.error("[schema] Fix: Check migration SQL syntax or database permissions");
+        throw new Error(`Migration failed: ${migResult.error}`);
+      }
+      preCheck = await checkSchemaReadiness();
+      lastSchemaCheck = preCheck;
     }
-    preCheck = await checkSchemaReadiness();
-    lastSchemaCheck = preCheck;
   } else {
     console.log("[schema] AUTO_MIGRATE disabled - skipping automatic migrations");
   }
