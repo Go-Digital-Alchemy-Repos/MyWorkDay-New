@@ -8,6 +8,7 @@ import { AvatarGroup } from "@/components/avatar-group";
 import { cn } from "@/lib/utils";
 import { MessageSquare, Paperclip, GripVertical, User as UserIcon } from "lucide-react";
 import type { TaskWithRelations, User, Tag } from "@shared/schema";
+import { getPreviewText } from "@/components/richtext/richTextUtils";
 
 interface TaskCardProps {
   task: TaskWithRelations;
@@ -96,9 +97,9 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
             </div>
           )}
 
-          {task.description && (
+          {task.description && getPreviewText(task.description, 150) && (
             <p className="text-xs text-muted-foreground line-clamp-2 pl-6">
-              {task.description}
+              {getPreviewText(task.description, 150)}
             </p>
           )}
 
