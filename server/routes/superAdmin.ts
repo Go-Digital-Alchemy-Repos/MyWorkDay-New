@@ -2900,11 +2900,23 @@ router.post("/tenants/:tenantId/users/:userId/reset-password", requireSuperUser,
       return res.status(404).json({ error: "User not found in this tenant" });
     }
     
+    console.log(`Password reset attempt for user: ${existingUser.email} (id: ${userId}, tenantId: ${tenantId}, userTenantId: ${existingUser.tenantId})`);
+    
     // Hash the password
     const { hashPassword } = await import("../auth");
     const passwordHash = await hashPassword(password);
     
-    await storage.setUserPasswordWithMustChange(userId, tenantId, passwordHash, mustChangeOnNextLogin);
+    const updatedUser = await storage.setUserPasswordWithMustChange(userId, tenantId, passwordHash, mustChangeOnNextLogin);
+    
+    if (!updatedUser) {
+      console.error(`Password reset failed: No user updated for userId=${userId}, tenantId=${tenantId}, userTenantId=${existingUser.tenantId}`);
+      return res.status(500).json({ 
+        error: "Failed to update password. Database update returned no results.",
+        details: `User ${existingUser.email} found but update failed. This may indicate a tenantId mismatch.`
+      });
+    }
+    
+    console.log(`Password reset successful for user ${updatedUser.email} (id: ${userId})`);
     
     // Invalidate all existing sessions for this user to force re-login with new password
     try {
