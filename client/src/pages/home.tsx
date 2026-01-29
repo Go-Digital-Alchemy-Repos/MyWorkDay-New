@@ -1006,12 +1006,6 @@ export default function Home() {
         onUpdate={(taskId: string, data: Partial<TaskWithRelations>) => {
           updateTaskMutation.mutate({ taskId, data });
         }}
-        onAddChildTask={(parentTaskId: string, title: string) => {
-          addSubtaskMutation.mutate({ taskId: parentTaskId, title });
-        }}
-        onDeleteChildTask={(taskId: string) => {
-          deleteSubtaskMutation.mutate(taskId);
-        }}
         onAddComment={(taskId: string, body: string) => {
           addCommentMutation.mutate({ taskId, body });
         }}

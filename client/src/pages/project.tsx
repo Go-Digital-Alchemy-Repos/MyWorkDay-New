@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute } from "wouter";
-import { useCreateTask, useCreateChildTask } from "@/hooks/use-create-task";
+import { useCreateTask } from "@/hooks/use-create-task";
 import {
   DndContext,
   DragOverlay,
@@ -101,11 +101,6 @@ export default function ProjectPage() {
     enabled: !!projectId,
   });
   
-  const { data: childTasks = [] } = useQuery<TaskWithRelations[]>({
-    queryKey: ["/api/tasks", selectedTask?.id, "childtasks"],
-    enabled: !!selectedTask && !selectedTask.parentTaskId,
-  });
-
   const { data: tenantUsers = [] } = useQuery<{ id: string; email: string; firstName?: string | null; lastName?: string | null }[]>({
     queryKey: ["/api/users"],
     enabled: !!projectId,
@@ -129,33 +124,6 @@ export default function ProjectPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
       if (selectedTask) {
         queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedTask.id] });
-      }
-    },
-  });
-
-  const addChildTaskMutation = useCreateChildTask({ projectId: projectId || undefined });
-
-  const deleteChildTaskMutation = useMutation({
-    mutationFn: async (taskId: string) => {
-      return apiRequest("DELETE", `/api/tasks/${taskId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "sections"] });
-      if (selectedTask) {
-        queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedTask.id, "childtasks"] });
-      }
-    },
-  });
-
-  const reorderChildTasksMutation = useMutation({
-    mutationFn: async ({ parentTaskId, taskId, toIndex }: { parentTaskId: string; taskId: string; toIndex: number }) => {
-      return apiRequest("PATCH", `/api/projects/${projectId}/tasks/reorder`, {
-        moves: [{ itemType: "childTask", taskId, parentTaskId, toIndex }],
-      });
-    },
-    onSuccess: () => {
-      if (selectedTask) {
-        queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedTask.id, "childtasks"] });
       }
     },
   });
@@ -671,20 +639,10 @@ export default function ProjectPage() {
 
       <TaskDetailDrawer
         task={selectedTask}
-        childTasks={childTasks}
         open={!!selectedTask}
         onOpenChange={(open) => !open && setSelectedTask(null)}
         onUpdate={(taskId: string, data: Partial<TaskWithRelations>) => {
           updateTaskMutation.mutate({ taskId, data });
-        }}
-        onAddChildTask={(parentTaskId: string, title: string) => {
-          addChildTaskMutation.mutate({ parentTaskId, title });
-        }}
-        onDeleteChildTask={(taskId: string) => {
-          deleteChildTaskMutation.mutate(taskId);
-        }}
-        onReorderChildTasks={(parentTaskId: string, taskId: string, toIndex: number) => {
-          reorderChildTasksMutation.mutate({ parentTaskId, taskId, toIndex });
         }}
         onAddComment={(taskId: string, body: string) => {
           addCommentMutation.mutate({ taskId, body });

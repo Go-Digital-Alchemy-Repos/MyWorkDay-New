@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { ChildTaskList } from "./child-task-list";
 import { SubtaskList } from "./subtask-list";
 import { SubtaskDetailDrawer } from "./subtask-detail-drawer";
 import { CommentThread } from "@/components/comment-thread";
@@ -79,13 +78,9 @@ function formatDurationShort(seconds: number): string {
 
 interface TaskDetailDrawerProps {
   task: TaskWithRelations | null;
-  childTasks?: TaskWithRelations[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdate?: (taskId: string, data: Partial<TaskWithRelations>) => void;
-  onAddChildTask?: (parentTaskId: string, title: string) => void;
-  onDeleteChildTask?: (taskId: string) => void;
-  onReorderChildTasks?: (parentTaskId: string, taskId: string, toIndex: number) => void;
   onAddComment?: (taskId: string, body: string) => void;
   onRefresh?: () => void;
   availableTags?: TagType[];
@@ -95,13 +90,9 @@ interface TaskDetailDrawerProps {
 
 export function TaskDetailDrawer({
   task,
-  childTasks = [],
   open,
   onOpenChange,
   onUpdate,
-  onAddChildTask,
-  onDeleteChildTask,
-  onReorderChildTasks,
   onAddComment,
   onRefresh,
   availableTags = [],
@@ -115,8 +106,6 @@ export function TaskDetailDrawer({
   const [estimateMinutes, setEstimateMinutes] = useState<string>(
     task?.estimateMinutes ? String(task.estimateMinutes) : ""
   );
-  const [selectedChildTask, setSelectedChildTask] = useState<TaskWithRelations | null>(null);
-  const [childDrawerOpen, setChildDrawerOpen] = useState(false);
   const [selectedSubtask, setSelectedSubtask] = useState<any | null>(null);
   const [subtaskDrawerOpen, setSubtaskDrawerOpen] = useState(false);
   const [timerDrawerOpen, setTimerDrawerOpen] = useState(false);
@@ -470,18 +459,6 @@ export function TaskDetailDrawer({
   const taskTags: TagType[] = task.tags?.map((tt) => tt.tag).filter(Boolean) as TagType[] || [];
   const comments: (Comment & { user?: User })[] = [];
   
-  const handleChildTaskClick = (childTask: TaskWithRelations) => {
-    setSelectedChildTask(childTask);
-    setChildDrawerOpen(true);
-  };
-  
-  const handleChildTaskUpdate = (childTaskId: string, data: Partial<TaskWithRelations>) => {
-    onUpdate?.(childTaskId, data);
-    if (selectedChildTask && selectedChildTask.id === childTaskId) {
-      setSelectedChildTask({ ...selectedChildTask, ...data } as TaskWithRelations);
-    }
-  };
-
   const handleTitleSave = () => {
     if (title.trim() && title !== task.title) {
       onUpdate?.(task.id, { title: title.trim() });
@@ -950,16 +927,6 @@ export function TaskDetailDrawer({
 
           <Separator />
 
-          <ChildTaskList
-            childTasks={childTasks}
-            onAdd={(title) => onAddChildTask?.(task.id, title)}
-            onClick={handleChildTaskClick}
-            onDelete={onDeleteChildTask}
-            onReorder={(taskId, toIndex) => onReorderChildTasks?.(task.id, taskId, toIndex)}
-          />
-
-          <Separator />
-
           {task.projectId && (
             <AttachmentUploader taskId={task.id} projectId={task.projectId} />
           )}
@@ -1048,18 +1015,6 @@ export function TaskDetailDrawer({
           </div>
         </div>
       </SheetContent>
-      
-      <SubtaskDetailDrawer
-        subtask={selectedChildTask}
-        parentTaskTitle={task.title}
-        projectId={task.projectId || undefined}
-        workspaceId={workspaceId}
-        open={childDrawerOpen}
-        onOpenChange={setChildDrawerOpen}
-        onUpdate={handleChildTaskUpdate}
-        onBack={() => setChildDrawerOpen(false)}
-        availableUsers={availableUsers}
-      />
 
       <SubtaskDetailDrawer
         subtask={selectedSubtask}

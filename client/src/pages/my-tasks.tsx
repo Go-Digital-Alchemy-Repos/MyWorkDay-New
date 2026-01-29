@@ -877,12 +877,6 @@ export default function MyTasks() {
           updateTaskMutation.mutate({ taskId, data });
         }}
         onRefresh={refetchSelectedTask}
-        onAddChildTask={(parentTaskId: string, title: string) => {
-          addSubtaskMutation.mutate({ taskId: parentTaskId, title });
-        }}
-        onDeleteChildTask={(taskId: string) => {
-          deleteSubtaskMutation.mutate(taskId);
-        }}
         onAddComment={(taskId: string, body: string) => {
           addCommentMutation.mutate({ taskId, body });
         }}
