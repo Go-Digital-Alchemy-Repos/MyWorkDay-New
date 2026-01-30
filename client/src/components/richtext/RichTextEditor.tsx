@@ -69,7 +69,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
         type="button"
         variant="ghost"
         size="sm"
-        className={cn("px-2", editor.isActive("bold") && "bg-muted")}
+        className={cn("px-2 toggle-elevate", editor.isActive("bold") && "toggle-elevated")}
         onClick={() => editor.chain().focus().toggleBold().run()}
         disabled={!editor.can().chain().focus().toggleBold().run()}
         data-testid="button-bold"
@@ -80,7 +80,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
         type="button"
         variant="ghost"
         size="sm"
-        className={cn("px-2", editor.isActive("italic") && "bg-muted")}
+        className={cn("px-2 toggle-elevate", editor.isActive("italic") && "toggle-elevated")}
         onClick={() => editor.chain().focus().toggleItalic().run()}
         disabled={!editor.can().chain().focus().toggleItalic().run()}
         data-testid="button-italic"
@@ -91,7 +91,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
         type="button"
         variant="ghost"
         size="sm"
-        className={cn("px-2", editor.isActive("underline") && "bg-muted")}
+        className={cn("px-2 toggle-elevate", editor.isActive("underline") && "toggle-elevated")}
         onClick={() => editor.chain().focus().toggleUnderline().run()}
         disabled={!editor.can().chain().focus().toggleUnderline().run()}
         data-testid="button-underline"
@@ -103,7 +103,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
         type="button"
         variant="ghost"
         size="sm"
-        className={cn("px-2", editor.isActive("bulletList") && "bg-muted")}
+        className={cn("px-2 toggle-elevate", editor.isActive("bulletList") && "toggle-elevated")}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         data-testid="button-bullet-list"
       >
@@ -113,7 +113,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
         type="button"
         variant="ghost"
         size="sm"
-        className={cn("px-2", editor.isActive("orderedList") && "bg-muted")}
+        className={cn("px-2 toggle-elevate", editor.isActive("orderedList") && "toggle-elevated")}
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         data-testid="button-ordered-list"
       >
@@ -126,7 +126,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
             type="button"
             variant="ghost"
             size="sm"
-            className={cn("px-2", editor.isActive({ textAlign: "left" }) && "bg-muted")}
+            className={cn("px-2 toggle-elevate", editor.isActive({ textAlign: "left" }) && "toggle-elevated")}
             onClick={() => editor.chain().focus().setTextAlign("left").run()}
             data-testid="button-align-left"
           >
@@ -136,7 +136,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
             type="button"
             variant="ghost"
             size="sm"
-            className={cn("px-2", editor.isActive({ textAlign: "center" }) && "bg-muted")}
+            className={cn("px-2 toggle-elevate", editor.isActive({ textAlign: "center" }) && "toggle-elevated")}
             onClick={() => editor.chain().focus().setTextAlign("center").run()}
             data-testid="button-align-center"
           >
@@ -146,7 +146,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
             type="button"
             variant="ghost"
             size="sm"
-            className={cn("px-2", editor.isActive({ textAlign: "right" }) && "bg-muted")}
+            className={cn("px-2 toggle-elevate", editor.isActive({ textAlign: "right" }) && "toggle-elevated")}
             onClick={() => editor.chain().focus().setTextAlign("right").run()}
             data-testid="button-align-right"
           >
@@ -159,7 +159,7 @@ function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect, onAttachmentClick, s
         type="button"
         variant="ghost"
         size="sm"
-        className={cn("px-2", editor.isActive("link") && "bg-muted")}
+        className={cn("px-2 toggle-elevate", editor.isActive("link") && "toggle-elevated")}
         onClick={onOpenLinkDialog}
         data-testid="button-link"
       >
