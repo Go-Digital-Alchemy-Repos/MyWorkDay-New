@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SectionColumn, TaskCard, TaskDetailDrawer, TaskCreateDrawer, ListSectionDroppable } from "@/features/tasks";
-import { ProjectCalendar, ProjectSettingsSheet, ProjectActivityFeed, AIProjectPlanner } from "@/features/projects";
+import { ProjectCalendar, ProjectSettingsSheet, ProjectMembersSheet, ProjectActivityFeed, AIProjectPlanner } from "@/features/projects";
 import { StartTimerDrawer } from "@/features/timer";
 import {
   Sheet,
@@ -72,6 +72,7 @@ export default function ProjectPage() {
   const [timerDrawerOpen, setTimerDrawerOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [aiPlannerOpen, setAiPlannerOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<string | undefined>();
   const [localSections, setLocalSections] = useState<SectionWithTasks[] | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -503,7 +504,13 @@ export default function ProjectPage() {
               <Sparkles className="h-4 w-4 mr-1" />
               AI Plan
             </Button>
-            <Button variant="ghost" size="icon" data-testid="button-project-members" className="hidden md:flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMembersOpen(true)}
+              data-testid="button-project-members"
+              className="hidden md:flex"
+            >
               <Users className="h-4 w-4" />
             </Button>
             <Button
@@ -674,6 +681,14 @@ export default function ProjectPage() {
           project={project}
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
+        />
+      )}
+
+      {project && (
+        <ProjectMembersSheet
+          project={project}
+          open={membersOpen}
+          onOpenChange={setMembersOpen}
         />
       )}
 
