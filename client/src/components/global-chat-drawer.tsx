@@ -372,6 +372,7 @@ export function GlobalChatDrawer() {
     setShowThreadList(true);
     setSelectedChannel(null);
     setSelectedDm(null);
+    setLastActiveThread(null);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
