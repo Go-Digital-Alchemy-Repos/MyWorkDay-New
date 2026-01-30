@@ -2,9 +2,12 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import { Button } from "./button";
-import { Bold, Italic, Link as LinkIcon, List, ListOrdered, Undo, Redo } from "lucide-react";
+import { Bold, Italic, Link as LinkIcon, List, ListOrdered, Undo, Redo, Smile } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PromptDialog } from "@/components/prompt-dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
+import { useTheme } from "@/lib/theme-provider";
 
 interface RichTextEditorProps {
   value: string;
@@ -23,6 +26,9 @@ export function RichTextEditor({
   minHeight = "120px",
   "data-testid": dataTestId = "rich-text-editor"
 }: RichTextEditorProps) {
+  const { theme } = useTheme();
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -77,6 +83,12 @@ export function RichTextEditor({
     }
 
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+  }, [editor]);
+
+  const handleEmojiClick = useCallback((emojiData: EmojiClickData) => {
+    if (!editor) return;
+    editor.chain().focus().insertContent(emojiData.emoji).run();
+    setEmojiOpen(false);
   }, [editor]);
 
   if (!editor) {
@@ -138,6 +150,35 @@ export function RichTextEditor({
         >
           <LinkIcon className="h-3.5 w-3.5" />
         </Button>
+        <div className="w-px h-5 bg-border mx-1" />
+        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              data-testid="button-emoji"
+            >
+              <Smile className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent 
+            side="bottom" 
+            align="start" 
+            className="w-auto p-0 border-0"
+            sideOffset={8}
+          >
+            <EmojiPicker
+              onEmojiClick={handleEmojiClick}
+              theme={theme === "dark" ? Theme.DARK : Theme.LIGHT}
+              width={300}
+              height={350}
+              searchPlaceHolder="Search emoji..."
+              previewConfig={{ showPreview: false }}
+            />
+          </PopoverContent>
+        </Popover>
         <div className="flex-1" />
         <Button
           type="button"
