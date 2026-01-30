@@ -2053,6 +2053,7 @@ router.patch("/users/:userId", requireSuperUser, async (req, res) => {
     const data = z.object({
       firstName: z.string().min(1).optional(),
       lastName: z.string().min(1).optional(),
+      email: z.string().email().optional(),
       role: z.enum(["admin", "employee"]).optional(),
       isActive: z.boolean().optional(),
     }).parse(req.body);
@@ -2067,6 +2068,14 @@ router.patch("/users/:userId", requireSuperUser, async (req, res) => {
       return res.status(403).json({ error: "Cannot modify super users through this endpoint" });
     }
     
+    // Check if email is being changed to an existing email
+    if (data.email && data.email !== existingUser.email) {
+      const existingWithEmail = await storage.getUserByEmail(data.email);
+      if (existingWithEmail) {
+        return res.status(409).json({ error: "Email already in use" });
+      }
+    }
+    
     const updates: any = { updatedAt: new Date() };
     if (data.firstName !== undefined) {
       updates.firstName = data.firstName;
@@ -2076,6 +2085,7 @@ router.patch("/users/:userId", requireSuperUser, async (req, res) => {
       updates.lastName = data.lastName;
       updates.name = `${data.firstName || existingUser.firstName || ""} ${data.lastName}`.trim();
     }
+    if (data.email !== undefined) updates.email = data.email;
     if (data.role) updates.role = data.role;
     if (data.isActive !== undefined) updates.isActive = data.isActive;
     
@@ -2083,6 +2093,8 @@ router.patch("/users/:userId", requireSuperUser, async (req, res) => {
       .set(updates)
       .where(eq(users.id, userId))
       .returning();
+    
+    console.log(`[super/users/:userId PATCH] User ${existingUser.email} updated by super admin ${superUser?.email}:`, Object.keys(data).join(", "));
     
     res.json({
       user: updatedUser,
@@ -2134,6 +2146,99 @@ router.post("/users/:userId/set-password", requireSuperUser, async (req, res) =>
     }
     console.error("[super/users/:userId/set-password] Error:", error);
     res.status(500).json({ error: "Failed to set password" });
+  }
+});
+
+// Generate password reset link for an app user (Super Admin can copy and share)
+router.post("/users/:userId/generate-reset-link", requireSuperUser, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { sendEmail } = z.object({
+      sendEmail: z.boolean().optional().default(false),
+    }).parse(req.body);
+    const superUser = req.user as any;
+    
+    const existingUser = await storage.getUser(userId);
+    if (!existingUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    
+    if (existingUser.role === UserRole.SUPER_USER) {
+      return res.status(403).json({ error: "Cannot generate reset links for super users through this endpoint" });
+    }
+    
+    // Import crypto for token generation
+    const crypto = await import("crypto");
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    
+    // Token expires in 24 hours
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    
+    // Invalidate any existing reset tokens for this user
+    await db
+      .update(passwordResetTokens)
+      .set({ usedAt: new Date() })
+      .where(
+        and(
+          eq(passwordResetTokens.userId, userId),
+          isNull(passwordResetTokens.usedAt)
+        )
+      );
+    
+    // Create new reset token
+    await db.insert(passwordResetTokens).values({
+      userId: userId,
+      tokenHash,
+      expiresAt: expiry,
+    });
+    
+    // Build the reset URL
+    const appPublicUrl = process.env.APP_PUBLIC_URL;
+    if (!appPublicUrl) {
+      console.warn("[generate-reset-link] APP_PUBLIC_URL not set, link may be incorrect behind proxy");
+    }
+    const baseUrl = appPublicUrl || `${req.protocol}://${req.get("host")}`;
+    const resetUrl = `${baseUrl}/auth/reset-password?token=${token}`;
+    
+    // Optionally send email if Mailgun is configured
+    let emailSent = false;
+    if (sendEmail) {
+      try {
+        const emailService = (await import("../services/email")).default;
+        const isConfigured = await emailService.verifyConfiguration();
+        if (isConfigured) {
+          await emailService.sendEmail({
+            to: existingUser.email,
+            subject: "Reset Your Password",
+            html: `
+              <h2>Password Reset</h2>
+              <p>A password reset has been requested for your account.</p>
+              <p><a href="${resetUrl}">Click here to set your new password</a></p>
+              <p>This link expires in 24 hours.</p>
+            `,
+          });
+          emailSent = true;
+        }
+      } catch (emailError) {
+        console.warn("[generate-reset-link] Could not send email:", emailError);
+      }
+    }
+    
+    console.log(`[super/users/:userId/generate-reset-link] Reset link generated for user ${existingUser.email} by super admin ${superUser?.email}`);
+    
+    res.json({
+      message: "Password reset link generated successfully",
+      resetUrl,
+      expiresAt: expiry.toISOString(),
+      emailSent,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation error", details: error.errors });
+    }
+    console.error("[super/users/:userId/generate-reset-link] Error:", error);
+    res.status(500).json({ error: "Failed to generate reset link" });
   }
 });
 

@@ -18,7 +18,7 @@ import { Redirect } from "wouter";
 import { 
   Loader2, Shield, Save, Mail, Plus, Link, Copy, MoreHorizontal, 
   UserCheck, UserX, Clock, AlertCircle, KeyRound, Eye, EyeOff, Trash2, Send,
-  Search, Building2, Users, ChevronLeft, ChevronRight, Activity
+  Search, Building2, Users, ChevronLeft, ChevronRight, Activity, Edit
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -172,6 +172,20 @@ export default function SuperAdminUsers() {
   const [showAppUserPassword, setShowAppUserPassword] = useState(false);
   const [appUserToDelete, setAppUserToDelete] = useState<AppUser | null>(null);
   const [generatedAppUserInviteUrl, setGeneratedAppUserInviteUrl] = useState<string | null>(null);
+  
+  // Edit App User state
+  const [appUserEditDrawerOpen, setAppUserEditDrawerOpen] = useState(false);
+  const [appUserEditForm, setAppUserEditForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    role: "employee" as "admin" | "employee",
+  });
+  
+  // Password reset link state
+  const [appUserResetLinkDrawerOpen, setAppUserResetLinkDrawerOpen] = useState(false);
+  const [generatedAppUserResetUrl, setGeneratedAppUserResetUrl] = useState<string | null>(null);
+  const [appUserResetSendEmail, setAppUserResetSendEmail] = useState(false);
 
   if (user?.role !== "super_user") {
     return <Redirect to="/" />;
@@ -507,6 +521,47 @@ export default function SuperAdminUsers() {
     },
   });
 
+  // Edit app user mutation
+  const editAppUserMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { firstName?: string; lastName?: string; email?: string; role?: string } }) => {
+      return apiRequest("PATCH", `/api/v1/super/users/${id}`, data);
+    },
+    onSuccess: () => {
+      toast({ title: "User updated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/users"] });
+      setAppUserEditDrawerOpen(false);
+      setAppUserDrawerOpen(false);
+      setSelectedAppUser(null);
+    },
+    onError: (error: any) => {
+      const parsed = parseApiError(error);
+      toast({ title: "Failed to update user", description: parsed.message, variant: "destructive" });
+    },
+  });
+
+  // Generate password reset link mutation
+  const generateAppUserResetLinkMutation = useMutation({
+    mutationFn: async ({ id, sendEmail }: { id: string; sendEmail: boolean }) => {
+      const res = await apiRequest("POST", `/api/v1/super/users/${id}/generate-reset-link`, { sendEmail });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.resetUrl) {
+        setGeneratedAppUserResetUrl(data.resetUrl);
+        if (data.emailSent) {
+          toast({ title: "Password reset email sent" });
+        } else {
+          toast({ title: "Password reset link generated" });
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/users"] });
+    },
+    onError: (error: any) => {
+      const parsed = parseApiError(error);
+      toast({ title: "Failed to generate reset link", description: parsed.message, variant: "destructive" });
+    },
+  });
+
   const handleSetAppUserPassword = () => {
     if (!selectedAppUser) return;
     if (appUserPassword.length < 8) {
@@ -522,6 +577,51 @@ export default function SuperAdminUsers() {
     } else {
       setAppUserPasswordMutation.mutate({ id: selectedAppUser.id, password: appUserPassword, mustChangeOnNextLogin: appUserMustChange });
     }
+  };
+
+  // Open edit drawer with user's current data
+  const handleOpenEditAppUser = (appUser: AppUser) => {
+    setAppUserEditForm({
+      firstName: appUser.firstName || "",
+      lastName: appUser.lastName || "",
+      email: appUser.email || "",
+      role: (appUser.role === "admin" ? "admin" : "employee") as "admin" | "employee",
+    });
+    setAppUserEditDrawerOpen(true);
+  };
+
+  // Submit edit app user form
+  const handleEditAppUser = () => {
+    if (!selectedAppUser) return;
+    if (!appUserEditForm.email) {
+      toast({ title: "Email is required", variant: "destructive" });
+      return;
+    }
+    editAppUserMutation.mutate({
+      id: selectedAppUser.id,
+      data: {
+        firstName: appUserEditForm.firstName || undefined,
+        lastName: appUserEditForm.lastName || undefined,
+        email: appUserEditForm.email,
+        role: appUserEditForm.role,
+      },
+    });
+  };
+
+  // Open reset link drawer
+  const handleOpenResetLinkDrawer = (appUser: AppUser) => {
+    setGeneratedAppUserResetUrl(null);
+    setAppUserResetSendEmail(false);
+    setAppUserResetLinkDrawerOpen(true);
+  };
+
+  // Generate reset link
+  const handleGenerateAppUserResetLink = () => {
+    if (!selectedAppUser) return;
+    generateAppUserResetLinkMutation.mutate({
+      id: selectedAppUser.id,
+      sendEmail: appUserResetSendEmail,
+    });
   };
 
   const handleDeactivateAdmin = (admin: PlatformAdmin) => {
@@ -1004,6 +1104,18 @@ export default function SuperAdminUsers() {
                     </>
                   ) : (
                     <>
+                      {/* Edit User Button */}
+                      <Button 
+                        className="w-full justify-start" 
+                        variant="outline"
+                        onClick={() => handleOpenEditAppUser(selectedAppUser)}
+                        data-testid="button-edit-user"
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit User
+                      </Button>
+                      
+                      {/* Password Management */}
                       {(selectedAppUser.needsPassword || !selectedAppUser.isActive) && (
                         <Button 
                           className="w-full justify-start" 
@@ -1015,6 +1127,16 @@ export default function SuperAdminUsers() {
                           Set Password
                         </Button>
                       )}
+                      <Button 
+                        className="w-full justify-start" 
+                        variant="outline"
+                        onClick={() => handleOpenResetLinkDrawer(selectedAppUser)}
+                        data-testid="button-generate-reset-link"
+                      >
+                        <Link className="h-4 w-4 mr-2" />
+                        Generate Password Reset Link
+                      </Button>
+                      
                       {selectedAppUser.isActive ? (
                         <Button 
                           className="w-full justify-start" 
@@ -1610,6 +1732,179 @@ export default function SuperAdminUsers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit App User Drawer */}
+      <Sheet open={appUserEditDrawerOpen} onOpenChange={(open) => {
+        setAppUserEditDrawerOpen(open);
+        if (!open) {
+          setAppUserEditForm({ firstName: "", lastName: "", email: "", role: "employee" });
+        }
+      }}>
+        <SheetContent className="w-full sm:max-w-xl" data-testid="drawer-edit-app-user">
+          <SheetHeader>
+            <SheetTitle>Edit User</SheetTitle>
+            <SheetDescription>Update user information</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label htmlFor="editAppUserFirstName">First Name</Label>
+              <Input
+                id="editAppUserFirstName"
+                value={appUserEditForm.firstName}
+                onChange={(e) => setAppUserEditForm({ ...appUserEditForm, firstName: e.target.value })}
+                placeholder="John"
+                data-testid="input-edit-app-user-first-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editAppUserLastName">Last Name</Label>
+              <Input
+                id="editAppUserLastName"
+                value={appUserEditForm.lastName}
+                onChange={(e) => setAppUserEditForm({ ...appUserEditForm, lastName: e.target.value })}
+                placeholder="Doe"
+                data-testid="input-edit-app-user-last-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editAppUserEmail">Email</Label>
+              <Input
+                id="editAppUserEmail"
+                type="email"
+                value={appUserEditForm.email}
+                onChange={(e) => setAppUserEditForm({ ...appUserEditForm, email: e.target.value })}
+                placeholder="user@example.com"
+                data-testid="input-edit-app-user-email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editAppUserRole">Role</Label>
+              <Select
+                value={appUserEditForm.role}
+                onValueChange={(value) => setAppUserEditForm({ ...appUserEditForm, role: value as "admin" | "employee" })}
+              >
+                <SelectTrigger id="editAppUserRole" data-testid="select-edit-app-user-role">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="employee">Employee</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-3 pt-4">
+              <Button 
+                onClick={handleEditAppUser} 
+                disabled={editAppUserMutation.isPending}
+                className="flex-1"
+                data-testid="button-save-app-user"
+              >
+                {editAppUserMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Save Changes
+              </Button>
+              <Button variant="outline" onClick={() => setAppUserEditDrawerOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Generate Password Reset Link Drawer */}
+      <Sheet open={appUserResetLinkDrawerOpen} onOpenChange={(open) => {
+        setAppUserResetLinkDrawerOpen(open);
+        if (!open) {
+          setGeneratedAppUserResetUrl(null);
+          setAppUserResetSendEmail(false);
+        }
+      }}>
+        <SheetContent className="w-full sm:max-w-xl" data-testid="drawer-app-user-reset-link">
+          <SheetHeader>
+            <SheetTitle>Generate Password Reset Link</SheetTitle>
+            <SheetDescription>
+              Create a password reset link for {selectedAppUser?.email}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="rounded-lg border p-4 bg-muted/50">
+              <p className="text-sm text-muted-foreground">
+                A password reset link will be generated. You can share the link directly with the user or optionally send an email.
+              </p>
+            </div>
+            
+            {integrationStatus?.mailgun && (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="appUserResetSendEmail"
+                  checked={appUserResetSendEmail}
+                  onCheckedChange={(checked) => setAppUserResetSendEmail(checked === true)}
+                  data-testid="checkbox-reset-send-email"
+                />
+                <Label htmlFor="appUserResetSendEmail" className="text-sm font-normal cursor-pointer">
+                  Send password reset email
+                </Label>
+              </div>
+            )}
+            
+            {generatedAppUserResetUrl && (
+              <div className="space-y-2">
+                <Label>Password Reset Link</Label>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    value={generatedAppUserResetUrl} 
+                    readOnly 
+                    className="font-mono text-sm"
+                    data-testid="input-app-user-reset-url"
+                  />
+                  <Button 
+                    size="icon" 
+                    variant="outline" 
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedAppUserResetUrl);
+                      toast({ title: "Link copied to clipboard" });
+                    }}
+                    data-testid="button-copy-reset-link"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This link expires in 24 hours.
+                </p>
+              </div>
+            )}
+            
+            <div className="flex gap-3 pt-4">
+              {!generatedAppUserResetUrl && (
+                <Button 
+                  onClick={handleGenerateAppUserResetLink} 
+                  disabled={generateAppUserResetLinkMutation.isPending}
+                  className="flex-1"
+                  data-testid="button-generate-reset"
+                >
+                  {generateAppUserResetLinkMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Link className="h-4 w-4 mr-2" />
+                  )}
+                  Generate Reset Link
+                </Button>
+              )}
+              <Button 
+                variant="outline" 
+                onClick={() => setAppUserResetLinkDrawerOpen(false)}
+                className={generatedAppUserResetUrl ? "flex-1" : ""}
+              >
+                {generatedAppUserResetUrl ? "Done" : "Cancel"}
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
