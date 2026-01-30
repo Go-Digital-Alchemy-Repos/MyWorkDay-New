@@ -407,6 +407,20 @@ export function TaskDetailDrawer({
     setCompletionTimeDescription("");
   };
 
+  const handleStatusChange = (newStatus: string) => {
+    if (newStatus === "done" && task?.status !== "done") {
+      if (timeEntriesLoading) return;
+      
+      if (timeEntries.length === 0) {
+        setShowTimeTrackingPrompt(true);
+      } else {
+        onUpdate?.(task!.id, { status: newStatus });
+      }
+    } else {
+      onUpdate?.(task!.id, { status: newStatus });
+    }
+  };
+
   const { data: userChannels = [] } = useQuery<Array<{ id: string; name: string }>>({
     queryKey: ["/api/v1/chat/channels"],
     enabled: open,
@@ -818,7 +832,7 @@ export function TaskDetailDrawer({
                 </label>
                 <Select
                   value={task.status}
-                  onValueChange={(value) => onUpdate?.(task.id, { status: value })}
+                  onValueChange={handleStatusChange}
                 >
                   <SelectTrigger className="w-[140px] h-8" data-testid="select-status">
                     <SelectValue />

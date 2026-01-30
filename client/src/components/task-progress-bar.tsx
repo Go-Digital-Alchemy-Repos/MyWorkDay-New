@@ -47,7 +47,7 @@ export function TaskProgressBar({ stats, className, showMilestones = false, comp
     <div className={cn("space-y-3", className)} data-testid="task-progress-bar">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Progress</span>
+          <span className="text-sm font-medium">Workload Progress</span>
           <span className="text-2xl font-bold text-foreground">{completionPercentage}%</span>
           {completionPercentage === 100 && (
             <Trophy className="h-5 w-5 text-yellow-500" />
@@ -57,7 +57,6 @@ export function TaskProgressBar({ stats, className, showMilestones = false, comp
           {done} of {total} tasks completed
         </span>
       </div>
-
       <div className="relative">
         <Progress value={completionPercentage} className="h-3" />
         
@@ -82,7 +81,6 @@ export function TaskProgressBar({ stats, className, showMilestones = false, comp
           </div>
         )}
       </div>
-
       {showMilestones && (
         <div className="flex items-center gap-2 text-sm">
           {completionPercentage >= 75 ? (
@@ -100,7 +98,6 @@ export function TaskProgressBar({ stats, className, showMilestones = false, comp
           </span>
         </div>
       )}
-
       <div className="flex items-center gap-3 md:gap-4 flex-wrap">
         <div className="flex items-center gap-1.5" data-testid="stat-done">
           <CheckCircle2 className="h-4 w-4 text-green-500" />

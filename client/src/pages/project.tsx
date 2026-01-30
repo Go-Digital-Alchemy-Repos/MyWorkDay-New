@@ -26,6 +26,7 @@ import {
   Play,
   Activity,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,6 +40,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useProjectSocket } from "@/lib/realtime";
@@ -76,6 +88,15 @@ export default function ProjectPage() {
   const [selectedSectionId, setSelectedSectionId] = useState<string | undefined>();
   const [localSections, setLocalSections] = useState<SectionWithTasks[] | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  
+  const [pendingCompletionTaskId, setPendingCompletionTaskId] = useState<string | null>(null);
+  const [showTimeTrackingPrompt, setShowTimeTrackingPrompt] = useState(false);
+  const [showTimeEntryForm, setShowTimeEntryForm] = useState(false);
+  const [completionTimeHours, setCompletionTimeHours] = useState(0);
+  const [completionTimeMinutes, setCompletionTimeMinutes] = useState(0);
+  const [completionTimeDescription, setCompletionTimeDescription] = useState("");
+  const [isCompletingTask, setIsCompletingTask] = useState(false);
+  const [isCheckingTimeEntries, setIsCheckingTimeEntries] = useState(false);
 
   const { prompt: promptSectionName, PromptDialogComponent: SectionNameDialog } = usePromptDialog({
     title: "Create Section",
@@ -146,6 +167,25 @@ export default function ProjectPage() {
       if (selectedTask) {
         refetchSelectedTask();
       }
+    },
+  });
+
+  const createTimeEntryMutation = useMutation({
+    mutationFn: async (data: {
+      durationSeconds: number;
+      description: string;
+      taskId: string;
+      projectId: string | null;
+      clientId: string | null;
+    }) => {
+      return apiRequest("POST", "/api/time-entries", {
+        ...data,
+        startTime: new Date().toISOString(),
+        scope: "in_scope",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
     },
   });
 
@@ -360,11 +400,113 @@ export default function ProjectPage() {
     setSelectedTask(task);
   };
 
-  const handleStatusChange = (taskId: string, completed: boolean) => {
+  const handleStatusChange = async (taskId: string, completed: boolean) => {
+    if (!completed) {
+      updateTaskMutation.mutate({
+        taskId,
+        data: { status: "todo" },
+      });
+      return;
+    }
+    
+    setIsCheckingTimeEntries(true);
+    setPendingCompletionTaskId(taskId);
+    
+    try {
+      const response = await apiRequest("GET", `/api/tasks/${taskId}/time-entries`);
+      const timeEntries = await response.json();
+      
+      if (!timeEntries || timeEntries.length === 0) {
+        setShowTimeTrackingPrompt(true);
+      } else {
+        completeTaskDirectly(taskId);
+      }
+    } catch (error) {
+      completeTaskDirectly(taskId);
+    } finally {
+      setIsCheckingTimeEntries(false);
+    }
+  };
+
+  const completeTaskDirectly = (taskId: string) => {
     updateTaskMutation.mutate({
       taskId,
-      data: { status: completed ? "done" : "todo" },
+      data: { status: "done" },
     });
+    const pendingTask = displaySections?.flatMap(s => s.tasks || []).find(t => t.id === taskId);
+    toast({ title: "Task completed", description: `"${pendingTask?.title}" marked as done` });
+    resetCompletionState();
+  };
+
+  const handleTimeTrackingNo = () => {
+    if (pendingCompletionTaskId) {
+      completeTaskDirectly(pendingCompletionTaskId);
+    }
+    setShowTimeTrackingPrompt(false);
+  };
+
+  const handleTimeTrackingYes = () => {
+    setShowTimeTrackingPrompt(false);
+    setShowTimeEntryForm(true);
+  };
+
+  const handleTimeEntrySubmit = async () => {
+    if (!pendingCompletionTaskId) return;
+    
+    const totalSeconds = (completionTimeHours * 60 + completionTimeMinutes) * 60;
+    
+    if (totalSeconds <= 0) {
+      toast({ title: "Please enter a valid time", variant: "destructive" });
+      return;
+    }
+
+    const pendingTask = displaySections?.flatMap(s => s.tasks || []).find(t => t.id === pendingCompletionTaskId);
+    
+    if (projectId && !project?.clientId) {
+      toast({ 
+        title: "Client context required", 
+        description: "Unable to log time for this project task. Completing without time entry.",
+        variant: "destructive" 
+      });
+      completeTaskDirectly(pendingCompletionTaskId);
+      return;
+    }
+    
+    setIsCompletingTask(true);
+    
+    try {
+      await createTimeEntryMutation.mutateAsync({
+        durationSeconds: totalSeconds,
+        description: completionTimeDescription || `Completed: ${pendingTask?.title}`,
+        taskId: pendingCompletionTaskId,
+        projectId: projectId || null,
+        clientId: project?.clientId || null,
+      });
+      
+      updateTaskMutation.mutate({
+        taskId: pendingCompletionTaskId,
+        data: { status: "done" },
+      });
+      
+      toast({ 
+        title: "Task completed with time logged", 
+        description: `Logged ${completionTimeHours}h ${completionTimeMinutes}m for "${pendingTask?.title}"` 
+      });
+      resetCompletionState();
+    } catch (error) {
+      toast({ title: "Failed to complete task", variant: "destructive" });
+    } finally {
+      setIsCompletingTask(false);
+    }
+  };
+
+  const resetCompletionState = () => {
+    setShowTimeTrackingPrompt(false);
+    setShowTimeEntryForm(false);
+    setPendingCompletionTaskId(null);
+    setCompletionTimeHours(0);
+    setCompletionTimeMinutes(0);
+    setCompletionTimeDescription("");
   };
 
   const handleEditSection = (sectionId: string, name: string) => {
@@ -761,6 +903,106 @@ export default function ProjectPage() {
       </Sheet>
 
       <SectionNameDialog />
+
+      <Dialog open={showTimeTrackingPrompt} onOpenChange={setShowTimeTrackingPrompt}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Track time for this task?</DialogTitle>
+            <DialogDescription>
+              No time has been logged for this task. Would you like to add a time entry before completing it?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={handleTimeTrackingNo}
+              data-testid="button-time-tracking-no"
+            >
+              No, just complete
+            </Button>
+            <Button
+              onClick={handleTimeTrackingYes}
+              data-testid="button-time-tracking-yes"
+            >
+              Yes, add time
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTimeEntryForm} onOpenChange={(open) => {
+        if (!open) resetCompletionState();
+        else setShowTimeEntryForm(open);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Log time and complete task</DialogTitle>
+            <DialogDescription>
+              Enter the time spent on this task
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Duration</Label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="24"
+                    value={completionTimeHours}
+                    onChange={(e) => setCompletionTimeHours(parseInt(e.target.value) || 0)}
+                    className="w-20"
+                    data-testid="input-completion-hours"
+                  />
+                  <span className="text-sm text-muted-foreground">hours</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={completionTimeMinutes}
+                    onChange={(e) => setCompletionTimeMinutes(parseInt(e.target.value) || 0)}
+                    className="w-20"
+                    data-testid="input-completion-minutes"
+                  />
+                  <span className="text-sm text-muted-foreground">minutes</span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Description (optional)</Label>
+              <Textarea
+                value={completionTimeDescription}
+                onChange={(e) => setCompletionTimeDescription(e.target.value)}
+                placeholder="What did you work on?"
+                className="resize-none"
+                data-testid="textarea-completion-description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={resetCompletionState}
+              disabled={isCompletingTask}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleTimeEntrySubmit}
+              disabled={isCompletingTask}
+              data-testid="button-submit-time-entry"
+            >
+              {isCompletingTask ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              {isCompletingTask ? "Completing..." : "Log Time & Complete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
