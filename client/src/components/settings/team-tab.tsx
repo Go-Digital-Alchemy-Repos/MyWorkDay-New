@@ -39,6 +39,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -83,6 +93,10 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [mustChangeOnNextLogin, setMustChangeOnNextLogin] = useState(true);
+
+  // Delete team confirmation state
+  const [deleteTeamDialogOpen, setDeleteTeamDialogOpen] = useState(false);
+  const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
 
   const { toast } = useToast();
 
@@ -343,9 +357,16 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
     });
   };
 
-  const handleDeleteTeam = (teamId: string) => {
-    if (window.confirm("Are you sure you want to delete this team? Members will be detached but not deleted.")) {
-      deleteTeamMutation.mutate(teamId);
+  const openDeleteTeamDialog = (team: Team) => {
+    setTeamToDelete(team);
+    setDeleteTeamDialogOpen(true);
+  };
+
+  const handleConfirmDeleteTeam = () => {
+    if (teamToDelete) {
+      deleteTeamMutation.mutate(teamToDelete.id);
+      setDeleteTeamDialogOpen(false);
+      setTeamToDelete(null);
     }
   };
 
@@ -551,7 +572,7 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
                   isExpanded={expandedTeams.has(team.id)}
                   onToggleExpand={() => toggleTeamExpanded(team.id)}
                   onEditTeam={() => openEditTeam(team)}
-                  onDeleteTeam={() => handleDeleteTeam(team.id)}
+                  onDeleteTeam={() => openDeleteTeamDialog(team)}
                   onAddMember={() => openAddMemberDialog(team)}
                   onRemoveMember={(userId) => handleRemoveMember(team.id, userId)}
                   users={users}
@@ -755,6 +776,28 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteTeamDialogOpen} onOpenChange={setDeleteTeamDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Team</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{teamToDelete?.name}"? Members will be detached but not deleted.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-team">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmDeleteTeam}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-delete-team"
+            >
+              {deleteTeamMutation.isPending ? "Deleting..." : "Delete Team"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

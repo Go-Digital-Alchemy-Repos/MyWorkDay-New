@@ -47,6 +47,7 @@ import ReportsPage from "@/pages/reports";
 import CalendarPage from "@/pages/calendar";
 import MyTimePage from "@/pages/my-time";
 import MyCalendarPage from "@/pages/my-calendar";
+import TeamDetailPage from "@/pages/team-detail";
 import ClientPortalDashboard from "@/pages/client-portal-dashboard";
 import ClientPortalProjects from "@/pages/client-portal-projects";
 import ClientPortalTasks from "@/pages/client-portal-tasks";
@@ -307,6 +308,9 @@ function TenantRouter() {
       </Route>
       <Route path="/reports">
         {() => <TenantRouteGuard component={ReportsPage} />}
+      </Route>
+      <Route path="/teams/:id">
+        {() => <TenantRouteGuard component={TeamDetailPage} />}
       </Route>
       <Route path="/profile">
         {() => <TenantRouteGuard component={UserProfilePage} />}

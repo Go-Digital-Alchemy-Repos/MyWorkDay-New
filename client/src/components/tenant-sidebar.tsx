@@ -43,7 +43,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { CreateProjectDialog } from "@/features/projects";
+import { TeamDrawer } from "@/features/teams";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import type { Project, Team, Workspace, Client, ClientDivision } from "@shared/schema";
 
 const mainNavItems = [
@@ -60,7 +62,9 @@ const mainNavItems = [
 export function TenantSidebar() {
   const [location] = useLocation();
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createTeamOpen, setCreateTeamOpen] = useState(false);
   const { user } = useAuth();
+  const { toast } = useToast();
   const isAdmin = user?.role === "admin";
   const isSuperUser = user?.role === "super_user";
 
@@ -127,6 +131,31 @@ export function TenantSidebar() {
     createProjectMutation.mutate(data);
   };
 
+  const createTeamMutation = useMutation({
+    mutationFn: async (data: { name: string }) => {
+      return apiRequest("POST", "/api/teams", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+      setCreateTeamOpen(false);
+      toast({ title: "Team created successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to create team", variant: "destructive" });
+    },
+  });
+
+  const handleCreateTeam = async (data: { name: string }) => {
+    await createTeamMutation.mutateAsync(data);
+  };
+
+  const handleAddWorkspace = () => {
+    toast({
+      title: "Coming Soon",
+      description: "Multiple workspaces will be available in a future update.",
+    });
+  };
+
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
@@ -171,11 +200,10 @@ export function TenantSidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6"
                 onClick={() => setCreateProjectOpen(true)}
                 data-testid="button-add-project"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
             <CollapsibleContent>
@@ -243,10 +271,10 @@ export function TenantSidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6"
+                onClick={() => setCreateTeamOpen(true)}
                 data-testid="button-add-team"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
             <CollapsibleContent>
@@ -291,10 +319,10 @@ export function TenantSidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6"
+                onClick={handleAddWorkspace}
                 data-testid="button-add-workspace"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
             <CollapsibleContent>
@@ -405,6 +433,14 @@ export function TenantSidebar() {
         teams={teams}
         clients={clients}
         isPending={createProjectMutation.isPending}
+      />
+
+      <TeamDrawer
+        open={createTeamOpen}
+        onOpenChange={setCreateTeamOpen}
+        onSubmit={handleCreateTeam}
+        mode="create"
+        isLoading={createTeamMutation.isPending}
       />
     </Sidebar>
   );

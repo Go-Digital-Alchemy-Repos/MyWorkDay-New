@@ -48,6 +48,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -97,6 +107,9 @@ export default function ProjectPage() {
   const [completionTimeDescription, setCompletionTimeDescription] = useState("");
   const [isCompletingTask, setIsCompletingTask] = useState(false);
   const [isCheckingTimeEntries, setIsCheckingTimeEntries] = useState(false);
+
+  const [deleteSectionDialogOpen, setDeleteSectionDialogOpen] = useState(false);
+  const [sectionToDelete, setSectionToDelete] = useState<string | null>(null);
 
   const { prompt: promptSectionName, PromptDialogComponent: SectionNameDialog } = usePromptDialog({
     title: "Create Section",
@@ -513,9 +526,16 @@ export default function ProjectPage() {
     updateSectionMutation.mutate({ sectionId, name });
   };
 
-  const handleDeleteSection = (sectionId: string) => {
-    if (window.confirm("Are you sure you want to delete this section? All tasks in this section will be moved to no section.")) {
-      deleteSectionMutation.mutate(sectionId);
+  const openDeleteSectionDialog = (sectionId: string) => {
+    setSectionToDelete(sectionId);
+    setDeleteSectionDialogOpen(true);
+  };
+
+  const handleConfirmDeleteSection = () => {
+    if (sectionToDelete) {
+      deleteSectionMutation.mutate(sectionToDelete);
+      setDeleteSectionDialogOpen(false);
+      setSectionToDelete(null);
     }
   };
 
@@ -716,7 +736,7 @@ export default function ProjectPage() {
                   onTaskSelect={handleTaskSelect}
                   onTaskStatusChange={handleStatusChange}
                   onEditSection={handleEditSection}
-                  onDeleteSection={handleDeleteSection}
+                  onDeleteSection={openDeleteSectionDialog}
                 />
               ))}
               <div className="min-w-[280px] max-w-[280px] shrink-0">
@@ -1003,6 +1023,28 @@ export default function ProjectPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteSectionDialogOpen} onOpenChange={setDeleteSectionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Section</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this section? All tasks in this section will be moved to no section.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-section">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmDeleteSection}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-delete-section"
+            >
+              {deleteSectionMutation.isPending ? "Deleting..." : "Delete Section"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
