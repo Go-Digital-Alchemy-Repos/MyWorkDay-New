@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell, Check, CheckCheck, Settings, Trash2, Clock, MessageSquare, Users, FolderKanban, X } from "lucide-react";
+import { Bell, Check, CheckCheck, Settings, Clock, MessageSquare, Users, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,6 +15,7 @@ import { getSocket } from "@/lib/realtime/socket";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import type { ServerToClientEvents } from "@shared/events";
+import { useTaskDrawer } from "@/lib/task-drawer-context";
 
 interface Notification {
   id: string;
@@ -79,11 +80,30 @@ function getNotificationIcon(type: string) {
   return Icon;
 }
 
+const TASK_NOTIFICATION_TYPES = [
+  "task_deadline",
+  "task_assigned", 
+  "task_completed",
+  "task_status_changed",
+];
+
+function isTaskNotification(type: string): boolean {
+  return TASK_NOTIFICATION_TYPES.includes(type);
+}
+
+function getTaskIdFromPayload(payload: unknown): string | null {
+  if (payload && typeof payload === "object" && "taskId" in payload) {
+    return (payload as { taskId: string }).taskId;
+  }
+  return null;
+}
+
 export function NotificationCenter() {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"notifications" | "settings">("notifications");
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { openTask } = useTaskDrawer();
 
   const { data: notifications = [], isLoading: notificationsLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
@@ -129,15 +149,7 @@ const defaultPreferences: NotificationPreferences = {
     },
   });
 
-  const deleteNotificationMutation = useMutation({
-    mutationFn: async (notificationId: string) => {
-      await apiRequest("DELETE", `/api/notifications/${notificationId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-    },
-  });
-
+  
   const updatePreferenceMutation = useMutation({
     mutationFn: async ({ type, enabled, emailEnabled }: { type: string; enabled?: boolean; emailEnabled?: boolean }) => {
       await apiRequest("PATCH", "/api/notifications/preferences", { type, enabled, emailEnabled });
@@ -276,16 +288,23 @@ const defaultPreferences: NotificationPreferences = {
                 <div className="divide-y">
                   {notifications.map((notification) => {
                     const Icon = getNotificationIcon(notification.type);
+                    const taskId = getTaskIdFromPayload(notification.payloadJson);
+                    const isTaskType = isTaskNotification(notification.type);
+                    
                     return (
                       <div
                         key={notification.id}
                         className={cn(
-                          "px-4 py-3 hover-elevate cursor-pointer relative group",
+                          "px-4 py-3 hover-elevate cursor-pointer relative",
                           !notification.readAt && "bg-primary/5"
                         )}
                         onClick={() => {
                           if (!notification.readAt) {
                             markAsReadMutation.mutate(notification.id);
+                          }
+                          if (isTaskType && taskId) {
+                            setIsOpen(false);
+                            openTask(taskId);
                           }
                         }}
                         data-testid={`notification-item-${notification.id}`}
@@ -315,34 +334,6 @@ const defaultPreferences: NotificationPreferences = {
                             <p className="text-xs text-muted-foreground mt-1">
                               {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
                             </p>
-                          </div>
-                          <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                            {!notification.readAt && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  markAsReadMutation.mutate(notification.id);
-                                }}
-                                data-testid={`button-mark-read-${notification.id}`}
-                              >
-                                <Check className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteNotificationMutation.mutate(notification.id);
-                              }}
-                              data-testid={`button-delete-notification-${notification.id}`}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
                           </div>
                         </div>
                         {!notification.readAt && (

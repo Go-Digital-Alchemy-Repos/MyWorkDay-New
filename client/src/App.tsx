@@ -59,6 +59,7 @@ import { useEffect } from "react";
 import { GlobalActiveTimer } from "@/features/timer";
 import { ChatDrawerProvider, useChatDrawer } from "@/contexts/chat-drawer-context";
 import { GlobalChatDrawer } from "@/components/global-chat-drawer";
+import { TaskDrawerProvider } from "@/lib/task-drawer-context";
 import { FeaturesProvider } from "@/contexts/features-context";
 import { FeaturesBanner } from "@/components/features-banner";
 import { Button } from "@/components/ui/button";
@@ -411,9 +412,10 @@ function TenantLayout() {
   };
 
   return (
-    <ChatDrawerProvider>
-      <SidebarProvider style={style as React.CSSProperties}>
-        <TenantContextGate>
+    <TaskDrawerProvider>
+      <ChatDrawerProvider>
+        <SidebarProvider style={style as React.CSSProperties}>
+          <TenantContextGate>
           <CommandPalette
             onNewTask={() => setLocation("/my-tasks")}
             onNewProject={() => setLocation("/projects")}
@@ -455,9 +457,10 @@ function TenantLayout() {
           </div>
           {isMobile && <MobileNavBar />}
           <GlobalChatDrawer />
-        </TenantContextGate>
-      </SidebarProvider>
-    </ChatDrawerProvider>
+          </TenantContextGate>
+        </SidebarProvider>
+      </ChatDrawerProvider>
+    </TaskDrawerProvider>
   );
 }
 
