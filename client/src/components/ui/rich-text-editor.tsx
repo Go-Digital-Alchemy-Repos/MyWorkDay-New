@@ -1,8 +1,26 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
 import { Button } from "./button";
-import { Bold, Italic, Link as LinkIcon, List, ListOrdered, Undo, Redo, Smile } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { 
+  Bold, 
+  Italic, 
+  Underline as UnderlineIcon,
+  Link as LinkIcon, 
+  Unlink,
+  List, 
+  ListOrdered, 
+  Undo, 
+  Redo, 
+  Smile,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Paperclip
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PromptDialog } from "@/components/prompt-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,18 +30,24 @@ import { useTheme } from "@/lib/theme-provider";
 interface RichTextEditorProps {
   value: string;
   onChange: (value: string) => void;
+  onAttachmentClick?: () => void;
   placeholder?: string;
   className?: string;
   minHeight?: string;
+  showAlignment?: boolean;
+  showAttachment?: boolean;
   "data-testid"?: string;
 }
 
 export function RichTextEditor({ 
   value, 
-  onChange, 
+  onChange,
+  onAttachmentClick,
   placeholder = "Write something...",
   className = "",
   minHeight = "120px",
+  showAlignment = true,
+  showAttachment = false,
   "data-testid": dataTestId = "rich-text-editor"
 }: RichTextEditorProps) {
   const { theme } = useTheme();
@@ -38,11 +62,15 @@ export function RichTextEditor({
         blockquote: false,
         horizontalRule: false,
       }),
+      Underline,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
           class: "text-primary underline cursor-pointer",
         },
+      }),
+      TextAlign.configure({
+        types: ["paragraph", "heading"],
       }),
     ],
     content: value,
@@ -97,71 +125,146 @@ export function RichTextEditor({
 
   return (
     <div className={`border rounded-md bg-background ${className}`} data-testid={dataTestId}>
-      <div className="flex items-center gap-1 p-2 border-b bg-muted/30">
+      <div className="flex flex-wrap items-center gap-1 p-2 border-b bg-muted/30">
         <Button
           type="button"
-          size="icon"
-          variant={editor.isActive("bold") ? "default" : "ghost"}
+          size="sm"
+          variant="ghost"
+          className={cn("px-2", editor.isActive("bold") && "bg-muted")}
           onClick={() => editor.chain().focus().toggleBold().run()}
-          className="h-7 w-7"
+          disabled={!editor.can().chain().focus().toggleBold().run()}
           data-testid="button-bold"
         >
-          <Bold className="h-3.5 w-3.5" />
+          <Bold className="h-4 w-4" />
         </Button>
         <Button
           type="button"
-          size="icon"
-          variant={editor.isActive("italic") ? "default" : "ghost"}
+          size="sm"
+          variant="ghost"
+          className={cn("px-2", editor.isActive("italic") && "bg-muted")}
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          className="h-7 w-7"
+          disabled={!editor.can().chain().focus().toggleItalic().run()}
           data-testid="button-italic"
         >
-          <Italic className="h-3.5 w-3.5" />
+          <Italic className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={cn("px-2", editor.isActive("underline") && "bg-muted")}
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+          disabled={!editor.can().chain().focus().toggleUnderline().run()}
+          data-testid="button-underline"
+        >
+          <UnderlineIcon className="h-4 w-4" />
         </Button>
         <div className="w-px h-5 bg-border mx-1" />
         <Button
           type="button"
-          size="icon"
-          variant={editor.isActive("bulletList") ? "default" : "ghost"}
+          size="sm"
+          variant="ghost"
+          className={cn("px-2", editor.isActive("bulletList") && "bg-muted")}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className="h-7 w-7"
           data-testid="button-bullet-list"
         >
-          <List className="h-3.5 w-3.5" />
+          <List className="h-4 w-4" />
         </Button>
         <Button
           type="button"
-          size="icon"
-          variant={editor.isActive("orderedList") ? "default" : "ghost"}
+          size="sm"
+          variant="ghost"
+          className={cn("px-2", editor.isActive("orderedList") && "bg-muted")}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className="h-7 w-7"
           data-testid="button-ordered-list"
         >
-          <ListOrdered className="h-3.5 w-3.5" />
+          <ListOrdered className="h-4 w-4" />
         </Button>
+        {showAlignment && (
+          <>
+            <div className="w-px h-5 bg-border mx-1" />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn("px-2", editor.isActive({ textAlign: "left" }) && "bg-muted")}
+              onClick={() => editor.chain().focus().setTextAlign("left").run()}
+              data-testid="button-align-left"
+            >
+              <AlignLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn("px-2", editor.isActive({ textAlign: "center" }) && "bg-muted")}
+              onClick={() => editor.chain().focus().setTextAlign("center").run()}
+              data-testid="button-align-center"
+            >
+              <AlignCenter className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn("px-2", editor.isActive({ textAlign: "right" }) && "bg-muted")}
+              onClick={() => editor.chain().focus().setTextAlign("right").run()}
+              data-testid="button-align-right"
+            >
+              <AlignRight className="h-4 w-4" />
+            </Button>
+          </>
+        )}
         <div className="w-px h-5 bg-border mx-1" />
         <Button
           type="button"
-          size="icon"
-          variant={editor.isActive("link") ? "default" : "ghost"}
+          size="sm"
+          variant="ghost"
+          className={cn("px-2", editor.isActive("link") && "bg-muted")}
           onClick={openLinkDialog}
-          className="h-7 w-7"
           data-testid="button-link"
         >
-          <LinkIcon className="h-3.5 w-3.5" />
+          <LinkIcon className="h-4 w-4" />
         </Button>
+        {editor.isActive("link") && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="px-2"
+            onClick={() => editor.chain().focus().unsetLink().run()}
+            data-testid="button-unlink"
+          >
+            <Unlink className="h-4 w-4" />
+          </Button>
+        )}
+        {showAttachment && onAttachmentClick && (
+          <>
+            <div className="w-px h-5 bg-border mx-1" />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="px-2"
+              onClick={onAttachmentClick}
+              data-testid="button-attachment"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+          </>
+        )}
         <div className="w-px h-5 bg-border mx-1" />
         <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
           <PopoverTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="sm"
               variant="ghost"
-              className="h-7 w-7"
+              className="px-2"
               aria-label="Insert emoji"
               data-testid="button-emoji"
             >
-              <Smile className="h-3.5 w-3.5" />
+              <Smile className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
           <PopoverContent 
@@ -183,25 +286,25 @@ export function RichTextEditor({
         <div className="flex-1" />
         <Button
           type="button"
-          size="icon"
+          size="sm"
           variant="ghost"
+          className="px-2"
           onClick={() => editor.chain().focus().undo().run()}
           disabled={!editor.can().undo()}
-          className="h-7 w-7"
           data-testid="button-undo"
         >
-          <Undo className="h-3.5 w-3.5" />
+          <Undo className="h-4 w-4" />
         </Button>
         <Button
           type="button"
-          size="icon"
+          size="sm"
           variant="ghost"
+          className="px-2"
           onClick={() => editor.chain().focus().redo().run()}
           disabled={!editor.can().redo()}
-          className="h-7 w-7"
           data-testid="button-redo"
         >
-          <Redo className="h-3.5 w-3.5" />
+          <Redo className="h-4 w-4" />
         </Button>
       </div>
       <EditorContent editor={editor} />
@@ -233,6 +336,9 @@ export function RichTextEditor({
           color: hsl(var(--primary));
           text-decoration: underline;
           cursor: pointer;
+        }
+        .ProseMirror u {
+          text-decoration: underline;
         }
       `}</style>
 
@@ -289,6 +395,9 @@ export function RichTextViewer({ content, className = "" }: RichTextViewerProps)
         }
         .rich-text-viewer em {
           font-style: italic;
+        }
+        .rich-text-viewer u {
+          text-decoration: underline;
         }
       `}</style>
     </>
