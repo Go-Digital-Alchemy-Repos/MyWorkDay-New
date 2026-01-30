@@ -14,7 +14,11 @@ import {
   ListOrdered,
   Link as LinkIcon,
   Send,
+  Smile,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
+import { useTheme } from "@/lib/theme-provider";
 import { getDocForEditor, serializeDocToString } from "./richTextUtils";
 import type { User } from "@shared/schema";
 import { PromptDialog } from "@/components/prompt-dialog";
@@ -129,10 +133,19 @@ interface CommentMenuBarProps {
   onSubmit?: () => void;
   isSubmitting?: boolean;
   onOpenLinkDialog: () => void;
+  onEmojiSelect: (emoji: string) => void;
 }
 
-function MenuBar({ editor, onSubmit, isSubmitting, onOpenLinkDialog }: CommentMenuBarProps) {
+function MenuBar({ editor, onSubmit, isSubmitting, onOpenLinkDialog, onEmojiSelect }: CommentMenuBarProps) {
+  const { theme } = useTheme();
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
   if (!editor) return null;
+
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
+    onEmojiSelect(emojiData.emoji);
+    setEmojiOpen(false);
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-t border-border p-1 bg-muted/30" data-testid="comment-toolbar">
@@ -201,6 +214,35 @@ function MenuBar({ editor, onSubmit, isSubmitting, onOpenLinkDialog }: CommentMe
       >
         <LinkIcon className="h-3 w-3" />
       </Button>
+      <div className="w-px h-4 bg-border mx-1" />
+      <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="px-1.5"
+            data-testid="button-comment-emoji"
+          >
+            <Smile className="h-3 w-3" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent 
+          side="top" 
+          align="start" 
+          className="w-auto p-0 border-0"
+          sideOffset={8}
+        >
+          <EmojiPicker
+            onEmojiClick={handleEmojiClick}
+            theme={theme === "dark" ? Theme.DARK : Theme.LIGHT}
+            width={300}
+            height={350}
+            searchPlaceHolder="Search emoji..."
+            previewConfig={{ showPreview: false }}
+          />
+        </PopoverContent>
+      </Popover>
       <div className="flex-1" />
       {onSubmit && (
         <Button
@@ -362,6 +404,11 @@ export const CommentEditor = forwardRef<CommentEditorRef, CommentEditorProps>(
       editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
     }, [editor]);
 
+    const handleEmojiSelect = useCallback((emoji: string) => {
+      if (!editor) return;
+      editor.chain().focus().insertContent(emoji).run();
+    }, [editor]);
+
     useEffect(() => {
       if (editor) {
         editor.setEditable(!disabled);
@@ -397,7 +444,7 @@ export const CommentEditor = forwardRef<CommentEditorRef, CommentEditorProps>(
             />
           </div>
         )}
-        <MenuBar editor={editor} onSubmit={handleSubmit} isSubmitting={isSubmitting} onOpenLinkDialog={openLinkDialog} />
+        <MenuBar editor={editor} onSubmit={handleSubmit} isSubmitting={isSubmitting} onOpenLinkDialog={openLinkDialog} onEmojiSelect={handleEmojiSelect} />
 
         <PromptDialog
           open={linkDialogOpen}

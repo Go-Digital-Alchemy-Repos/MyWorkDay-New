@@ -13,7 +13,11 @@ import {
   ListOrdered,
   Link as LinkIcon,
   Unlink,
+  Smile,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
+import { useTheme } from "@/lib/theme-provider";
 import { getDocForEditor, serializeDocToString } from "./richTextUtils";
 import { PromptDialog } from "@/components/prompt-dialog";
 
@@ -34,10 +38,19 @@ interface RichTextEditorProps {
 interface MenuBarProps {
   editor: Editor | null;
   onOpenLinkDialog: () => void;
+  onEmojiSelect: (emoji: string) => void;
 }
 
-function MenuBar({ editor, onOpenLinkDialog }: MenuBarProps) {
+function MenuBar({ editor, onOpenLinkDialog, onEmojiSelect }: MenuBarProps) {
+  const { theme } = useTheme();
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
   if (!editor) return null;
+
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
+    onEmojiSelect(emojiData.emoji);
+    setEmojiOpen(false);
+  };
 
   return (
     <div className="flex flex-wrap gap-1 border-b border-border p-1 bg-muted/30" data-testid="richtext-toolbar">
@@ -118,6 +131,35 @@ function MenuBar({ editor, onOpenLinkDialog }: MenuBarProps) {
           <Unlink className="h-4 w-4" />
         </Button>
       )}
+      <div className="w-px bg-border mx-1" />
+      <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="px-2"
+            data-testid="button-emoji"
+          >
+            <Smile className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent 
+          side="bottom" 
+          align="start" 
+          className="w-auto p-0 border-0"
+          sideOffset={8}
+        >
+          <EmojiPicker
+            onEmojiClick={handleEmojiClick}
+            theme={theme === "dark" ? Theme.DARK : Theme.LIGHT}
+            width={300}
+            height={350}
+            searchPlaceHolder="Search emoji..."
+            previewConfig={{ showPreview: false }}
+          />
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -227,6 +269,11 @@ export function RichTextEditor({
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   }, [editor]);
 
+  const handleEmojiSelect = useCallback((emoji: string) => {
+    if (!editor) return;
+    editor.chain().focus().insertContent(emoji).run();
+  }, [editor]);
+
   return (
     <div
       className={cn(
@@ -236,7 +283,7 @@ export function RichTextEditor({
       )}
       data-testid={testId}
     >
-      {showToolbar && <MenuBar editor={editor} onOpenLinkDialog={openLinkDialog} />}
+      {showToolbar && <MenuBar editor={editor} onOpenLinkDialog={openLinkDialog} onEmojiSelect={handleEmojiSelect} />}
       <EditorContent
         editor={editor}
         className={cn(
