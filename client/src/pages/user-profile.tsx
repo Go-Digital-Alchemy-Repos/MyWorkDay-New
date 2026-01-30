@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { S3Dropzone } from "@/components/common/S3Dropzone";
-import { User, Mail, Shield, Users, Save, Loader2, ArrowLeft } from "lucide-react";
+import { User, Mail, Shield, Users, Save, Loader2, ArrowLeft, Key, Eye, EyeOff } from "lucide-react";
 import { useLocation } from "wouter";
 
 function getRoleLabel(role: string) {
@@ -43,6 +43,13 @@ export default function UserProfilePage() {
     firstName: user?.firstName || "",
     lastName: user?.lastName || "",
   });
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: { firstName?: string; lastName?: string }) => {
@@ -83,6 +90,36 @@ export default function UserProfilePage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     updateProfileMutation.mutate(formData);
+  };
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
+      return apiRequest("POST", "/api/users/me/change-password", data);
+    },
+    onSuccess: () => {
+      setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      toast({ title: "Password changed successfully" });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Failed to change password";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    },
+  });
+
+  const handlePasswordChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (passwordData.newPassword.length < 8) {
+      toast({ title: "Error", description: "New password must be at least 8 characters", variant: "destructive" });
+      return;
+    }
+    changePasswordMutation.mutate({
+      currentPassword: passwordData.currentPassword,
+      newPassword: passwordData.newPassword,
+    });
   };
 
   if (!user) {
@@ -211,6 +248,111 @@ export default function UserProfilePage() {
                       <>
                         <Save className="h-4 w-4 mr-2" />
                         Save Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </form>
+
+          <form onSubmit={handlePasswordChange}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Key className="h-5 w-5" />
+                  Change Password
+                </CardTitle>
+                <CardDescription>
+                  Update your account password
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="currentPassword">Current Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="currentPassword"
+                      type={showCurrentPassword ? "text" : "password"}
+                      value={passwordData.currentPassword}
+                      onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                      placeholder="Enter your current password"
+                      data-testid="input-current-password"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      data-testid="button-toggle-current-password"
+                    >
+                      {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        type={showNewPassword ? "text" : "password"}
+                        value={passwordData.newPassword}
+                        onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                        placeholder="Min 8 characters"
+                        data-testid="input-new-password"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        data-testid="button-toggle-new-password"
+                      >
+                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    {passwordData.newPassword.length > 0 && passwordData.newPassword.length < 8 && (
+                      <p className="text-sm text-destructive">Password must be at least 8 characters</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                    <Input
+                      id="confirmPassword"
+                      type={showNewPassword ? "text" : "password"}
+                      value={passwordData.confirmPassword}
+                      onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                      placeholder="Confirm new password"
+                      data-testid="input-confirm-password"
+                    />
+                    {passwordData.confirmPassword.length > 0 && passwordData.newPassword !== passwordData.confirmPassword && (
+                      <p className="text-sm text-destructive">Passwords do not match</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-4 flex justify-end">
+                  <Button
+                    type="submit"
+                    disabled={
+                      changePasswordMutation.isPending || 
+                      !passwordData.currentPassword || 
+                      passwordData.newPassword.length < 8 ||
+                      passwordData.newPassword !== passwordData.confirmPassword
+                    }
+                    className="min-w-[140px]"
+                    data-testid="button-change-password"
+                  >
+                    {changePasswordMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4 mr-2" />
+                        Change Password
                       </>
                     )}
                   </Button>

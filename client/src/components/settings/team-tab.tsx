@@ -18,8 +18,11 @@ import {
 } from "@/components/ui/table";
 import { 
   Plus, UserPlus, Users, Mail, MoreHorizontal, Copy, Trash2, 
-  Edit, RefreshCw, X, ChevronDown, ChevronRight, UserMinus
+  Edit, RefreshCw, X, ChevronDown, ChevronRight, UserMinus, Key, Eye, EyeOff
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,6 +76,13 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
   const [selectedTeamForMember, setSelectedTeamForMember] = useState<Team | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  
+  // Password reset state
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [mustChangeOnNextLogin, setMustChangeOnNextLogin] = useState(true);
 
   const { toast } = useToast();
 
@@ -228,6 +238,44 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
       toast({ title: "User status updated" });
     },
   });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ id, password, mustChangeOnNextLogin }: { id: string; password: string; mustChangeOnNextLogin: boolean }) => {
+      return apiRequest("POST", `/api/users/${id}/reset-password`, { password, mustChangeOnNextLogin });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setResetPasswordDialogOpen(false);
+      setResetPasswordUser(null);
+      setNewPassword("");
+      setMustChangeOnNextLogin(true);
+      toast({ title: "Password reset successfully", description: "The user will need to log in again with their new password." });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Failed to reset password";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    },
+  });
+
+  const openResetPasswordDialog = (user: User) => {
+    setResetPasswordUser(user);
+    setNewPassword("");
+    setMustChangeOnNextLogin(true);
+    setShowPassword(false);
+    setResetPasswordDialogOpen(true);
+  };
+
+  const handleResetPassword = () => {
+    if (!resetPasswordUser || !newPassword || newPassword.length < 8) {
+      toast({ title: "Error", description: "Password must be at least 8 characters", variant: "destructive" });
+      return;
+    }
+    resetPasswordMutation.mutate({
+      id: resetPasswordUser.id,
+      password: newPassword,
+      mustChangeOnNextLogin,
+    });
+  };
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -451,6 +499,10 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
                                 </>
                               )}
                               <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => openResetPasswordDialog(user)}>
+                                <Key className="h-4 w-4 mr-2" />
+                                Reset Password
+                              </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => toggleUserStatusMutation.mutate({ 
                                   id: user.id, 
@@ -640,6 +692,69 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
         onConfirm={handleAddMember}
         isPending={addTeamMemberMutation.isPending}
       />
+
+      {/* Password Reset Dialog */}
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {resetPasswordUser?.firstName} {resetPasswordUser?.lastName} ({resetPasswordUser?.email})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password (min 8 characters)"
+                  data-testid="input-new-password"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowPassword(!showPassword)}
+                  data-testid="button-toggle-password"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              {newPassword.length > 0 && newPassword.length < 8 && (
+                <p className="text-sm text-destructive">Password must be at least 8 characters</p>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="must-change"
+                checked={mustChangeOnNextLogin}
+                onCheckedChange={(checked) => setMustChangeOnNextLogin(checked === true)}
+                data-testid="checkbox-must-change"
+              />
+              <Label htmlFor="must-change" className="text-sm font-normal">
+                Require password change on next login
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPasswordDialogOpen(false)} data-testid="button-cancel-reset">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleResetPassword} 
+              disabled={!newPassword || newPassword.length < 8 || resetPasswordMutation.isPending}
+              data-testid="button-confirm-reset"
+            >
+              {resetPasswordMutation.isPending ? "Resetting..." : "Reset Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

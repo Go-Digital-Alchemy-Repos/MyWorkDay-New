@@ -487,6 +487,9 @@ export interface IStorage {
   // Notification Preferences
   getNotificationPreferences(userId: string): Promise<NotificationPreferences | undefined>;
   upsertNotificationPreferences(userId: string, prefs: Partial<InsertNotificationPreferences>): Promise<NotificationPreferences>;
+
+  // Session management
+  invalidateUserSessions(userId: string, exceptSessionId?: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3975,6 +3978,27 @@ export class DatabaseStorage implements IStorage {
         };
       }
       throw error;
+    }
+  }
+
+  async invalidateUserSessions(userId: string, exceptSessionId?: string): Promise<void> {
+    try {
+      // Delete all sessions for this user except the current one
+      // Sessions store userId in the sess JSON column as sess->'passport'->>'user'
+      if (exceptSessionId) {
+        await db.execute(
+          sql`DELETE FROM user_sessions WHERE sess->'passport'->>'user' = ${userId} AND sid != ${exceptSessionId}`
+        );
+        console.log(`[storage] Invalidated sessions for user ${userId} (except ${exceptSessionId})`);
+      } else {
+        await db.execute(
+          sql`DELETE FROM user_sessions WHERE sess->'passport'->>'user' = ${userId}`
+        );
+        console.log(`[storage] Invalidated all sessions for user ${userId}`);
+      }
+    } catch (error) {
+      // Session invalidation is non-critical, log but don't throw
+      console.warn(`[storage] Failed to invalidate sessions for user ${userId}:`, error);
     }
   }
 }

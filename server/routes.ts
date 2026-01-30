@@ -5073,7 +5073,8 @@ export async function registerRoutes(
 
   const requireAdmin: RequestHandler = (req, res, next) => {
     const user = req.user as Express.User | undefined;
-    if (!user || user.role !== "admin") {
+    // Allow admin or super_user role for tenant management
+    if (!user || (user.role !== "admin" && user.role !== "super_user")) {
       return res.status(403).json({ error: "Admin access required" });
     }
     next();
@@ -5167,6 +5168,20 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const updates = req.body;
+      const currentUser = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
+      
+      // Require tenant context for all admin user operations
+      if (!tenantId) {
+        return res.status(400).json({ error: "Tenant context required to update users" });
+      }
+      
+      // Verify the target user belongs to the same tenant
+      const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found in your organization" });
+      }
+      
       const user = await storage.updateUser(id, updates);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -5175,6 +5190,136 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating user:", error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ============================================
+  // TENANT ADMIN USER MANAGEMENT ENDPOINTS
+  // ============================================
+  
+  // POST /api/users/:id/reset-password - Tenant admin resets user password
+  const resetPasswordSchema = z.object({
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    mustChangeOnNextLogin: z.boolean().optional().default(true),
+  });
+  
+  app.post("/api/users/:id/reset-password", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const currentUser = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
+      
+      if (!tenantId) {
+        return res.status(400).json({ error: "Tenant context required" });
+      }
+      
+      // Parse and validate the request body
+      const parseResult = resetPasswordSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
+      }
+      
+      const { password, mustChangeOnNextLogin } = parseResult.data;
+      
+      // Verify the target user belongs to the same tenant
+      const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found in your organization" });
+      }
+      
+      // Hash the password
+      const { hashPassword } = await import("./auth");
+      const passwordHash = await hashPassword(password);
+      
+      // Update the user's password
+      const updatedUser = await storage.setUserPasswordWithMustChange(id, tenantId, passwordHash, mustChangeOnNextLogin);
+      
+      if (!updatedUser) {
+        return res.status(500).json({ error: "Failed to update password" });
+      }
+      
+      // Invalidate all existing sessions for this user
+      await storage.invalidateUserSessions(id);
+      
+      console.log(`[routes] Tenant admin ${currentUser.email} reset password for user ${targetUser.email}`);
+      
+      res.json({
+        message: "Password reset successfully. User will need to log in again.",
+        mustChangeOnNextLogin,
+      });
+    } catch (error) {
+      console.error("Error resetting user password:", error);
+      res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
+  // POST /api/users/:id/activate - Tenant admin activates a user
+  app.post("/api/users/:id/activate", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const currentUser = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
+      
+      if (!tenantId) {
+        return res.status(400).json({ error: "Tenant context required" });
+      }
+      
+      // Verify the target user belongs to the same tenant
+      const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found in your organization" });
+      }
+      
+      const updatedUser = await storage.updateUser(id, { isActive: true });
+      
+      console.log(`[routes] Tenant admin ${currentUser.email} activated user ${targetUser.email}`);
+      
+      res.json({ message: "User activated successfully", user: updatedUser });
+    } catch (error) {
+      console.error("Error activating user:", error);
+      res.status(500).json({ error: "Failed to activate user" });
+    }
+  });
+
+  // POST /api/users/:id/deactivate - Tenant admin deactivates a user
+  app.post("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const currentUser = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
+      
+      if (!tenantId) {
+        return res.status(400).json({ error: "Tenant context required" });
+      }
+      
+      // Prevent self-deactivation
+      if (id === currentUser.id) {
+        return res.status(400).json({ error: "You cannot deactivate your own account" });
+      }
+      
+      // Verify the target user belongs to the same tenant
+      const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found in your organization" });
+      }
+      
+      const updatedUser = await storage.updateUser(id, { isActive: false });
+      
+      // Invalidate all sessions for deactivated user
+      try {
+        await db.execute(
+          sql`DELETE FROM user_sessions WHERE sess::text LIKE ${'%"passport":{"user":"' + id + '"%'}`
+        );
+      } catch (sessionError) {
+        console.warn("Could not invalidate user sessions:", sessionError);
+      }
+      
+      console.log(`[routes] Tenant admin ${currentUser.email} deactivated user ${targetUser.email}`);
+      
+      res.json({ message: "User deactivated successfully", user: updatedUser });
+    } catch (error) {
+      console.error("Error deactivating user:", error);
+      res.status(500).json({ error: "Failed to deactivate user" });
     }
   });
 
@@ -5492,6 +5637,63 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating user profile:", error);
       res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // POST /api/users/me/change-password - User changes their own password
+  const changePasswordSchema = z.object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+  });
+
+  app.post("/api/users/me/change-password", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || user?.tenantId;
+      
+      const parseResult = changePasswordSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
+      }
+      
+      const { currentPassword, newPassword } = parseResult.data;
+      
+      // Get user with tenant verification for regular users
+      let fullUser;
+      if (tenantId) {
+        fullUser = await storage.getUserByIdAndTenant(user.id, tenantId);
+      } else {
+        // Only allow this for super_users without tenant context
+        fullUser = await storage.getUser(user.id);
+      }
+      
+      if (!fullUser || !fullUser.passwordHash) {
+        return res.status(400).json({ error: "Cannot verify current password" });
+      }
+      
+      // Verify current password
+      const { comparePasswords, hashPassword } = await import("./auth");
+      const isValid = await comparePasswords(currentPassword, fullUser.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+      
+      // Hash the new password
+      const passwordHash = await hashPassword(newPassword);
+      
+      // Update the password
+      await storage.updateUser(user.id, { passwordHash });
+      
+      console.log(`[routes] User ${user.email} changed their own password`);
+      
+      // Invalidate other sessions for security (keep current session)
+      // Note: User's current session remains valid until they log out
+      await storage.invalidateUserSessions(user.id, req.sessionID);
+      
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      res.status(500).json({ error: "Failed to change password" });
     }
   });
 
