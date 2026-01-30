@@ -241,7 +241,7 @@ export function DraggableChatModal({
       ref={modalRef}
       style={modalStyle}
       className={cn(
-        "flex flex-col bg-background border border-border rounded-lg shadow-xl overflow-hidden",
+        "flex flex-col bg-card/95 dark:bg-accent/95 backdrop-blur-sm border border-border rounded-lg shadow-2xl overflow-hidden",
         isDragging && "cursor-grabbing select-none",
         className
       )}
