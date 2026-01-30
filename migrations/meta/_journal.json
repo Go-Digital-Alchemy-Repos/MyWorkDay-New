@@ -36,6 +36,13 @@
       "when": 1769534500000,
       "tag": "0004_add_missing_production_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1769811228769,
+      "tag": "0005_black_miracleman",
+      "breakpoints": true
     }
   ]
 }

@@ -869,6 +869,16 @@ export const projectMembers = pgTable("project_members", {
   uniqueIndex("project_members_unique").on(table.projectId, table.userId),
 ]);
 
+// Hidden Projects table - tracks which users have hidden which projects from their view
+export const hiddenProjects = pgTable("hidden_projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("hidden_projects_unique").on(table.projectId, table.userId),
+]);
+
 // Sections table
 export const sections = pgTable("sections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1584,6 +1594,17 @@ export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
   }),
   user: one(users, {
     fields: [projectMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const hiddenProjectsRelations = relations(hiddenProjects, ({ one }) => ({
+  project: one(projects, {
+    fields: [hiddenProjects.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [hiddenProjects.userId],
     references: [users.id],
   }),
 }));
@@ -2324,6 +2345,8 @@ export type InsertProject = z.infer<typeof insertProjectSchema>;
 
 export type ProjectMember = typeof projectMembers.$inferSelect;
 export type InsertProjectMember = z.infer<typeof insertProjectMemberSchema>;
+
+export type HiddenProject = typeof hiddenProjects.$inferSelect;
 
 export type Section = typeof sections.$inferSelect;
 export type InsertSection = z.infer<typeof insertSectionSchema>;

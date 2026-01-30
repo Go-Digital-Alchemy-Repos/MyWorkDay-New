@@ -966,6 +966,92 @@ export async function registerRoutes(
     }
   });
 
+  // Hide a project from user's view (opt-out of seeing this project)
+  app.post("/api/projects/:projectId/hide", async (req, res) => {
+    try {
+      if (!req.user) {
+        return sendError(res, AppError.authentication(), req);
+      }
+      
+      const { projectId } = req.params;
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Verify project belongs to user's tenant
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return sendError(res, AppError.notFound("Project"), req);
+      }
+      if (tenantId && project.tenantId !== tenantId) {
+        return sendError(res, AppError.forbidden("Access denied to this project"), req);
+      }
+      
+      await storage.hideProject(projectId, req.user.id);
+      res.json({ success: true, message: "Project hidden from your view" });
+    } catch (error) {
+      return handleRouteError(res, error, "POST /api/projects/:projectId/hide", req);
+    }
+  });
+
+  // Unhide a project (restore visibility)
+  app.delete("/api/projects/:projectId/hide", async (req, res) => {
+    try {
+      if (!req.user) {
+        return sendError(res, AppError.authentication(), req);
+      }
+      
+      const { projectId } = req.params;
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Verify project belongs to user's tenant
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return sendError(res, AppError.notFound("Project"), req);
+      }
+      if (tenantId && project.tenantId !== tenantId) {
+        return sendError(res, AppError.forbidden("Access denied to this project"), req);
+      }
+      
+      await storage.unhideProject(projectId, req.user.id);
+      res.json({ success: true, message: "Project is now visible in your view" });
+    } catch (error) {
+      return handleRouteError(res, error, "DELETE /api/projects/:projectId/hide", req);
+    }
+  });
+
+  // Check if a project is hidden for the current user
+  app.get("/api/projects/:projectId/hidden", async (req, res) => {
+    try {
+      if (!req.user) {
+        return sendError(res, AppError.authentication(), req);
+      }
+      
+      const { projectId } = req.params;
+      const isHidden = await storage.isProjectHidden(projectId, req.user.id);
+      res.json({ isHidden });
+    } catch (error) {
+      return handleRouteError(res, error, "GET /api/projects/:projectId/hidden", req);
+    }
+  });
+
+  // Get all hidden projects for the current user
+  app.get("/api/projects/hidden", async (req, res) => {
+    try {
+      if (!req.user) {
+        return sendError(res, AppError.authentication(), req);
+      }
+      
+      const tenantId = getEffectiveTenantId(req);
+      if (!tenantId) {
+        return sendError(res, AppError.internal("User tenant not configured"), req);
+      }
+      
+      const hiddenProjects = await storage.getHiddenProjectsForUser(req.user.id, tenantId);
+      res.json(hiddenProjects);
+    } catch (error) {
+      return handleRouteError(res, error, "GET /api/projects/hidden", req);
+    }
+  });
+
   app.get("/api/teams", async (req, res) => {
     try {
       const tenantId = getEffectiveTenantId(req);

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute } from "wouter";
+import { useRoute, useLocation } from "wouter";
 import { useCreateTask } from "@/hooks/use-create-task";
 import {
   DndContext,
@@ -27,6 +27,7 @@ import {
   Activity,
   Sparkles,
   Loader2,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -83,6 +84,7 @@ export default function ProjectPage() {
   const [, params] = useRoute("/projects/:id");
   const projectId = params?.id;
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   // Subscribe to real-time updates for this project
   useProjectSocket(projectId);
@@ -262,6 +264,27 @@ export default function ProjectPage() {
       toast({
         title: "Failed to create section",
         description: "The section could not be created. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const hideProjectMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/projects/${projectId}/hide`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({
+        title: "Project hidden",
+        description: "This project has been hidden from your view. You can find it in your hidden projects list.",
+      });
+      navigate("/");
+    },
+    onError: () => {
+      toast({
+        title: "Failed to hide project",
+        description: "The project could not be hidden. Please try again.",
         variant: "destructive",
       });
     },
@@ -691,6 +714,16 @@ export default function ProjectPage() {
               data-testid="button-project-settings"
             >
               <Settings className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => hideProjectMutation.mutate()}
+              disabled={hideProjectMutation.isPending}
+              title="Hide from My View"
+              data-testid="button-hide-project"
+            >
+              <EyeOff className="h-4 w-4" />
             </Button>
           </div>
         </div>

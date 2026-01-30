@@ -63,7 +63,7 @@ import {
   type Notification, type InsertNotification,
   type NotificationPreferences, type InsertNotificationPreferences,
   users, workspaces, workspaceMembers, teams, teamMembers,
-  projects, projectMembers, sections, tasks, taskAssignees, taskWatchers,
+  projects, projectMembers, hiddenProjects, sections, tasks, taskAssignees, taskWatchers,
   subtasks, subtaskAssignees, subtaskTags, tags, taskTags, comments, commentMentions, activityLog, taskAttachments,
   clients, clientContacts, clientInvites, clientUserAccess,
   clientDivisions, divisionMembers,
@@ -101,7 +101,7 @@ export type ProjectActivityItem = {
   entityTitle: string;
   metadata?: Record<string, unknown>;
 };
-import { eq, and, desc, asc, inArray, gte, lte, gt, isNull, sql, ilike, or } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, notInArray, gte, lte, gt, isNull, sql, ilike, or } from "drizzle-orm";
 import { encryptValue, decryptValue } from "./lib/encryption";
 
 export interface IStorage {
@@ -142,6 +142,10 @@ export interface IStorage {
   setProjectMembers(projectId: string, userIds: string[]): Promise<void>;
   isProjectMember(projectId: string, userId: string): Promise<boolean>;
   getProjectsForUser(userId: string, tenantId: string, workspaceId?: string, isAdmin?: boolean): Promise<Project[]>;
+  hideProject(projectId: string, userId: string): Promise<void>;
+  unhideProject(projectId: string, userId: string): Promise<void>;
+  isProjectHidden(projectId: string, userId: string): Promise<boolean>;
+  getHiddenProjectsForUser(userId: string, tenantId: string): Promise<Project[]>;
   
   getSection(id: string): Promise<Section | undefined>;
   getSectionsByProject(projectId: string): Promise<Section[]>;
@@ -710,21 +714,68 @@ export class DatabaseStorage implements IStorage {
     return !!member;
   }
 
-  async getProjectsForUser(userId: string, tenantId: string, _workspaceId?: string, isAdmin?: boolean): Promise<Project[]> {
-    if (isAdmin) {
-      return this.getProjectsByTenant(tenantId);
+  async getProjectsForUser(userId: string, tenantId: string, _workspaceId?: string, _isAdmin?: boolean): Promise<Project[]> {
+    // All active projects in a tenant are visible to all tenant members by default
+    // Users can hide projects they don't want to see
+    
+    // Get the list of project IDs the user has hidden
+    const hidden = await db.select({ projectId: hiddenProjects.projectId })
+      .from(hiddenProjects)
+      .where(eq(hiddenProjects.userId, userId));
+    
+    const hiddenProjectIds = hidden.map(h => h.projectId);
+    
+    // Return all tenant projects except hidden ones
+    if (hiddenProjectIds.length > 0) {
+      return db.select().from(projects)
+        .where(and(
+          eq(projects.tenantId, tenantId),
+          notInArray(projects.id, hiddenProjectIds)
+        ))
+        .orderBy(desc(projects.createdAt));
     }
     
-    const memberProjects = await db.select({ project: projects })
-      .from(projectMembers)
-      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+    // No hidden projects, return all tenant projects
+    return db.select().from(projects)
+      .where(eq(projects.tenantId, tenantId))
+      .orderBy(desc(projects.createdAt));
+  }
+  
+  async hideProject(projectId: string, userId: string): Promise<void> {
+    await db.insert(hiddenProjects)
+      .values({ projectId, userId })
+      .onConflictDoNothing();
+  }
+  
+  async unhideProject(projectId: string, userId: string): Promise<void> {
+    await db.delete(hiddenProjects)
       .where(and(
-        eq(projectMembers.userId, userId),
+        eq(hiddenProjects.projectId, projectId),
+        eq(hiddenProjects.userId, userId)
+      ));
+  }
+  
+  async isProjectHidden(projectId: string, userId: string): Promise<boolean> {
+    const [hidden] = await db.select()
+      .from(hiddenProjects)
+      .where(and(
+        eq(hiddenProjects.projectId, projectId),
+        eq(hiddenProjects.userId, userId)
+      ));
+    return !!hidden;
+  }
+  
+  async getHiddenProjectsForUser(userId: string, tenantId: string): Promise<Project[]> {
+    const hidden = await db.select({ project: projects })
+      .from(hiddenProjects)
+      .innerJoin(projects, eq(hiddenProjects.projectId, projects.id))
+      .where(and(
+        eq(hiddenProjects.userId, userId),
         eq(projects.tenantId, tenantId)
       ))
       .orderBy(desc(projects.createdAt));
     
-    return memberProjects.map(r => r.project);
+    return hidden.map(h => h.project);
   }
 
   async getSection(id: string): Promise<Section | undefined> {
