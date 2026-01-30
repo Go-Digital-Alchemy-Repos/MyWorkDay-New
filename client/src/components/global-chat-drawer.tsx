@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
 import { chatSounds } from "@/lib/sounds";
+import { useTheme } from "@/lib/theme-provider";
 import { CHAT_EVENTS, CHAT_ROOM_EVENTS, ChatNewMessagePayload, ChatMessageUpdatedPayload, ChatMessageDeletedPayload } from "@shared/events";
 
 interface ChatChannel {
@@ -105,6 +106,7 @@ interface ChatDmThread {
 export function GlobalChatDrawer() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { theme } = useTheme();
   const { isOpen, closeDrawer, lastActiveThread, setLastActiveThread } = useChatDrawer();
   const [selectedChannel, setSelectedChannel] = useState<ChatChannel | null>(null);
   const [selectedDm, setSelectedDm] = useState<ChatDmThread | null>(null);
@@ -261,7 +263,7 @@ export function GlobalChatDrawer() {
       socket.off(CHAT_EVENTS.MESSAGE_UPDATED as any, handleMessageUpdated as any);
       socket.off(CHAT_EVENTS.MESSAGE_DELETED as any, handleMessageDeleted as any);
     };
-  }, [selectedChannel, selectedDm, isOpen]);
+  }, [selectedChannel, selectedDm, isOpen, user?.id]);
 
   const joinChannelMutation = useMutation({
     mutationFn: async (channelId: string) => {
@@ -865,7 +867,7 @@ export function GlobalChatDrawer() {
                       >
                         <EmojiPicker
                           onEmojiClick={handleEmojiClick}
-                          theme={document.documentElement.classList.contains("dark") ? Theme.DARK : Theme.LIGHT}
+                          theme={theme === "dark" ? Theme.DARK : Theme.LIGHT}
                           width={300}
                           height={350}
                           searchPlaceHolder="Search emoji..."
