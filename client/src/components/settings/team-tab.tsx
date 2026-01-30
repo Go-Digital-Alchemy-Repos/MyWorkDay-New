@@ -53,7 +53,11 @@ interface TeamMemberWithUser extends TeamMember {
   user?: User;
 }
 
-export function TeamTab() {
+interface TeamTabProps {
+  isAdmin?: boolean;
+}
+
+export function TeamTab({ isAdmin = true }: TeamTabProps) {
   const [newUserOpen, setNewUserOpen] = useState(false);
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -74,6 +78,7 @@ export function TeamTab() {
 
   const { data: users, isLoading: usersLoading } = useQuery<User[]>({
     queryKey: ["/api/users"],
+    enabled: isAdmin,
   });
 
   const { data: teams } = useQuery<Team[]>({
@@ -82,10 +87,12 @@ export function TeamTab() {
 
   const { data: invitations } = useQuery<Invitation[]>({
     queryKey: ["/api/invitations"],
+    enabled: isAdmin,
   });
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+    enabled: isAdmin,
   });
 
   const createUserMutation = useMutation({
@@ -346,7 +353,8 @@ export function TeamTab() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className={`grid gap-6 ${isAdmin ? "lg:grid-cols-3" : "lg:grid-cols-1"}`}>
+        {isAdmin && (
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <div>

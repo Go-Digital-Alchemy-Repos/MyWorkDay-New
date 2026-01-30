@@ -9,6 +9,8 @@ export default function UserManagerPage() {
 
   const isAdmin = user?.role === "admin";
   const isSuperUser = user?.role === "super_user";
+  const isEmployee = user?.role === "employee";
+  const isTenantMember = isAdmin || isEmployee || isSuperUser;
 
   if (isLoading) {
     return (
@@ -18,7 +20,7 @@ export default function UserManagerPage() {
     );
   }
 
-  if (!isAdmin && !isSuperUser) {
+  if (!isTenantMember) {
     return <Redirect to="/" />;
   }
 
@@ -28,14 +30,17 @@ export default function UserManagerPage() {
         <div className="flex items-center gap-3 mb-6">
           <UsersRound className="h-8 w-8 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">User Manager</h1>
+            <h1 className="text-2xl font-bold">{isAdmin || isSuperUser ? "User Manager" : "Team Manager"}</h1>
             <p className="text-muted-foreground text-sm">
-              Manage your organization's users and teams
+              {isAdmin || isSuperUser 
+                ? "Manage your organization's users and teams" 
+                : "Manage your organization's teams"
+              }
             </p>
           </div>
         </div>
 
-        <TeamTab />
+        <TeamTab isAdmin={isAdmin || isSuperUser} />
       </div>
     </ScrollArea>
   );
