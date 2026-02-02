@@ -2991,18 +2991,24 @@ export async function registerRoutes(
     try {
       const tenantId = getEffectiveTenantId(req);
       const workspaceId = getCurrentWorkspaceId(req);
+      const requestId = req.requestId || "unknown";
+      
+      console.log(`[GET /api/clients] requestId=${requestId}, tenantId=${tenantId}, workspaceId=${workspaceId}, userId=${req.user?.id}`);
       
       if (tenantId) {
         const clients = await storage.getClientsByTenant(tenantId, workspaceId);
+        console.log(`[GET /api/clients] Found ${clients.length} clients for tenantId=${tenantId}, requestId=${requestId}`);
         return res.json(clients);
       }
       
       // Only superusers can use legacy non-scoped methods
       if (isSuperUser(req)) {
         const clients = await storage.getClientsByWorkspace(workspaceId);
+        console.log(`[GET /api/clients] Super user mode: Found ${clients.length} clients for workspaceId=${workspaceId}, requestId=${requestId}`);
         return res.json(clients);
       }
       
+      console.error(`[GET /api/clients] No tenant context, requestId=${requestId}, userId=${req.user?.id}`);
       return res.status(500).json({ error: "User tenant not configured" });
     } catch (error) {
       console.error("Error fetching clients:", error);

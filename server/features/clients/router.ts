@@ -65,12 +65,17 @@ router.get("/", async (req, res) => {
 router.get("/hierarchy/list", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
+    const requestId = (req as any).requestId || "unknown";
+    
+    console.log(`[GET /api/v1/clients/hierarchy/list] requestId=${requestId}, tenantId=${tenantId}, userId=${req.user?.id}`);
     
     if (!tenantId) {
+      console.error(`[GET /api/v1/clients/hierarchy/list] No tenant context, requestId=${requestId}, userId=${req.user?.id}`);
       return res.status(400).json({ error: "Tenant context required" });
     }
     
     const clients = await storage.getClientsByTenantWithHierarchy(tenantId);
+    console.log(`[GET /api/v1/clients/hierarchy/list] Found ${clients.length} clients for tenantId=${tenantId}, requestId=${requestId}`);
     return res.json(clients);
   } catch (error) {
     console.error("Error fetching clients hierarchy:", error);
