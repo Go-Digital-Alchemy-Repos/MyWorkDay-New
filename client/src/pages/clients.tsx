@@ -79,11 +79,17 @@ export default function ClientsPage() {
       );
       return { previousClients };
     },
-    onError: (err, _newClient, context) => {
+    onError: (err: any, _newClient, context) => {
       if (context?.previousClients) {
         queryClient.setQueryData(["/api/clients"], context.previousClients);
       }
-      toast({ title: "Failed to create client", variant: "destructive" });
+      const errorMessage = err?.message || err?.error || "Unknown error";
+      console.error("Failed to create client:", err);
+      toast({ 
+        title: "Failed to create client", 
+        description: typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage),
+        variant: "destructive" 
+      });
     },
     onSuccess: () => {
       toast({ title: "Client created successfully" });

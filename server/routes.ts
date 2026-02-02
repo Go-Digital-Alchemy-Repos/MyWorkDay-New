@@ -3044,6 +3044,9 @@ export async function registerRoutes(
     try {
       const tenantId = getEffectiveTenantId(req);
       const workspaceId = getCurrentWorkspaceId(req);
+      const requestId = req.requestId || "unknown";
+      
+      console.log(`[POST /api/clients] requestId=${requestId}, tenantId=${tenantId}, workspaceId=${workspaceId}, body:`, JSON.stringify(req.body));
       
       const data = insertClientSchema.parse({
         ...req.body,
@@ -3057,6 +3060,7 @@ export async function registerRoutes(
         // Only superusers can use legacy non-scoped methods
         client = await storage.createClient(data);
       } else {
+        console.error(`[POST /api/clients] No tenant context, requestId=${requestId}, userId=${req.user?.id}`);
         return res.status(500).json({ error: "User tenant not configured" });
       }
 
@@ -3073,12 +3077,15 @@ export async function registerRoutes(
         workspaceId,
       );
 
+      console.log(`[POST /api/clients] Created client ${client.id}, requestId=${requestId}`);
       res.status(201).json(client);
     } catch (error) {
+      const requestId = req.requestId || "unknown";
       if (error instanceof z.ZodError) {
+        console.error(`[POST /api/clients] Validation error, requestId=${requestId}:`, error.errors);
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating client:", error);
+      console.error(`[POST /api/clients] Error creating client, requestId=${requestId}:`, error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
