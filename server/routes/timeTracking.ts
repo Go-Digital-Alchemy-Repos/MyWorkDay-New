@@ -3,6 +3,7 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { insertTimeEntrySchema, insertActiveTimerSchema } from "@shared/schema";
 import { getCurrentUserId, getCurrentWorkspaceId } from "../middleware/authContext";
+import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { validateBody } from "../middleware/validate";
 import { AppError } from "../lib/errors";
@@ -48,6 +49,11 @@ router.post(
   asyncHandler(async (req: Request, res: Response) => {
     const userId = getCurrentUserId(req);
     const workspaceId = getCurrentWorkspaceId(req);
+    const tenantId = getEffectiveTenantId(req);
+
+    if (!tenantId) {
+      throw AppError.badRequest("Tenant context required");
+    }
 
     const existing = await storage.getActiveTimerByUser(userId);
     if (existing) {
@@ -56,6 +62,7 @@ router.post(
 
     const now = new Date();
     const data = insertActiveTimerSchema.parse({
+      tenantId,
       userId,
       workspaceId,
       clientId: req.body.clientId || null,
