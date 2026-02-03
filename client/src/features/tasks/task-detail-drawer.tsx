@@ -36,6 +36,7 @@ import { CommentThread } from "@/components/comment-thread";
 import { AttachmentUploader } from "@/components/attachment-uploader";
 import { StatusBadge } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { MultiSelectAssignees } from "@/components/multi-select-assignees";
 import { MultiSelectWatchers } from "@/components/multi-select-watchers";
 import { format } from "date-fns";
@@ -989,11 +990,9 @@ export function TaskDetailDrawer({
                         data-testid="input-new-tag-name"
                       />
                       <div className="flex items-center gap-2">
-                        <input
-                          type="color"
+                        <ColorPicker
                           value={newTagColor}
-                          onChange={(e) => setNewTagColor(e.target.value)}
-                          className="h-8 w-8 rounded border cursor-pointer"
+                          onChange={setNewTagColor}
                           data-testid="input-new-tag-color"
                         />
                         <span className="text-xs text-muted-foreground">Pick color</span>

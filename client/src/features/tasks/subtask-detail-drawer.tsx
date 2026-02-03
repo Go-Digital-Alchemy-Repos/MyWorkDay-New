@@ -26,6 +26,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Subtask, User, Tag as TagType, WorkspaceMember, TaskWithRelations } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { ColorPicker } from "@/components/ui/color-picker";
 
 type SubtaskOrTask = (Subtask | (TaskWithRelations & { taskId?: string; completed?: boolean; assigneeId?: string | null })) & {
   id: string;
@@ -587,11 +588,9 @@ export function SubtaskDetailDrawer({
                           data-testid="input-new-tag-name"
                         />
                         <div className="flex items-center gap-2">
-                          <input
-                            type="color"
+                          <ColorPicker
                             value={newTagColor}
-                            onChange={(e) => setNewTagColor(e.target.value)}
-                            className="h-8 w-8 rounded border cursor-pointer"
+                            onChange={setNewTagColor}
                             data-testid="input-new-tag-color"
                           />
                           <span className="text-xs text-muted-foreground">Pick color</span>
