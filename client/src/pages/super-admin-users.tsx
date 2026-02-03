@@ -1116,17 +1116,15 @@ export default function SuperAdminUsers() {
                       </Button>
                       
                       {/* Password Management */}
-                      {(selectedAppUser.needsPassword || !selectedAppUser.isActive) && (
-                        <Button 
-                          className="w-full justify-start" 
-                          variant="outline"
-                          onClick={() => setAppUserPasswordDrawerOpen(true)}
-                          data-testid="button-set-password"
-                        >
-                          <KeyRound className="h-4 w-4 mr-2" />
-                          Set Password
-                        </Button>
-                      )}
+                      <Button 
+                        className="w-full justify-start" 
+                        variant="outline"
+                        onClick={() => setAppUserPasswordDrawerOpen(true)}
+                        data-testid="button-change-password"
+                      >
+                        <KeyRound className="h-4 w-4 mr-2" />
+                        {selectedAppUser.needsPassword ? "Set Password" : "Change Password"}
+                      </Button>
                       <Button 
                         className="w-full justify-start" 
                         variant="outline"
@@ -1239,11 +1237,20 @@ export default function SuperAdminUsers() {
       }}>
         <SheetContent className="w-full sm:max-w-md" data-testid="drawer-app-user-password">
           <SheetHeader>
-            <SheetTitle>{selectedAppUser?.isPendingInvite ? "Activate User" : "Set Password"}</SheetTitle>
+            <SheetTitle>
+              {selectedAppUser?.isPendingInvite 
+                ? "Activate User" 
+                : selectedAppUser?.needsPassword 
+                  ? "Set Password" 
+                  : "Change Password"
+              }
+            </SheetTitle>
             <SheetDescription>
               {selectedAppUser?.isPendingInvite 
                 ? "Set a password to activate this user without requiring them to accept the invitation"
-                : "Set a new password for this user"
+                : selectedAppUser?.needsPassword
+                  ? "Set a new password for this user"
+                  : "Manually change this user's password"
               }
             </SheetDescription>
           </SheetHeader>
@@ -1305,7 +1312,12 @@ export default function SuperAdminUsers() {
                 ) : (
                   <KeyRound className="h-4 w-4 mr-2" />
                 )}
-                {selectedAppUser?.isPendingInvite ? "Activate User" : "Set Password"}
+                {selectedAppUser?.isPendingInvite 
+                  ? "Activate User" 
+                  : selectedAppUser?.needsPassword 
+                    ? "Set Password" 
+                    : "Change Password"
+                }
               </Button>
               <Button 
                 variant="outline" 
