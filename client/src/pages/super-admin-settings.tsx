@@ -1163,22 +1163,28 @@ export default function SuperAdminSettingsPage() {
 
   useEffect(() => {
     if (ssoGoogleSettings && !ssoGoogleDirty) {
+      const apiRedirectUri = ssoGoogleSettings.redirectUri || "";
+      const clientRedirectUri = `${window.location.origin}/api/v1/auth/google/callback`;
+      const useClientUri = !apiRedirectUri || apiRedirectUri.includes("localhost");
       setSsoGoogleForm({
         enabled: ssoGoogleSettings.enabled || false,
         clientId: ssoGoogleSettings.clientId || "",
         clientSecret: "",
-        redirectUri: ssoGoogleSettings.redirectUri || "",
+        redirectUri: useClientUri ? clientRedirectUri : apiRedirectUri,
       });
     }
   }, [ssoGoogleSettings, ssoGoogleDirty]);
 
   useEffect(() => {
     if (ssoGithubSettings && !ssoGithubDirty) {
+      const apiRedirectUri = ssoGithubSettings.redirectUri || "";
+      const clientRedirectUri = `${window.location.origin}/api/v1/auth/github/callback`;
+      const useClientUri = !apiRedirectUri || apiRedirectUri.includes("localhost");
       setSsoGithubForm({
         enabled: ssoGithubSettings.enabled || false,
         clientId: ssoGithubSettings.clientId || "",
         clientSecret: "",
-        redirectUri: ssoGithubSettings.redirectUri || "",
+        redirectUri: useClientUri ? clientRedirectUri : apiRedirectUri,
       });
     }
   }, [ssoGithubSettings, ssoGithubDirty]);
