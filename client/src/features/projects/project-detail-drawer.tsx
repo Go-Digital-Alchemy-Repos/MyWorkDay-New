@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { useTaskDrawer } from "@/lib/task-drawer-context";
 import { Link } from "wouter";
 import {
   Sheet,
@@ -109,6 +110,7 @@ interface ProjectDetailDrawerProps {
 
 export function ProjectDetailDrawer({ project, open, onOpenChange, onEdit }: ProjectDetailDrawerProps) {
   const { user } = useAuth();
+  const { openTask } = useTaskDrawer();
   const isSuperUser = user?.role === "super_user";
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -328,7 +330,12 @@ export function ProjectDetailDrawer({ project, open, onOpenChange, onEdit }: Pro
             ) : tasks && tasks.length > 0 ? (
               <div className="space-y-2">
                 {openTasks.slice(0, 10).map((task) => (
-                  <Card key={task.id} className="hover-elevate cursor-pointer">
+                  <Card 
+                    key={task.id} 
+                    className="hover-elevate cursor-pointer"
+                    onClick={() => openTask(task.id)}
+                    data-testid={`card-task-${task.id}`}
+                  >
                     <CardContent className="py-3 px-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
