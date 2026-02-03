@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, MessageSquare, Building2, FolderKanban, Loader2, CheckSquare, Save, Check } from "lucide-react";
+import { X, Calendar, Users, Tag, Flag, Layers, CalendarIcon, Clock, Timer, Play, Eye, Square, Pause, ChevronRight, Building2, FolderKanban, Loader2, CheckSquare, Save, Check } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,6 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { StartTimerDrawer } from "@/features/timer";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
 import type { TaskWithRelations, User, Tag as TagType, Comment, Project, Client } from "@shared/schema";
 
 type ActiveTimer = {
@@ -243,7 +242,6 @@ export function TaskDetailDrawer({
   });
 
   const { toast } = useToast();
-  const [, navigate] = useLocation();
   const qc = useQueryClient();
 
   const isTimerOnThisTask = activeTimer?.taskId === task?.id;
@@ -434,42 +432,6 @@ export function TaskDetailDrawer({
     }
   };
 
-  const { data: userChannels = [] } = useQuery<Array<{ id: string; name: string }>>({
-    queryKey: ["/api/v1/chat/channels"],
-    enabled: open,
-  });
-
-  const getTaskChannelName = () => {
-    const sanitized = task?.title?.slice(0, 40).replace(/[^a-zA-Z0-9\s-]/g, "").trim() || "";
-    return `task-${sanitized || task?.id?.slice(0, 8)}`;
-  };
-
-  const existingTaskChannel = userChannels.find(c => 
-    c.name.toLowerCase() === getTaskChannelName().toLowerCase()
-  );
-
-  const openOrCreateTaskChat = useMutation({
-    mutationFn: async () => {
-      if (existingTaskChannel) {
-        return existingTaskChannel;
-      }
-      return apiRequest("POST", "/api/v1/chat/channels", {
-        name: getTaskChannelName(),
-        isPrivate: true,
-      });
-    },
-    onSuccess: (channel: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
-      navigate(`/chat?channel=${channel.id}`);
-      toast({ 
-        title: existingTaskChannel ? "Opening discussion" : "Discussion created",
-        description: `Chat for "${task?.title?.slice(0, 30) || "this task"}"` 
-      });
-    },
-    onError: () => {
-      toast({ title: "Failed to open discussion", variant: "destructive" });
-    },
-  });
   
   useEffect(() => {
     if (task) {
@@ -707,21 +669,6 @@ export function TaskDetailDrawer({
                 Timer running on another task
               </Badge>
             )}
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => openOrCreateTaskChat.mutate()}
-              disabled={openOrCreateTaskChat.isPending}
-              data-testid="button-open-task-chat"
-            >
-              {openOrCreateTaskChat.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <MessageSquare className="h-3.5 w-3.5 mr-1" />
-              )}
-              {existingTaskChannel ? "Open Discussion" : "Discuss"}
-            </Button>
           </div>
 
           <Separator />
