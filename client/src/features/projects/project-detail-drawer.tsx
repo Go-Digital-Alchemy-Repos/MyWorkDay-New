@@ -171,7 +171,7 @@ export function ProjectDetailDrawer({ project, open, onOpenChange, onEdit }: Pro
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto" data-testid="drawer-project-detail">
+      <SheetContent className="w-full sm:max-w-[48vw] min-w-[600px] overflow-y-auto" data-testid="drawer-project-detail">
         <SheetHeader className="space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
