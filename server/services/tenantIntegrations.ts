@@ -173,6 +173,12 @@ export class TenantIntegrationService {
             accessKeyIdMasked: maskSecret(s3Secrets.accessKeyId),
             secretAccessKeyMasked: maskSecret(s3Secrets.secretAccessKey),
           };
+        } else if (provider === "r2") {
+          const r2Secrets = secrets as R2SecretConfig;
+          secretMasked = {
+            accessKeyIdMasked: maskSecret(r2Secrets.accessKeyId),
+            secretAccessKeyMasked: maskSecret(r2Secrets.secretAccessKey),
+          };
         } else if (provider === "sso_google" || provider === "sso_github") {
           const ssoSecrets = secrets as SsoGoogleSecretConfig | SsoGithubSecretConfig;
           secretMasked = {
