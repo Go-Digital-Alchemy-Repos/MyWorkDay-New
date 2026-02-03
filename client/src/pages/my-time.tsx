@@ -342,6 +342,10 @@ export default function MyTimePage() {
           <h1 className="text-2xl font-semibold" data-testid="page-title">My Time</h1>
           <p className="text-sm text-muted-foreground">Your personal time tracking overview</p>
         </div>
+        <Button onClick={handleStartTimer} data-testid="button-start-timer">
+          <Play className="h-4 w-4 mr-2" />
+          Start Timer
+        </Button>
       </div>
       
       <div className="flex-1 overflow-auto p-6">
