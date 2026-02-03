@@ -53,6 +53,7 @@ export function TaskDrawerProvider({ children }: TaskDrawerProviderProps) {
           onOpenChange={(open) => {
             if (!open) closeTask();
           }}
+          workspaceId={task.project?.workspaceId || ""}
         />
       )}
     </TaskDrawerContext.Provider>
