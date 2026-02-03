@@ -98,7 +98,6 @@ export function TaskSelectorWithCreate({
 
   return (
     <div className="space-y-2">
-      <Label>Task</Label>
       <Select
         value={taskId || "none"}
         onValueChange={(v) => onTaskChange(v === "none" ? null : v)}
