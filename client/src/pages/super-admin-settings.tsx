@@ -39,6 +39,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { parseApiError } from "@/lib/parseApiError";
+import { RichTextEditor } from "@/components/richtext";
 
 interface SystemSettings {
   id: number;
@@ -526,12 +527,13 @@ function AgreementsManagementTab({
             </div>
             <div className="space-y-2">
               <Label>Agreement Content</Label>
-              <textarea
+              <RichTextEditor
                 value={form.body}
-                onChange={(e) => setForm({ ...form, body: e.target.value })}
+                onChange={(value) => setForm({ ...form, body: value })}
                 placeholder="Enter agreement content..."
-                className="w-full min-h-[300px] p-3 border rounded-md text-sm resize-y"
-                data-testid="textarea-agreement-body"
+                minHeight="300px"
+                showAlignment={true}
+                data-testid="richtext-agreement-body"
               />
             </div>
             <div className="flex justify-end gap-2 pt-4">
