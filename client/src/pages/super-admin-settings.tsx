@@ -369,7 +369,12 @@ function AgreementsManagementTab({
           ) : agreements.length > 0 ? (
             <div className="space-y-3">
               {agreements.map((agreement) => (
-                <div key={agreement.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`agreement-row-${agreement.id}`}>
+                <div 
+                  key={agreement.id} 
+                  className="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover-elevate" 
+                  data-testid={`agreement-row-${agreement.id}`}
+                  onClick={() => handleOpenEdit(agreement)}
+                >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{agreement.title}</span>
@@ -383,7 +388,7 @@ function AgreementsManagementTab({
                       {agreement.tenantName} • Updated {new Date(agreement.updatedAt).toLocaleDateString()}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     {agreement.status === "active" && (
                       <Button variant="outline" size="sm" onClick={() => handleViewSigners(agreement)} data-testid={`button-view-signers-${agreement.id}`}>
                         <Users className="h-4 w-4 mr-1" />
@@ -397,12 +402,12 @@ function AgreementsManagementTab({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleOpenEdit(agreement)}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          Edit
+                        </DropdownMenuItem>
                         {agreement.status === "draft" && (
                           <>
-                            <DropdownMenuItem onClick={() => handleOpenEdit(agreement)}>
-                              <FileText className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => { setActionAgreement(agreement); setConfirmPublishOpen(true); }}>
                               <Send className="h-4 w-4 mr-2" />
                               Publish
@@ -487,12 +492,25 @@ function AgreementsManagementTab({
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
         <SheetContent className="sm:max-w-xl w-full overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>{selectedAgreement ? "Edit Agreement" : "Create Agreement"}</SheetTitle>
+            <SheetTitle>{selectedAgreement ? "Agreement Details" : "Create Agreement"}</SheetTitle>
             <SheetDescription>
-              {selectedAgreement ? "Update the agreement content" : "Create a new SaaS agreement for all tenants or a specific tenant"}
+              {selectedAgreement 
+                ? `${selectedAgreement.tenantName} • Version ${selectedAgreement.version}` 
+                : "Create a new SaaS agreement for all tenants or a specific tenant"}
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
+            {selectedAgreement && (
+              <div className="flex items-center gap-2">
+                {getStatusBadge(selectedAgreement.status)}
+                {(selectedAgreement as any).scope === "global" && (
+                  <Badge variant="outline" className="text-xs"><Globe className="h-3 w-3 mr-1" />Default</Badge>
+                )}
+                <span className="text-sm text-muted-foreground">
+                  Updated {new Date(selectedAgreement.updatedAt).toLocaleDateString()}
+                </span>
+              </div>
+            )}
             {!selectedAgreement && (
               <div className="space-y-2">
                 <Label>Scope</Label>
