@@ -113,6 +113,11 @@ export function requireSuperUser(req: Request, res: Response, next: NextFunction
 }
 
 export function getEffectiveTenantId(req: Request): string | null {
+  // If the user has a tenantId (is a regular user), always return it
+  if (req.user?.tenantId) {
+    return req.user.tenantId;
+  }
+  // Otherwise return the effective tenantId from middleware (impersonation, etc.)
   return req.tenant?.effectiveTenantId || null;
 }
 
