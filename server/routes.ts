@@ -5326,6 +5326,12 @@ export async function registerRoutes(
       }
 
       const updatedUser = await storage.updateUser(user.id, updates);
+      
+      // Update the session user object so /api/auth/me returns fresh data
+      if (req.user) {
+        Object.assign(req.user, updatedUser);
+      }
+      
       res.json({ user: updatedUser });
     } catch (error) {
       console.error("Error updating user profile:", error);
