@@ -96,6 +96,7 @@ import {
   handleTenancyViolation
 } from "./middleware/tenancyEnforcement";
 import { UserRole } from "@shared/schema";
+import { deleteFromStorageByUrl } from "./services/uploads/s3UploadService";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -5328,6 +5329,17 @@ export async function registerRoutes(
 
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: "No valid fields to update" });
+      }
+
+      // Avatar cleanup: Delete old avatar from R2 when replacing with a new one
+      // This runs before the update to ensure we capture the old URL
+      if (avatarUrl !== undefined && user.avatarUrl && user.avatarUrl !== avatarUrl) {
+        const tenantId = req.tenant?.effectiveTenantId || user?.tenantId || null;
+        console.log("[profile-update] Deleting old avatar:", user.avatarUrl);
+        // Fire and forget - don't block the update if deletion fails
+        deleteFromStorageByUrl(user.avatarUrl, tenantId).catch(err => {
+          console.error("[profile-update] Failed to delete old avatar:", err);
+        });
       }
 
       const updatedUser = await storage.updateUser(user.id, updates);

@@ -21,11 +21,18 @@ interface ImageCropperProps {
   originalMimeType?: string;
 }
 
+// Avatar storage optimization constants
+// Max dimension for avatar images to ensure efficient storage
+const AVATAR_MAX_DIMENSION = 400;
+// WebP quality for avatar compression (0.85 = good balance of quality and size)
+const AVATAR_WEBP_QUALITY = 0.85;
+
 async function createCroppedImage(
   imageSrc: string,
   pixelCrop: Area,
-  mimeType: string = "image/png"
-): Promise<Blob> {
+  mimeType: string = "image/png",
+  maxDimension: number = AVATAR_MAX_DIMENSION
+): Promise<{ blob: Blob; finalMimeType: string }> {
   const image = await createImage(imageSrc);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -34,8 +41,22 @@ async function createCroppedImage(
     throw new Error("No 2d context");
   }
 
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
+  // Calculate output dimensions - resize if larger than maxDimension
+  let outputWidth = pixelCrop.width;
+  let outputHeight = pixelCrop.height;
+  
+  if (outputWidth > maxDimension || outputHeight > maxDimension) {
+    const scale = Math.min(maxDimension / outputWidth, maxDimension / outputHeight);
+    outputWidth = Math.round(outputWidth * scale);
+    outputHeight = Math.round(outputHeight * scale);
+  }
+
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
+
+  // Use high-quality image scaling
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
 
   ctx.drawImage(
     image,
@@ -45,18 +66,32 @@ async function createCroppedImage(
     pixelCrop.height,
     0,
     0,
-    pixelCrop.width,
-    pixelCrop.height
+    outputWidth,
+    outputHeight
   );
 
-  const outputType = mimeType === "image/gif" ? "image/png" : mimeType;
-  const quality = outputType === "image/png" ? undefined : 0.95;
+  // Determine output format:
+  // - GIF → PNG (GIF not supported by canvas.toBlob for animation)
+  // - PNG → PNG (preserve transparency)
+  // - JPEG/WebP/others → WebP (better compression)
+  let outputType: string;
+  let quality: number | undefined;
+  
+  if (mimeType === "image/gif" || mimeType === "image/png") {
+    // Keep PNG for transparency support
+    outputType = "image/png";
+    quality = undefined;
+  } else {
+    // Convert to WebP for better compression
+    outputType = "image/webp";
+    quality = AVATAR_WEBP_QUALITY;
+  }
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
         if (blob) {
-          resolve(blob);
+          resolve({ blob, finalMimeType: outputType });
         } else {
           reject(new Error("Canvas is empty"));
         }
@@ -116,9 +151,12 @@ export function ImageCropper({
 
     setIsProcessing(true);
     try {
-      const outputMimeType = originalMimeType === "image/gif" ? "image/png" : originalMimeType;
-      const croppedBlob = await createCroppedImage(imageSrc, croppedAreaPixels, outputMimeType);
-      onCropComplete(croppedBlob, outputMimeType);
+      // createCroppedImage handles compression and format optimization:
+      // - Resizes to max 400x400 for efficient storage
+      // - Converts JPEG to WebP for better compression
+      // - Keeps PNG for transparency support
+      const { blob, finalMimeType } = await createCroppedImage(imageSrc, croppedAreaPixels, originalMimeType);
+      onCropComplete(blob, finalMimeType);
       onClose();
     } catch (error) {
       console.error("Error cropping image:", error);

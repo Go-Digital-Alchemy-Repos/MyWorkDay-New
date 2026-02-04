@@ -1,0 +1,166 @@
+@@ -172,51 +172,165 @@ Address N+1 query patterns in heavy list endpoints.
+
+**DO NOT:**
+- Change API response shapes
+- Add pagination where it doesn't exist (separate prompt)
+- Restructure storage layer
+- Touch auth or tenancy logic
+
+### Acceptance Criteria
+- [ ] Projects list endpoint reduces queries by 50%+
+- [ ] Tenant detail endpoint uses batched queries
+- [ ] Response times documented before/after
+- [ ] No API contract changes
+
+### Test Coverage to Add
+- Load tests for optimized endpoints
+- Regression tests for response shape
+
+### Risk Level
+**Medium** - Performance changes can have subtle effects
+
+### Recommended Run Order
+**5 of 5** - Optimization after stability
+
+---
+
+## Prompt 6: Route Module Extraction by Table/Feature (Non-Destructive)
+
+### Objective
+Split the oversized `server/routes.ts` into smaller route modules grouped by table or feature without altering behavior.
+
+### Scope Boundaries
+**DO:**
+- Create route modules under `server/routes/` grouped by table or feature (e.g., `tasks`, `projects`, `clients`, `timeTracking`)
+- Move route handlers from `server/routes.ts` into those modules
+- Keep all route paths, middleware, and response shapes identical
+- Update the main route aggregator to compose the new modules
+- Add inline comments describing table/feature ownership in each module
+
+**DO NOT:**
+- Change database schema or migrations
+- Modify request/response payload shapes
+- Introduce new endpoints or remove existing ones
+- Change auth/tenancy enforcement logic
+- Rename route paths or alter URL structures
+
+### Acceptance Criteria
+- [ ] `server/routes.ts` reduced to a thin aggregator (no large handlers)
+- [ ] Each major table/feature has a dedicated route module
+- [ ] All routes remain reachable under the same paths
+- [ ] No API contract changes (verified via existing tests or manual smoke checks)
+
+### Test Coverage to Add
+- Minimal smoke tests ensuring main route groups still respond (if tests exist)
+
+### Risk Level
+**Low** - Refactor only, no behavioral changes
+
+### Recommended Run Order
+**6 of 6** - Safe refactor after functional stabilization
+
+---
+
+## Prompt 7: R2 Avatar Upload Compression + Cleanup (Non-Destructive)
+
+### Objective
+Ensure user avatar uploads to Cloudflare R2 are size-efficient by compressing/converting images on upload, and delete the previous avatar from R2 when a user replaces it.
+
+### Scope Boundaries
+**DO:**
+- Add an image compression/conversion step for avatar uploads before writing to R2
+- Enforce reasonable avatar file size/format limits (e.g., convert to WebP/PNG with max dimensions)
+- When a user updates their avatar, delete the prior avatar object from R2
+- Keep existing API endpoints and response shapes unchanged
+- Add clear inline comments explaining the avatar storage lifecycle
+
+**DO NOT:**
+- Change database schema or migrations
+- Alter auth/tenancy enforcement logic
+- Rename public API routes or request/response payloads
+- Introduce new storage providers or remove R2 support
+
+### Acceptance Criteria
+- [ ] Avatar uploads are compressed/converted before storage
+- [ ] Oversized avatar files are rejected or normalized to defined limits
+- [ ] Previous avatar object is deleted from R2 when replaced
+- [ ] No API contract changes (verified via existing tests or manual smoke checks)
+
+### Test Coverage to Add
+- Upload avatar with large image and verify size reduction
+- Replace avatar and verify old object deletion
+
+### Risk Level
+**Low** - Storage optimization with guarded behavior
+
+### Recommended Run Order
+**7 of 7** - Safe optimization after route modularization
+
+---
+
+## Prompt 8: Global Image Compression Pipeline (Non-Destructive)
+
+### Objective
+Add a consistent image compression/conversion pipeline across all image uploads (avatars, project assets, client documents, chat attachments, etc.) to reduce storage costs and prevent oversized files.
+
+### Scope Boundaries
+**DO:**
+- Implement a shared image processing utility used by every image upload path
+- Normalize image formats (e.g., convert to WebP/PNG) with max dimensions and size caps
+- Enforce consistent limits (file size, dimensions, allowed MIME types) across routes
+- Preserve existing API endpoints, response shapes, and upload flows
+- Add inline documentation explaining the global image policy
+
+**DO NOT:**
+- Change database schema or migrations
+- Modify auth/tenancy enforcement logic
+- Rename route paths or alter URL structures
+- Introduce new storage providers or remove existing ones
+
+### Acceptance Criteria
+- [ ] All image upload paths use the shared compression/conversion utility
+- [ ] Oversized images are rejected or normalized to defined limits
+- [ ] Image uploads store compressed/converted output consistently
+- [ ] No API contract changes (verified via existing tests or manual smoke checks)
+
+### Test Coverage to Add
+- Upload oversized images in multiple modules and verify compression
+- Validate consistent file size caps for different endpoints
+
+### Risk Level
+**Low** - Storage optimization with uniform behavior
+
+### Recommended Run Order
+**8 of 8** - Safe optimization after avatar-specific cleanup
+
+---
+
+## Summary Table
+
+| Order | Prompt | Risk | Focus Area |
+|-------|--------|------|------------|
+| 1 | Test Fixtures & Coverage | Low | Testing infrastructure |
+| 2 | Agreement Gating Hardening | Medium | Security |
+| 3 | Time Entry Editability | Low | Feature |
+| 4 | Tenant Drawer Usability | Low | UX Polish |
+| 5 | Performance Optimization | Medium | Performance |
+| 6 | Route Module Extraction | Low | Code organization |
+| 7 | R2 Avatar Compression + Cleanup | Low | Storage optimization |
+| 8 | Global Image Compression | Low | Storage optimization |
+
+---
+
+## Additional Backlog (Not Prioritized)
+
+These items were identified but not included in the immediate roadmap:
+
+- **Mailgun Settings Persistence/Masking** - Tenant integration secrets handling
+- **S3 Upload Consistency** - Unified upload service for branding/avatars
+- **Navigation Mode Switching** - Super vs tenant mode edge cases
+- **Rate Limiting** - API protection for production
+- **Error Response Standardization** - Consistent error shapes
+
+---
+
+*Created: January 14, 2026*
+*Review Frequency: After each prompt completion*

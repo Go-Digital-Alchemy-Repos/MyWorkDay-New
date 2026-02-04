@@ -18,7 +18,7 @@
  * Note: Cloudflare R2 is the exclusive storage provider. All S3 fallback code has been removed.
  */
 
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
 import { getStorageProvider, getStorageStatus, createS3ClientFromConfig, StorageNotConfiguredError, type S3Config } from "../../storage/getStorageProvider";
@@ -356,6 +356,107 @@ export async function uploadToStorage(
   const fileUrl = getFileUrl(key, storageProvider.config);
 
   return { fileUrl, key };
+}
+
+/**
+ * Extract the R2 storage key from a file URL
+ * 
+ * Avatar URLs follow patterns like:
+ * - Public URL pattern: https://pub-xxx.r2.dev/tenants/{tenantId}/users/{userId}/avatar/...
+ * - Endpoint pattern: https://xxx.r2.cloudflarestorage.com/{bucket}/tenants/{tenantId}/users/...
+ * - System pattern: https://pub-xxx.r2.dev/system/users/{userId}/avatar/...
+ * 
+ * This function extracts the key portion after the base URL.
+ */
+export function extractKeyFromUrl(
+  fileUrl: string, 
+  publicUrl: string | undefined, 
+  endpoint: string | undefined,
+  bucketName: string | undefined
+): string | null {
+  if (!fileUrl) {
+    return null;
+  }
+  
+  const normalizedFileUrl = fileUrl.replace(/\/$/, "");
+  
+  // Try public URL pattern first (most common for R2)
+  if (publicUrl) {
+    const normalizedPublicUrl = publicUrl.replace(/\/$/, "");
+    if (normalizedFileUrl.startsWith(normalizedPublicUrl + "/")) {
+      const key = normalizedFileUrl.slice(normalizedPublicUrl.length + 1);
+      if (key) return key;
+    }
+  }
+  
+  // Try endpoint + bucket pattern (fallback pattern)
+  if (endpoint && bucketName) {
+    const endpointBase = `${endpoint.replace(/\/$/, "")}/${bucketName}`;
+    if (normalizedFileUrl.startsWith(endpointBase + "/")) {
+      const key = normalizedFileUrl.slice(endpointBase.length + 1);
+      if (key) return key;
+    }
+  }
+  
+  // Fallback: Try to extract key by looking for known path prefixes
+  // Avatar keys start with "tenants/" or "system/"
+  const knownPrefixes = ["tenants/", "system/", "global/"];
+  for (const prefix of knownPrefixes) {
+    const prefixIndex = normalizedFileUrl.indexOf("/" + prefix);
+    if (prefixIndex !== -1) {
+      const key = normalizedFileUrl.slice(prefixIndex + 1);
+      if (key) {
+        console.log(`[R2] Extracted key using prefix fallback: ${key}`);
+        return key;
+      }
+    }
+  }
+  
+  console.warn(`[R2] Could not extract key from URL: ${fileUrl}`);
+  return null;
+}
+
+/**
+ * Delete a file from R2 storage by its URL
+ * 
+ * Used for cleaning up old avatars when users upload a new one.
+ * Silently succeeds if the file doesn't exist (idempotent delete).
+ * 
+ * @param fileUrl - The full public URL of the file to delete
+ * @param tenantId - The tenant context for storage provider resolution
+ * @returns true if deleted successfully, false if file not found or error
+ */
+export async function deleteFromStorageByUrl(
+  fileUrl: string,
+  tenantId: string | null
+): Promise<boolean> {
+  try {
+    const storageProvider = await getStorageProvider(tenantId);
+    const { publicUrl, endpoint, bucketName } = storageProvider.config;
+    
+    const key = extractKeyFromUrl(fileUrl, publicUrl, endpoint, bucketName);
+    if (!key) {
+      console.warn(`[R2] Cannot delete: could not extract key from ${fileUrl}`);
+      return false;
+    }
+    
+    const client = createS3ClientFromConfig(storageProvider.config);
+    
+    console.log(`[R2] Deleting old avatar: ${key}`);
+    
+    const command = new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    });
+    
+    await client.send(command);
+    console.log(`[R2] Successfully deleted: ${key}`);
+    return true;
+  } catch (error) {
+    // Log but don't throw - deletion failure shouldn't block avatar updates
+    console.error(`[R2] Failed to delete file: ${fileUrl}`, error);
+    return false;
+  }
 }
 
 export { CATEGORY_CONFIGS, PRESIGN_EXPIRES_SECONDS };
