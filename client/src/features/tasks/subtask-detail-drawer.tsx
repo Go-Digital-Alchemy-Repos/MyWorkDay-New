@@ -108,6 +108,7 @@ export function SubtaskDetailDrawer({
   const [isCreatingTag, setIsCreatingTag] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("#3b82f6");
+  const [hasChanges, setHasChanges] = useState(false);
 
   const isActualSubtask = isSubtask(subtask);
 
@@ -260,12 +261,17 @@ export function SubtaskDetailDrawer({
   const handleTitleSave = () => {
     if (title.trim() && title !== subtask.title) {
       onUpdate?.(subtask.id, { title: title.trim() });
+      setHasChanges(false);
     }
     setEditingTitle(false);
   };
 
   const handleDescriptionChange = (value: string) => {
     setDescription(value);
+    const currentDesc = typeof subtask.description === 'string' 
+      ? subtask.description 
+      : subtask.description ? JSON.stringify(subtask.description) : "";
+    setHasChanges(value !== currentDesc);
   };
 
   const handleDescriptionBlur = () => {
@@ -274,6 +280,18 @@ export function SubtaskDetailDrawer({
       : subtask.description ? JSON.stringify(subtask.description) : "";
     if (description !== currentDesc) {
       onUpdate?.(subtask.id, { description: description || null });
+      setHasChanges(false);
+    }
+  };
+
+  const handleSaveAll = () => {
+    if (title.trim()) {
+      onUpdate?.(subtask.id, { 
+        title: title.trim(),
+        description: description || null
+      });
+      setHasChanges(false);
+      toast({ title: "Subtask saved" });
     }
   };
 
@@ -329,9 +347,11 @@ export function SubtaskDetailDrawer({
           </div>
         </SheetHeader>
 
-        <div className="px-6 py-6 space-y-6">
-          <div className="space-y-4">
-            {editingTitle ? (
+        <div className="flex flex-col h-[calc(100vh-120px)]">
+          <ScrollArea className="flex-1">
+            <div className="px-6 py-6 space-y-6">
+              <div className="space-y-4">
+                {editingTitle ? (
               <Input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
