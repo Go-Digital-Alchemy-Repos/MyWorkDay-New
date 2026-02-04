@@ -139,6 +139,7 @@ export function SubtaskList({
         }
         // Explicitly invalidate to ensure the task detail (which owns the subtasks array) is refreshed
         await queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/tasks/my"] });
       } catch (error) {
         setNewTitle(titleToAdd);
         setIsAdding(true);

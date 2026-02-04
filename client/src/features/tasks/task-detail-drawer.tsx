@@ -599,7 +599,7 @@ export function TaskDetailDrawer({
           </div>
         </SheetHeader>
 
-        <div className="px-6 py-6 space-y-6">
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto px-6 py-6 space-y-6">
           <div className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap" data-testid="task-breadcrumbs">
             {task.projectId && projectContextLoading ? (
               <div className="flex items-center gap-2">
@@ -947,7 +947,10 @@ export function TaskDetailDrawer({
             onToggle={(subtaskId, completed) => toggleSubtaskMutation.mutate({ subtaskId, completed })}
             onDelete={(subtaskId) => deleteSubtaskMutation.mutate(subtaskId)}
             onUpdate={(subtaskId, title) => updateSubtaskTitleMutation.mutate({ subtaskId, title })}
-            onSubtaskUpdate={onRefresh}
+            onSubtaskUpdate={() => {
+              onRefresh?.();
+              qc.invalidateQueries({ queryKey: ["/api/tasks", task.id] });
+            }}
             onSubtaskClick={(subtask) => {
               setSelectedSubtask(subtask);
               setSubtaskDrawerOpen(true);
