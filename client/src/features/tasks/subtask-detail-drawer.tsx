@@ -102,6 +102,7 @@ export function SubtaskDetailDrawer({
       : subtask?.description ? JSON.stringify(subtask.description) : ""
   );
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
+  const [assigneeSearch, setAssigneeSearch] = useState("");
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [dueDatePopoverOpen, setDueDatePopoverOpen] = useState(false);
   const [isCreatingTag, setIsCreatingTag] = useState(false);
@@ -398,40 +399,69 @@ export function SubtaskDetailDrawer({
                     <span className="text-sm text-muted-foreground">None</span>
                   )}
                   {isActualSubtask && (
-                    <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                    <Popover open={assigneePopoverOpen} onOpenChange={(open) => {
+                      setAssigneePopoverOpen(open);
+                      if (!open) setAssigneeSearch("");
+                    }}>
                       <PopoverTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" data-testid="button-add-subtask-assignee">
                           <Plus className="h-3.5 w-3.5" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-48 p-1" align="start">
-                        <ScrollArea className="max-h-48">
-                          <div className="space-y-0.5">
-                            {tenantUsers.map((user) => {
-                              const isAssigned = assignedUserIds.has(user.id);
-                              if (isAssigned) return null;
-                              return (
+                      <PopoverContent className="w-64 p-0" align="start">
+                        <div className="p-2 border-b">
+                          <Input
+                            placeholder="Search members..."
+                            value={assigneeSearch}
+                            onChange={(e) => setAssigneeSearch(e.target.value)}
+                            className="h-8"
+                            data-testid="input-search-subtask-assignees"
+                          />
+                        </div>
+                        <ScrollArea className="max-h-64">
+                          <div className="p-1">
+                            {(() => {
+                              const searchLower = assigneeSearch.toLowerCase();
+                              const filteredUsers = tenantUsers.filter((user) => {
+                                if (assignedUserIds.has(user.id)) return false;
+                                const name = user.name?.toLowerCase() || "";
+                                const email = user.email?.toLowerCase() || "";
+                                const firstName = user.firstName?.toLowerCase() || "";
+                                const lastName = user.lastName?.toLowerCase() || "";
+                                return name.includes(searchLower) || email.includes(searchLower) || 
+                                       firstName.includes(searchLower) || lastName.includes(searchLower);
+                              });
+                              
+                              if (filteredUsers.length === 0) {
+                                return (
+                                  <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                                    {tenantUsers.filter((u) => !assignedUserIds.has(u.id)).length === 0 
+                                      ? "All members assigned" 
+                                      : "No members found"}
+                                  </div>
+                                );
+                              }
+                              
+                              return filteredUsers.map((user) => (
                                 <button
                                   key={user.id}
                                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left hover-elevate"
                                   onClick={() => addAssigneeMutation.mutate(user.id)}
                                   data-testid={`button-subtask-assign-${user.id}`}
                                 >
-                                  <Avatar className="h-5 w-5">
+                                  <Avatar className="h-6 w-6">
                                     {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name || ""} />}
-                                    <AvatarFallback className="text-[8px] bg-primary/10 text-primary">
+                                    <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
                                       {getInitials(user.name || "U")}
                                     </AvatarFallback>
                                   </Avatar>
-                                  <span className="text-sm truncate">{user.name}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium truncate">{user.name}</div>
+                                    <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                                  </div>
                                 </button>
-                              );
-                            })}
-                            {tenantUsers.filter((u) => !assignedUserIds.has(u.id)).length === 0 && (
-                              <div className="px-2 py-2 text-xs text-muted-foreground">
-                                All members assigned
-                              </div>
-                            )}
+                              ));
+                            })()}
                           </div>
                         </ScrollArea>
                       </PopoverContent>
