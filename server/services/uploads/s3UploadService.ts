@@ -345,4 +345,40 @@ export async function createPresignedUpload(
   };
 }
 
+/**
+ * Upload a file directly to storage (server-side proxy upload)
+ * This bypasses CORS restrictions by uploading from the server
+ */
+export async function uploadToStorage(
+  category: UploadCategory,
+  filename: string,
+  contentType: string,
+  buffer: Buffer,
+  context: PresignContext
+): Promise<{ fileUrl: string; key: string }> {
+  const validation = validateFile(category, contentType, buffer.length);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  const storageProvider = await getStorageProvider(context.tenantId || null);
+  const client = createS3ClientFromConfig(storageProvider.config);
+  const bucket = storageProvider.config.bucketName;
+
+  const key = generateS3Key(category, filename, context);
+
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType,
+  });
+
+  await client.send(command);
+  
+  const fileUrl = getFileUrl(key, storageProvider.config);
+
+  return { fileUrl, key };
+}
+
 export { CATEGORY_CONFIGS, PRESIGN_EXPIRES_SECONDS };

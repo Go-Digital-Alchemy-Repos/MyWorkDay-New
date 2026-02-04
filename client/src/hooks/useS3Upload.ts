@@ -81,32 +81,20 @@ export function useS3Upload({ category, context }: UseS3UploadOptions): UseS3Upl
     setProgress(0);
 
     try {
-      const presignResponse = await apiRequest("POST", "/api/v1/uploads/presign", {
-        category,
-        filename: file.name,
-        contentType: file.type,
-        size: file.size,
-        context,
-      });
-
-      if (!presignResponse.ok) {
-        const errorData = await presignResponse.json();
-        throw {
-          code: errorData.code || "PRESIGN_FAILED",
-          message: errorData.message || "Failed to get upload URL",
-        };
+      // Use proxy upload endpoint to bypass CORS restrictions
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("category", category);
+      if (context) {
+        formData.append("context", JSON.stringify(context));
       }
-
-      const { uploadUrl, fileUrl, key }: PresignResponse = await presignResponse.json();
-
-      setProgress(10);
 
       const xhr = new XMLHttpRequest();
       
-      await new Promise<void>((resolve, reject) => {
+      const result = await new Promise<UploadResult>((resolve, reject) => {
         xhr.upload.addEventListener("progress", (event) => {
           if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 80) + 10;
+            const percentComplete = Math.round((event.loaded / event.total) * 90);
             setProgress(percentComplete);
           }
         });
@@ -114,12 +102,28 @@ export function useS3Upload({ category, context }: UseS3UploadOptions): UseS3Upl
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             setProgress(100);
-            resolve();
+            try {
+              const response = JSON.parse(xhr.responseText);
+              resolve({ fileUrl: response.fileUrl, key: response.key });
+            } catch {
+              reject({
+                code: "PARSE_ERROR",
+                message: "Failed to parse upload response",
+              });
+            }
           } else {
-            reject({
-              code: "UPLOAD_FAILED",
-              message: `Upload failed with status ${xhr.status}`,
-            });
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              reject({
+                code: errorData.code || "UPLOAD_FAILED",
+                message: errorData.message || `Upload failed with status ${xhr.status}`,
+              });
+            } catch {
+              reject({
+                code: "UPLOAD_FAILED",
+                message: `Upload failed with status ${xhr.status}`,
+              });
+            }
           }
         });
 
@@ -137,13 +141,13 @@ export function useS3Upload({ category, context }: UseS3UploadOptions): UseS3Upl
           });
         });
 
-        xhr.open("PUT", uploadUrl);
-        xhr.setRequestHeader("Content-Type", file.type);
-        xhr.send(file);
+        xhr.open("POST", "/api/v1/uploads/upload");
+        xhr.withCredentials = true;
+        xhr.send(formData);
       });
 
       setIsUploading(false);
-      return { fileUrl, key };
+      return result;
     } catch (err: any) {
       const uploadError: UploadError = {
         code: err.code || "UPLOAD_ERROR",
