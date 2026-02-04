@@ -843,10 +843,9 @@ export function SubtaskDetailDrawer({
             <Button 
               className="w-full" 
               onClick={handleSaveAll}
-              variant={hasUnsavedChanges ? "default" : "outline"}
               data-testid="button-save-subtask"
             >
-              {hasUnsavedChanges ? "Save Subtask" : "No Changes"}
+              Save Subtask
             </Button>
           </div>
     </div>
