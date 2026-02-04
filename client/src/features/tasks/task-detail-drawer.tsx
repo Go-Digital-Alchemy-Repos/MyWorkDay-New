@@ -565,22 +565,6 @@ export function TaskDetailDrawer({
             <div className="flex items-center gap-2">
               <SheetTitle className="sr-only">Task Details</SheetTitle>
               <StatusBadge status={task.status as any} />
-              {task.status !== "done" && (
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={handleMarkAsComplete}
-                  disabled={timeEntriesLoading || isCompletingTask}
-                  data-testid="button-mark-complete"
-                >
-                  {isCompletingTask ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4 mr-1" />
-                  )}
-                  {isCompletingTask ? "Completing..." : "Mark Complete"}
-                </Button>
-              )}
             </div>
             <div className="flex items-center gap-2">
               {isDirty && (
@@ -658,86 +642,105 @@ export function TaskDetailDrawer({
             )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap" data-testid="task-action-bar">
-            {!activeTimer && !timerLoading && (
-              <>
-                {projectContextLoading && task.projectId ? (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    disabled
-                    data-testid="button-quick-start-timer"
-                  >
-                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                    Loading...
-                  </Button>
-                ) : canQuickStartTimer && !projectContextError ? (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => startTimerMutation.mutate()}
-                    disabled={startTimerMutation.isPending}
-                    data-testid="button-quick-start-timer"
-                  >
-                    <Play className="h-3.5 w-3.5 mr-1" />
-                    Start Timer
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTimerDrawerOpen(true)}
-                    data-testid="button-start-timer-task"
-                  >
-                    <Play className="h-3.5 w-3.5 mr-1" />
-                    Start Timer
-                  </Button>
-                )}
-              </>
-            )}
+          <div className="flex items-center justify-between gap-2 flex-wrap" data-testid="task-action-bar">
+            <div className="flex items-center gap-2">
+              {!activeTimer && !timerLoading && (
+                <>
+                  {projectContextLoading && task.projectId ? (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      disabled
+                      data-testid="button-quick-start-timer"
+                    >
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      Loading...
+                    </Button>
+                  ) : canQuickStartTimer && !projectContextError ? (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => startTimerMutation.mutate()}
+                      disabled={startTimerMutation.isPending}
+                      data-testid="button-quick-start-timer"
+                    >
+                      <Play className="h-3.5 w-3.5 mr-1" />
+                      Start Timer
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTimerDrawerOpen(true)}
+                      data-testid="button-start-timer-task"
+                    >
+                      <Play className="h-3.5 w-3.5 mr-1" />
+                      Start Timer
+                    </Button>
+                  )}
+                </>
+              )}
 
-            {activeTimer && isTimerOnThisTask && (
-              <div className="flex items-center gap-2">
-                {isTimerRunning ? (
+              {activeTimer && isTimerOnThisTask && (
+                <div className="flex items-center gap-2">
+                  {isTimerRunning ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => pauseTimerMutation.mutate()}
+                      disabled={pauseTimerMutation.isPending}
+                      data-testid="button-pause-timer"
+                    >
+                      <Pause className="h-3.5 w-3.5 mr-1" />
+                      Pause
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => resumeTimerMutation.mutate()}
+                      disabled={resumeTimerMutation.isPending}
+                      data-testid="button-resume-timer"
+                    >
+                      <Play className="h-3.5 w-3.5 mr-1" />
+                      Resume
+                    </Button>
+                  )}
                   <Button
-                    variant="outline"
+                    variant="destructive"
                     size="sm"
-                    onClick={() => pauseTimerMutation.mutate()}
-                    disabled={pauseTimerMutation.isPending}
-                    data-testid="button-pause-timer"
+                    onClick={() => stopTimerMutation.mutate()}
+                    disabled={stopTimerMutation.isPending}
+                    data-testid="button-stop-timer"
                   >
-                    <Pause className="h-3.5 w-3.5 mr-1" />
-                    Pause
+                    <Square className="h-3.5 w-3.5 mr-1" />
+                    Stop
                   </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => resumeTimerMutation.mutate()}
-                    disabled={resumeTimerMutation.isPending}
-                    data-testid="button-resume-timer"
-                  >
-                    <Play className="h-3.5 w-3.5 mr-1" />
-                    Resume
-                  </Button>
-                )}
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => stopTimerMutation.mutate()}
-                  disabled={stopTimerMutation.isPending}
-                  data-testid="button-stop-timer"
-                >
-                  <Square className="h-3.5 w-3.5 mr-1" />
-                  Stop
-                </Button>
-              </div>
-            )}
+                </div>
+              )}
 
-            {activeTimer && !isTimerOnThisTask && (
-              <Badge variant="secondary" className="text-xs">
-                Timer running on another task
-              </Badge>
+              {activeTimer && !isTimerOnThisTask && (
+                <Badge variant="secondary" className="text-xs">
+                  Timer running on another task
+                </Badge>
+              )}
+            </div>
+
+            {task.status !== "done" && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleMarkAsComplete}
+                disabled={timeEntriesLoading || isCompletingTask}
+                data-testid="button-mark-complete"
+              >
+                {isCompletingTask ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4 mr-1" />
+                )}
+                {isCompletingTask ? "Completing..." : "Mark Complete"}
+              </Button>
             )}
           </div>
 
