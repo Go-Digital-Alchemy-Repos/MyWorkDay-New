@@ -79,7 +79,13 @@ export function UserMenu() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => setLocation("/profile")}
+          onClick={() => {
+            if (user?.role === "super_user") {
+              setLocation("/super-admin/profile");
+            } else {
+              setLocation("/profile");
+            }
+          }}
           className="cursor-pointer"
           data-testid="button-my-profile"
         >

@@ -130,6 +130,14 @@ export default function UserProfilePage() {
     ? `${user.firstName[0]}${user.lastName[0]}`
     : user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 
+  const handleBack = () => {
+    if (user.role === "super_user") {
+      setLocation("/super-admin/dashboard");
+    } else {
+      setLocation("/");
+    }
+  };
+
   return (
     <ScrollArea className="h-full">
       <div className="container max-w-3xl py-8 px-6">
@@ -137,7 +145,7 @@ export default function UserProfilePage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setLocation("/")}
+            onClick={handleBack}
             className="mb-4 -ml-2"
             data-testid="button-back"
           >

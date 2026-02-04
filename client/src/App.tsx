@@ -222,6 +222,9 @@ function SuperAdminRouter() {
       <Route path="/super-admin/dashboard">
         {() => <SuperRouteGuard component={SuperAdminDashboardPage} />}
       </Route>
+      <Route path="/super-admin/profile">
+        {() => <SuperRouteGuard component={UserProfilePage} />}
+      </Route>
       {/* Tenants management page */}
       <Route path="/super-admin/tenants">
         {() => <SuperRouteGuard component={SuperAdminPage} />}
