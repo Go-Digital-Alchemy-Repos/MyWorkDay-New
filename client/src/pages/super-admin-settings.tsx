@@ -70,24 +70,9 @@ interface IntegrationStatus {
   stripe: boolean;
   encryptionConfigured: boolean;
   ssoGoogle?: boolean;
-  ssoGithub?: boolean;
 }
 
 interface SsoGoogleSettings {
-  status: "configured" | "not_configured";
-  enabled: boolean;
-  clientId: string | null;
-  redirectUri: string | null;
-  config?: {
-    source?: "database" | "environment" | "none";
-  } | null;
-  secretMasked: {
-    clientSecretMasked: string | null;
-  } | null;
-  lastTestedAt: string | null;
-}
-
-interface SsoGithubSettings {
   status: "configured" | "not_configured";
   enabled: boolean;
   clientId: string | null;
@@ -1056,11 +1041,6 @@ export default function SuperAdminSettingsPage() {
     enabled: activeTab === "integrations",
   });
 
-  const { data: ssoGithubSettings, isLoading: ssoGithubLoading } = useQuery<SsoGithubSettings>({
-    queryKey: ["/api/v1/system/integrations/sso/github"],
-    enabled: activeTab === "integrations",
-  });
-
   const [mailgunForm, setMailgunForm] = useState({
     domain: "",
     fromEmail: "",
@@ -1111,15 +1091,7 @@ export default function SuperAdminSettingsPage() {
   });
   const [showGoogleClientSecret, setShowGoogleClientSecret] = useState(false);
 
-  const [ssoGithubForm, setSsoGithubForm] = useState({
-    enabled: false,
-    clientId: "",
-    clientSecret: "",
-    redirectUri: "",
-  });
-  const [showGithubClientSecret, setShowGithubClientSecret] = useState(false);
   const [ssoGoogleDirty, setSsoGoogleDirty] = useState(false);
-  const [ssoGithubDirty, setSsoGithubDirty] = useState(false);
   const [r2Dirty, setR2Dirty] = useState(false);
 
   useEffect(() => {
@@ -1148,20 +1120,6 @@ export default function SuperAdminSettingsPage() {
       });
     }
   }, [ssoGoogleSettings, ssoGoogleDirty]);
-
-  useEffect(() => {
-    if (ssoGithubSettings && !ssoGithubDirty) {
-      const apiRedirectUri = ssoGithubSettings.redirectUri || "";
-      const clientRedirectUri = `${window.location.origin}/api/v1/auth/github/callback`;
-      const useClientUri = !apiRedirectUri || apiRedirectUri.includes("localhost");
-      setSsoGithubForm({
-        enabled: ssoGithubSettings.enabled || false,
-        clientId: ssoGithubSettings.clientId || "",
-        clientSecret: "",
-        redirectUri: useClientUri ? clientRedirectUri : apiRedirectUri,
-      });
-    }
-  }, [ssoGithubSettings, ssoGithubDirty]);
 
   const saveMailgunMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -1351,42 +1309,6 @@ export default function SuperAdminSettingsPage() {
     onError: (error: any) => {
       const parsed = parseApiError(error);
       toast({ title: "Google SSO test failed", description: parsed.message, variant: "destructive" });
-    },
-  });
-
-  const saveSsoGithubMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiRequest("PUT", "/api/v1/system/integrations/sso/github", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/system/integrations/sso/github"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/integrations/status"] });
-      toast({ title: "GitHub SSO settings saved successfully" });
-      setSsoGithubForm(prev => ({ ...prev, clientSecret: "" }));
-      setSsoGithubDirty(false);
-    },
-    onError: (error: any) => {
-      const parsed = parseApiError(error);
-      toast({ title: "Failed to save GitHub SSO settings", description: parsed.message, variant: "destructive" });
-    },
-  });
-
-  const testSsoGithubMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/v1/system/integrations/sso/github/test", {});
-      return response.json();
-    },
-    onSuccess: (data: { ok: boolean; error?: { code: string; message: string } }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/system/integrations/sso/github"] });
-      if (data.ok) {
-        toast({ title: "GitHub SSO configuration valid" });
-      } else {
-        toast({ title: "GitHub SSO test failed", description: data.error?.message || "Unknown error", variant: "destructive" });
-      }
-    },
-    onError: (error: any) => {
-      const parsed = parseApiError(error);
-      toast({ title: "GitHub SSO test failed", description: parsed.message, variant: "destructive" });
     },
   });
 
@@ -1648,21 +1570,6 @@ export default function SuperAdminSettingsPage() {
                         <span className="text-sm font-medium">Google SSO</span>
                         <Badge variant={ssoGoogleSettings?.enabled ? "default" : "secondary"} className="ml-2">
                           {ssoGoogleSettings?.enabled ? "Enabled" : ssoGoogleSettings?.status === "configured" ? "Configured" : "Not Configured"}
-                        </Badge>
-                      </a>
-                      <a 
-                        href="#section-github-sso" 
-                        className="flex items-center gap-2 p-3 border rounded-lg hover-elevate cursor-pointer"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          document.getElementById("section-github-sso")?.scrollIntoView({ behavior: "smooth" });
-                        }}
-                        data-testid="link-github-sso-section"
-                      >
-                        <Globe className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">GitHub SSO</span>
-                        <Badge variant={ssoGithubSettings?.enabled ? "default" : "secondary"} className="ml-2">
-                          {ssoGithubSettings?.enabled ? "Enabled" : ssoGithubSettings?.status === "configured" ? "Configured" : "Not Configured"}
                         </Badge>
                       </a>
                     </div>
@@ -2430,150 +2337,6 @@ export default function SuperAdminSettingsPage() {
                                 <Save className="h-4 w-4 mr-2" />
                               )}
                               Save Google SSO
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* GitHub SSO */}
-                    <div id="section-github-sso" className="border rounded-lg p-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-muted rounded-lg">
-                            <svg className="h-5 w-5" viewBox="0 0 24 24">
-                              <path fill="currentColor" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                            </svg>
-                          </div>
-                          <div>
-                            <h4 className="font-medium">GitHub SSO</h4>
-                            <p className="text-sm text-muted-foreground">Allow users to sign in with their GitHub account</p>
-                          </div>
-                        </div>
-                        <Badge variant={ssoGithubSettings?.status === "configured" ? "default" : "secondary"}>
-                          {ssoGithubSettings?.status === "configured" ? (ssoGithubSettings?.enabled ? "Enabled" : "Configured") : "Not Configured"}
-                        </Badge>
-                      </div>
-
-                      {ssoGithubLoading ? (
-                        <div className="flex items-center justify-center py-4">
-                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {ssoGithubSettings?.config?.source === "environment" && (
-                            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                              <p className="text-sm text-blue-700 dark:text-blue-300">
-                                Currently using environment variables. Save new settings to override with database configuration.
-                              </p>
-                            </div>
-                          )}
-
-                          <div className="flex items-center space-x-2">
-                            <Checkbox
-                              id="github-sso-enabled"
-                              checked={ssoGithubForm.enabled}
-                              onCheckedChange={(checked) => { setSsoGithubForm({ ...ssoGithubForm, enabled: !!checked }); setSsoGithubDirty(true); }}
-                              data-testid="checkbox-github-sso-enabled"
-                            />
-                            <Label htmlFor="github-sso-enabled" className="font-normal">Enable GitHub SSO</Label>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="github-client-id">Client ID</Label>
-                              <Input
-                                id="github-client-id"
-                                value={ssoGithubForm.clientId}
-                                onChange={(e) => { setSsoGithubForm({ ...ssoGithubForm, clientId: e.target.value }); setSsoGithubDirty(true); }}
-                                placeholder="Enter GitHub Client ID"
-                                data-testid="input-github-client-id"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="github-redirect-uri">Redirect URI (read-only)</Label>
-                              <div className="flex gap-2">
-                                <Input
-                                  id="github-redirect-uri"
-                                  value={ssoGithubForm.redirectUri}
-                                  readOnly
-                                  className="bg-muted"
-                                  data-testid="input-github-redirect-uri"
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(ssoGithubForm.redirectUri);
-                                    toast({ title: "Copied to clipboard" });
-                                  }}
-                                  data-testid="button-copy-github-redirect"
-                                >
-                                  <Copy className="h-4 w-4" />
-                                </Button>
-                              </div>
-                              <p className="text-xs text-muted-foreground">Add this URL to your GitHub OAuth App settings</p>
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="github-client-secret">Client Secret</Label>
-                            <div className="flex gap-2">
-                              <div className="relative flex-1">
-                                <Input
-                                  id="github-client-secret"
-                                  type={showGithubClientSecret ? "text" : "password"}
-                                  value={ssoGithubForm.clientSecret}
-                                  onChange={(e) => { setSsoGithubForm({ ...ssoGithubForm, clientSecret: e.target.value }); setSsoGithubDirty(true); }}
-                                  placeholder={ssoGithubSettings?.secretMasked?.clientSecretMasked || "Enter Client Secret"}
-                                  data-testid="input-github-client-secret"
-                                />
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="absolute right-0 top-0 h-full"
-                                  onClick={() => setShowGithubClientSecret(!showGithubClientSecret)}
-                                >
-                                  {showGithubClientSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-2 pt-2">
-                            <Button
-                              variant="outline"
-                              onClick={() => testSsoGithubMutation.mutate()}
-                              disabled={testSsoGithubMutation.isPending || ssoGithubSettings?.status !== "configured"}
-                              data-testid="button-test-github-sso"
-                            >
-                              {testSsoGithubMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              ) : (
-                                <TestTube className="h-4 w-4 mr-2" />
-                              )}
-                              Test Configuration
-                            </Button>
-                            <Button
-                              onClick={() => {
-                                const data: any = {
-                                  enabled: ssoGithubForm.enabled,
-                                  clientId: ssoGithubForm.clientId,
-                                };
-                                if (ssoGithubForm.clientSecret) data.clientSecret = ssoGithubForm.clientSecret;
-                                saveSsoGithubMutation.mutate(data);
-                              }}
-                              disabled={saveSsoGithubMutation.isPending}
-                              data-testid="button-save-github-sso"
-                            >
-                              {saveSsoGithubMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              ) : (
-                                <Save className="h-4 w-4 mr-2" />
-                              )}
-                              Save GitHub SSO
                             </Button>
                           </div>
                         </div>

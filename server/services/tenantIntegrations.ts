@@ -5,7 +5,7 @@ import { encryptValue, decryptValue, isEncryptionAvailable } from "../lib/encryp
 import Mailgun from "mailgun.js";
 import FormData from "form-data";
 
-export type IntegrationProvider = "mailgun" | "s3" | "r2" | "sso_google" | "sso_github" | "openai";
+export type IntegrationProvider = "mailgun" | "s3" | "r2" | "sso_google" | "openai";
 
 interface MailgunPublicConfig {
   domain: string;
@@ -57,22 +57,6 @@ export interface SsoGoogleSecretConfig {
 }
 
 /**
- * SSO GitHub OAuth public configuration (non-secret fields)
- */
-export interface SsoGithubPublicConfig {
-  enabled: boolean;
-  clientId: string;
-  redirectUri: string;
-}
-
-/**
- * SSO GitHub OAuth secret configuration (encrypted)
- */
-export interface SsoGithubSecretConfig {
-  clientSecret: string;
-}
-
-/**
  * OpenAI integration public configuration
  */
 export interface OpenAIPublicConfig {
@@ -89,8 +73,8 @@ export interface OpenAISecretConfig {
   apiKey: string;
 }
 
-type PublicConfig = MailgunPublicConfig | S3PublicConfig | R2PublicConfig | SsoGooglePublicConfig | SsoGithubPublicConfig | OpenAIPublicConfig;
-type SecretConfig = MailgunSecretConfig | S3SecretConfig | R2SecretConfig | SsoGoogleSecretConfig | SsoGithubSecretConfig | OpenAISecretConfig;
+type PublicConfig = MailgunPublicConfig | S3PublicConfig | R2PublicConfig | SsoGooglePublicConfig | OpenAIPublicConfig;
+type SecretConfig = MailgunSecretConfig | S3SecretConfig | R2SecretConfig | SsoGoogleSecretConfig | OpenAISecretConfig;
 
 interface SecretMaskedInfo {
   apiKeyMasked?: string | null;
@@ -179,8 +163,8 @@ export class TenantIntegrationService {
             accessKeyIdMasked: maskSecret(r2Secrets.accessKeyId),
             secretAccessKeyMasked: maskSecret(r2Secrets.secretAccessKey),
           };
-        } else if (provider === "sso_google" || provider === "sso_github") {
-          const ssoSecrets = secrets as SsoGoogleSecretConfig | SsoGithubSecretConfig;
+        } else if (provider === "sso_google") {
+          const ssoSecrets = secrets as SsoGoogleSecretConfig;
           secretMasked = {
             clientSecretMasked: maskSecret(ssoSecrets.clientSecret),
           };
@@ -230,7 +214,7 @@ export class TenantIntegrationService {
       if (message.includes("does not exist") || message.includes("column")) {
         console.warn("[TenantIntegrations] listIntegrations table/column issue:", message);
         // Return empty list with not_configured status for all providers
-        return ["mailgun", "s3", "r2", "sso_google", "sso_github", "openai"].map(p => ({
+        return ["mailgun", "s3", "r2", "sso_google", "openai"].map(p => ({
           provider: p,
           status: IntegrationStatus.NOT_CONFIGURED,
           publicConfig: null,
@@ -241,7 +225,7 @@ export class TenantIntegrationService {
       throw dbError;
     }
 
-    const providers: IntegrationProvider[] = ["mailgun", "s3", "r2", "sso_google", "sso_github", "openai"];
+    const providers: IntegrationProvider[] = ["mailgun", "s3", "r2", "sso_google", "openai"];
     const result: IntegrationResponse[] = [];
 
     for (const provider of providers) {
@@ -260,8 +244,8 @@ export class TenantIntegrationService {
                 accessKeyIdMasked: maskSecret(s3Secrets.accessKeyId),
                 secretAccessKeyMasked: maskSecret(s3Secrets.secretAccessKey),
               };
-            } else if (provider === "sso_google" || provider === "sso_github") {
-              const ssoSecrets = secrets as SsoGoogleSecretConfig | SsoGithubSecretConfig;
+            } else if (provider === "sso_google") {
+              const ssoSecrets = secrets as SsoGoogleSecretConfig;
               secretMasked = { clientSecretMasked: maskSecret(ssoSecrets.clientSecret) };
             } else if (provider === "openai") {
               const aiSecrets = secrets as OpenAISecretConfig;
@@ -480,9 +464,6 @@ export class TenantIntegrationService {
         case "sso_google":
           testResult = await this.testSsoGoogle();
           break;
-        case "sso_github":
-          testResult = await this.testSsoGitHub();
-          break;
         case "openai":
           testResult = await this.testOpenAI(tenantId);
           break;
@@ -677,9 +658,8 @@ export class TenantIntegrationService {
         }
         break;
       }
-      case "sso_google":
-      case "sso_github": {
-        const config = publicConfig as SsoGooglePublicConfig | SsoGithubPublicConfig;
+      case "sso_google": {
+        const config = publicConfig as SsoGooglePublicConfig;
         if (config.enabled && config.clientId && hasSecret) {
           return IntegrationStatus.CONFIGURED;
         }
@@ -724,33 +704,6 @@ export class TenantIntegrationService {
     } catch (error) {
       return { success: true, message: "Google SSO configuration is valid (network check skipped)" };
     }
-  }
-
-  /**
-   * Test SSO GitHub configuration by validating required fields
-   */
-  private async testSsoGitHub(): Promise<{ success: boolean; message: string }> {
-    const integration = await this.getIntegration(null, "sso_github");
-    
-    if (!integration?.publicConfig) {
-      return { success: false, message: "GitHub SSO is not configured" };
-    }
-
-    const config = integration.publicConfig as SsoGithubPublicConfig;
-    if (!config.enabled) {
-      return { success: false, message: "GitHub SSO is disabled" };
-    }
-
-    if (!config.clientId) {
-      return { success: false, message: "GitHub Client ID is required" };
-    }
-
-    const secrets = await this.getDecryptedSecrets(null, "sso_github") as SsoGithubSecretConfig | null;
-    if (!secrets?.clientSecret) {
-      return { success: false, message: "GitHub Client Secret is required" };
-    }
-
-    return { success: true, message: "GitHub SSO configuration is valid" };
   }
 
   private async testOpenAI(tenantId: string | null): Promise<{ success: boolean; message: string }> {

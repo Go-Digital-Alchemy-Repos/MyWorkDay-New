@@ -55,16 +55,6 @@ const ssoGoogleUpdateSchema = z.object({
 });
 
 /**
- * SSO GitHub configuration schema  
- */
-const ssoGithubUpdateSchema = z.object({
-  enabled: z.boolean().optional(),
-  clientId: z.string().optional(),
-  clientSecret: z.string().optional(),
-  redirectUri: z.string().optional(),
-});
-
-/**
  * GET /api/v1/system/integrations
  * List all system-level integrations
  */
@@ -321,7 +311,7 @@ router.get("/storage/status", requireSuperUser, async (req: Request, res: Respon
 /**
  * Helper to compute redirect URI based on app base URL
  */
-function getDefaultRedirectUri(provider: "google" | "github"): string {
+function getDefaultRedirectUri(provider: "google"): string {
   const baseUrl = process.env.APP_PUBLIC_URL || process.env.APP_BASE_URL || "http://localhost:5000";
   return `${baseUrl}/api/v1/auth/${provider}/callback`;
 }
@@ -453,151 +443,19 @@ router.post("/integrations/sso/google/test", requireSuperUser, async (req: Reque
 });
 
 /**
- * GET /api/v1/system/integrations/sso/github
- * Get system-level GitHub SSO configuration
- * Never returns clientSecret - only indicates if it's configured
- */
-router.get("/integrations/sso/github", requireSuperUser, async (req: Request, res: Response) => {
-  try {
-    const integration = await tenantIntegrationService.getIntegration(null, "sso_github");
-    
-    if (!integration) {
-      return res.json({
-        provider: "sso_github",
-        status: "not_configured",
-        enabled: false,
-        clientId: null,
-        redirectUri: getDefaultRedirectUri("github"),
-        clientSecretPresent: false,
-        lastTestedAt: null,
-      });
-    }
-    
-    const publicConfig = integration.publicConfig as { enabled?: boolean; clientId?: string; redirectUri?: string } | null;
-    
-    res.json({
-      provider: "sso_github",
-      status: integration.status,
-      enabled: publicConfig?.enabled ?? false,
-      clientId: publicConfig?.clientId ?? null,
-      redirectUri: publicConfig?.redirectUri ?? getDefaultRedirectUri("github"),
-      clientSecretPresent: integration.secretConfigured,
-      clientSecretMasked: integration.secretMasked?.clientSecretMasked ?? null,
-      lastTestedAt: integration.lastTestedAt,
-    });
-  } catch (error) {
-    console.error("[system-integrations] Error getting GitHub SSO config:", error);
-    // Return not_configured instead of 500
-    res.json({
-      provider: "sso_github",
-      status: "not_configured",
-      enabled: false,
-      clientId: null,
-      redirectUri: getDefaultRedirectUri("github"),
-      clientSecretPresent: false,
-      lastTestedAt: null,
-    });
-  }
-});
-
-/**
- * PUT /api/v1/system/integrations/sso/github
- * Update system-level GitHub SSO configuration
- * Encrypts clientSecret before storage
- */
-router.put("/integrations/sso/github", requireSuperUser, async (req: Request, res: Response) => {
-  try {
-    const data = ssoGithubUpdateSchema.parse(req.body);
-    
-    // Check if trying to save secret without encryption
-    if (data.clientSecret && !isEncryptionAvailable()) {
-      return res.status(400).json({
-        error: { 
-          code: "ENCRYPTION_NOT_CONFIGURED", 
-          message: "Cannot save secrets. APP_ENCRYPTION_KEY environment variable is not configured." 
-        },
-      });
-    }
-
-    // Validate: cannot enable without required fields
-    if (data.enabled === true) {
-      const existing = await tenantIntegrationService.getIntegration(null, "sso_github");
-      const hasClientId = data.clientId || (existing?.publicConfig as any)?.clientId;
-      const hasSecret = data.clientSecret || existing?.secretConfigured;
-      
-      if (!hasClientId || !hasSecret) {
-        return res.status(400).json({
-          error: { 
-            code: "SSO_CONFIG_INCOMPLETE", 
-            message: "Cannot enable GitHub SSO without Client ID and Client Secret" 
-          },
-        });
-      }
-    }
-
-    const result = await tenantIntegrationService.upsertIntegration(null, "sso_github", {
-      publicConfig: {
-        enabled: data.enabled,
-        clientId: data.clientId,
-        redirectUri: data.redirectUri || getDefaultRedirectUri("github"),
-      },
-      secretConfig: data.clientSecret ? { clientSecret: data.clientSecret } : undefined,
-    });
-    
-    const publicConfig = result.publicConfig as { enabled?: boolean; clientId?: string; redirectUri?: string } | null;
-    
-    res.json({
-      provider: "sso_github",
-      status: result.status,
-      enabled: publicConfig?.enabled ?? false,
-      clientId: publicConfig?.clientId ?? null,
-      redirectUri: publicConfig?.redirectUri ?? getDefaultRedirectUri("github"),
-      clientSecretPresent: result.secretConfigured,
-      lastTestedAt: result.lastTestedAt,
-    });
-  } catch (error) {
-    console.error("[system-integrations] Error updating GitHub SSO config:", error);
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid request data" } });
-    }
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to update GitHub SSO configuration" } });
-  }
-});
-
-/**
- * POST /api/v1/system/integrations/sso/github/test
- * Test GitHub SSO configuration
- */
-router.post("/integrations/sso/github/test", requireSuperUser, async (req: Request, res: Response) => {
-  try {
-    const result = await tenantIntegrationService.testIntegration(null, "sso_github");
-    res.json(result);
-  } catch (error) {
-    console.error("[system-integrations] Error testing GitHub SSO:", error);
-    res.json({ success: false, message: "Failed to test GitHub SSO configuration" });
-  }
-});
-
-/**
  * GET /api/v1/system/integrations/sso/status
  * Get overall SSO configuration status for display in UI
  */
 router.get("/integrations/sso/status", requireSuperUser, async (req: Request, res: Response) => {
   try {
     const google = await tenantIntegrationService.getIntegration(null, "sso_google");
-    const github = await tenantIntegrationService.getIntegration(null, "sso_github");
     
     const googleConfig = google?.publicConfig as { enabled?: boolean } | null;
-    const githubConfig = github?.publicConfig as { enabled?: boolean } | null;
     
     res.json({
       google: {
         configured: google?.status === "configured",
         enabled: googleConfig?.enabled ?? false,
-      },
-      github: {
-        configured: github?.status === "configured",
-        enabled: githubConfig?.enabled ?? false,
       },
       encryptionConfigured: isEncryptionAvailable(),
     });
@@ -606,7 +464,6 @@ router.get("/integrations/sso/status", requireSuperUser, async (req: Request, re
     // Return safe defaults instead of 500
     res.json({
       google: { configured: false, enabled: false },
-      github: { configured: false, enabled: false },
       encryptionConfigured: isEncryptionAvailable(),
     });
   }

@@ -10,7 +10,7 @@
  * from system settings without requiring a redeploy.
  */
 
-import { tenantIntegrationService, SsoGooglePublicConfig, SsoGoogleSecretConfig, SsoGithubPublicConfig, SsoGithubSecretConfig } from "./tenantIntegrations";
+import { tenantIntegrationService, SsoGooglePublicConfig, SsoGoogleSecretConfig } from "./tenantIntegrations";
 
 export interface SsoGoogleConfig {
   enabled: boolean;
@@ -20,22 +20,14 @@ export interface SsoGoogleConfig {
   source: "database" | "environment";
 }
 
-export interface SsoGithubConfig {
-  enabled: boolean;
-  clientId: string;
-  clientSecret: string;
-  redirectUri: string;
-  source: "database" | "environment";
-}
-
-export type SsoProvider = "google" | "github";
+export type SsoProvider = "google";
 
 /**
  * Get default redirect URI based on provider
  */
-function getDefaultRedirectUri(provider: SsoProvider): string {
+function getDefaultRedirectUri(): string {
   const baseUrl = process.env.APP_PUBLIC_URL || process.env.APP_BASE_URL || "http://localhost:5000";
-  return `${baseUrl}/api/v1/auth/${provider}/callback`;
+  return `${baseUrl}/api/v1/auth/google/callback`;
 }
 
 /**
@@ -56,7 +48,7 @@ export async function getSsoGoogleConfig(): Promise<SsoGoogleConfig | null> {
           enabled: true,
           clientId: publicConfig.clientId,
           clientSecret: secretConfig.clientSecret,
-          redirectUri: publicConfig.redirectUri || getDefaultRedirectUri("google"),
+          redirectUri: publicConfig.redirectUri || getDefaultRedirectUri(),
           source: "database",
         };
       }
@@ -75,7 +67,7 @@ export async function getSsoGoogleConfig(): Promise<SsoGoogleConfig | null> {
   
   if (clientId && clientSecret) {
     console.log("[sso-config] Using Google SSO config from environment variables");
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URL || getDefaultRedirectUri("google");
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URL || getDefaultRedirectUri();
     return {
       enabled: true,
       clientId,
@@ -90,68 +82,12 @@ export async function getSsoGoogleConfig(): Promise<SsoGoogleConfig | null> {
 }
 
 /**
- * Load GitHub SSO configuration with DB-first, env-fallback strategy
- * Returns null if neither DB nor env config is available
- */
-export async function getSsoGithubConfig(): Promise<SsoGithubConfig | null> {
-  try {
-    const integration = await tenantIntegrationService.getIntegrationWithSecrets(null, "sso_github");
-    
-    if (integration?.publicConfig && integration?.secretConfig) {
-      const publicConfig = integration.publicConfig as SsoGithubPublicConfig;
-      const secretConfig = integration.secretConfig as SsoGithubSecretConfig;
-      
-      if (publicConfig.enabled && publicConfig.clientId && secretConfig.clientSecret) {
-        console.log("[sso-config] Using GitHub SSO config from database");
-        return {
-          enabled: true,
-          clientId: publicConfig.clientId,
-          clientSecret: secretConfig.clientSecret,
-          redirectUri: publicConfig.redirectUri || getDefaultRedirectUri("github"),
-          source: "database",
-        };
-      }
-      
-      if (!publicConfig.enabled) {
-        console.log("[sso-config] GitHub SSO is disabled in database config");
-        return null;
-      }
-    }
-  } catch (error) {
-    console.error("[sso-config] Error loading GitHub SSO from database:", error);
-  }
-  
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  
-  if (clientId && clientSecret) {
-    console.log("[sso-config] Using GitHub SSO config from environment variables");
-    const redirectUri = process.env.GITHUB_OAUTH_REDIRECT_URL || getDefaultRedirectUri("github");
-    return {
-      enabled: true,
-      clientId,
-      clientSecret,
-      redirectUri,
-      source: "environment",
-    };
-  }
-  
-  console.log("[sso-config] No GitHub SSO configuration found");
-  return null;
-}
-
-/**
- * Check if a specific SSO provider is enabled
+ * Check if Google SSO provider is enabled
  * Quick check without loading full config (useful for UI status)
  */
 export async function isSsoProviderEnabled(provider: SsoProvider): Promise<boolean> {
   if (provider === "google") {
     const config = await getSsoGoogleConfig();
-    return config?.enabled ?? false;
-  }
-  
-  if (provider === "github") {
-    const config = await getSsoGithubConfig();
     return config?.enabled ?? false;
   }
   
@@ -163,21 +99,13 @@ export async function isSsoProviderEnabled(provider: SsoProvider): Promise<boole
  */
 export async function getSsoProvidersStatus(): Promise<{
   google: { enabled: boolean; source?: "database" | "environment" };
-  github: { enabled: boolean; source?: "database" | "environment" };
 }> {
-  const [googleConfig, githubConfig] = await Promise.all([
-    getSsoGoogleConfig(),
-    getSsoGithubConfig(),
-  ]);
+  const googleConfig = await getSsoGoogleConfig();
   
   return {
     google: {
       enabled: googleConfig?.enabled ?? false,
       source: googleConfig?.source,
-    },
-    github: {
-      enabled: githubConfig?.enabled ?? false,
-      source: githubConfig?.source,
     },
   };
 }
