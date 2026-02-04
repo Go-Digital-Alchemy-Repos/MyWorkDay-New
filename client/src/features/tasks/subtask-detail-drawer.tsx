@@ -776,7 +776,20 @@ export function SubtaskDetailDrawer({
             <AttachmentUploader taskId={subtask.id} projectId={projectId} />
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </ScrollArea>
+
+      <div className="p-4 border-t bg-background mt-auto">
+        <Button 
+          className="w-full" 
+          onClick={handleSaveAll}
+          disabled={!hasChanges && title === subtask.title}
+          data-testid="button-save-subtask"
+        >
+          Save Subtask
+        </Button>
+      </div>
+    </div>
+  </SheetContent>
+</Sheet>
   );
 }
