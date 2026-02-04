@@ -216,11 +216,12 @@ export async function getStorageProvider(tenantId: string | null): Promise<Stora
   }
 
   // Check for Cloudflare R2 environment variables (preferred over AWS S3)
-  const r2AccountId = process.env.CF_R2_ACCOUNT_ID;
-  const r2AccessKeyId = process.env.CF_R2_ACCESS_KEY_ID;
-  const r2SecretAccessKey = process.env.CF_R2_SECRET_ACCESS_KEY;
-  const r2BucketName = process.env.CF_R2_BUCKET_NAME;
-  const r2PublicUrl = process.env.CF_R2_PUBLIC_URL;
+  // Trim all values to avoid signature mismatches from trailing whitespace
+  const r2AccountId = process.env.CF_R2_ACCOUNT_ID?.trim();
+  const r2AccessKeyId = process.env.CF_R2_ACCESS_KEY_ID?.trim();
+  const r2SecretAccessKey = process.env.CF_R2_SECRET_ACCESS_KEY?.trim();
+  const r2BucketName = process.env.CF_R2_BUCKET_NAME?.trim();
+  const r2PublicUrl = process.env.CF_R2_PUBLIC_URL?.trim();
 
   if (r2AccountId && r2AccessKeyId && r2SecretAccessKey && r2BucketName) {
     debugLog("Using environment variable R2 configuration", { tenantId });
@@ -273,14 +274,21 @@ export function createS3ClientFromConfig(config: S3Config): S3Client {
   const clientConfig: any = {
     region: config.region || "auto",
     credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
+      accessKeyId: config.accessKeyId.trim(),
+      secretAccessKey: config.secretAccessKey.trim(),
     },
   };
 
   if (config.endpoint) {
     clientConfig.endpoint = config.endpoint;
     clientConfig.forcePathStyle = true;
+  }
+
+  // Disable request checksums for R2 compatibility
+  // R2 doesn't fully support SDK v3's default CRC32 checksums
+  if (config.provider === "r2") {
+    clientConfig.requestChecksumCalculation = "WHEN_REQUIRED";
+    clientConfig.responseChecksumValidation = "WHEN_REQUIRED";
   }
 
   return new S3Client(clientConfig);
