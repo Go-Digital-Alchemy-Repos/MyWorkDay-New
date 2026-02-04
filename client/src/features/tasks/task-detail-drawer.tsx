@@ -215,7 +215,7 @@ export function TaskDetailDrawer({
     onSuccess: async (newTag: TagType) => {
       queryClient.invalidateQueries({ queryKey: ["/api/workspaces", workspaceId, "tags"] });
       // Auto-add the new tag to the task
-      addTagToTaskMutation.mutate(newTag.id);
+      await addTagToTaskMutation.mutateAsync(newTag.id);
       setIsCreatingTag(false);
       setNewTagName("");
       setNewTagColor("#3b82f6");
