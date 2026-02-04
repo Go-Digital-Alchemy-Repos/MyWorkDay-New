@@ -5287,6 +5287,109 @@ export async function registerRoutes(
     }
   });
 
+  // =============================================================================
+  // USER PROFILE ENDPOINTS
+  // =============================================================================
+
+  // PATCH /api/users/me - Update current user's profile
+  const updateProfileSchema = z.object({
+    firstName: z.string().max(100).optional(),
+    lastName: z.string().max(100).optional(),
+    name: z.string().max(200).optional(),
+    avatarUrl: z.string().url().nullable().optional(),
+  }).strict();
+
+  app.patch("/api/users/me", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+
+      const parseResult = updateProfileSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid input", details: parseResult.error.issues });
+      }
+
+      const { firstName, lastName, name, avatarUrl } = parseResult.data;
+
+      const updates: Record<string, any> = {};
+      if (firstName !== undefined) updates.firstName = firstName;
+      if (lastName !== undefined) updates.lastName = lastName;
+      if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
+
+      if (firstName && lastName && !name) {
+        updates.name = `${firstName} ${lastName}`;
+      } else if (name !== undefined) {
+        updates.name = name;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+
+      const updatedUser = await storage.updateUser(user.id, updates);
+      res.json({ user: updatedUser });
+    } catch (error) {
+      console.error("Error updating user profile:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // POST /api/users/me/change-password - User changes their own password
+  const changePasswordSchema = z.object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+  });
+
+  app.post("/api/users/me/change-password", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const tenantId = req.tenant?.effectiveTenantId || user?.tenantId;
+
+      const parseResult = changePasswordSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
+      }
+
+      const { currentPassword, newPassword } = parseResult.data;
+
+      // Get user with tenant verification for regular users
+      let fullUser;
+      if (tenantId) {
+        fullUser = await storage.getUserByIdAndTenant(user.id, tenantId);
+      } else {
+        // Only allow this for super_users without tenant context
+        fullUser = await storage.getUser(user.id);
+      }
+
+      if (!fullUser || !fullUser.passwordHash) {
+        return res.status(400).json({ error: "Cannot verify current password" });
+      }
+
+      // Verify current password
+      const { comparePasswords, hashPassword } = await import("./auth");
+      const isValid = await comparePasswords(currentPassword, fullUser.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+
+      // Hash the new password
+      const passwordHash = await hashPassword(newPassword);
+
+      // Update the password
+      await storage.updateUser(user.id, { passwordHash });
+
+      console.log(`[routes] User ${user.email} changed their own password`);
+
+      // Invalidate other sessions for security (keep current session)
+      // Note: User's current session remains valid until they log out
+      await storage.invalidateUserSessions(user.id, req.sessionID);
+
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      res.status(500).json({ error: "Failed to change password" });
+    }
+  });
+
   app.patch("/api/users/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
@@ -5717,109 +5820,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error exporting time entries:", error);
       res.status(500).json({ error: "Internal server error" });
-    }
-  });
-
-  // =============================================================================
-  // USER PROFILE ENDPOINTS
-  // =============================================================================
-
-  // PATCH /api/users/me - Update current user's profile
-  const updateProfileSchema = z.object({
-    firstName: z.string().max(100).optional(),
-    lastName: z.string().max(100).optional(),
-    name: z.string().max(200).optional(),
-    avatarUrl: z.string().url().nullable().optional(),
-  }).strict();
-
-  app.patch("/api/users/me", requireAuth, async (req, res) => {
-    try {
-      const user = req.user as any;
-      
-      const parseResult = updateProfileSchema.safeParse(req.body);
-      if (!parseResult.success) {
-        return res.status(400).json({ error: "Invalid input", details: parseResult.error.issues });
-      }
-      
-      const { firstName, lastName, name, avatarUrl } = parseResult.data;
-      
-      const updates: Record<string, any> = {};
-      if (firstName !== undefined) updates.firstName = firstName;
-      if (lastName !== undefined) updates.lastName = lastName;
-      if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
-      
-      if (firstName && lastName && !name) {
-        updates.name = `${firstName} ${lastName}`;
-      } else if (name !== undefined) {
-        updates.name = name;
-      }
-      
-      if (Object.keys(updates).length === 0) {
-        return res.status(400).json({ error: "No valid fields to update" });
-      }
-      
-      const updatedUser = await storage.updateUser(user.id, updates);
-      res.json({ user: updatedUser });
-    } catch (error) {
-      console.error("Error updating user profile:", error);
-      res.status(500).json({ error: "Failed to update profile" });
-    }
-  });
-
-  // POST /api/users/me/change-password - User changes their own password
-  const changePasswordSchema = z.object({
-    currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z.string().min(8, "New password must be at least 8 characters"),
-  });
-
-  app.post("/api/users/me/change-password", requireAuth, async (req, res) => {
-    try {
-      const user = req.user as any;
-      const tenantId = req.tenant?.effectiveTenantId || user?.tenantId;
-      
-      const parseResult = changePasswordSchema.safeParse(req.body);
-      if (!parseResult.success) {
-        return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
-      }
-      
-      const { currentPassword, newPassword } = parseResult.data;
-      
-      // Get user with tenant verification for regular users
-      let fullUser;
-      if (tenantId) {
-        fullUser = await storage.getUserByIdAndTenant(user.id, tenantId);
-      } else {
-        // Only allow this for super_users without tenant context
-        fullUser = await storage.getUser(user.id);
-      }
-      
-      if (!fullUser || !fullUser.passwordHash) {
-        return res.status(400).json({ error: "Cannot verify current password" });
-      }
-      
-      // Verify current password
-      const { comparePasswords, hashPassword } = await import("./auth");
-      const isValid = await comparePasswords(currentPassword, fullUser.passwordHash);
-      if (!isValid) {
-        return res.status(401).json({ error: "Current password is incorrect" });
-      }
-      
-      // Hash the new password
-      const passwordHash = await hashPassword(newPassword);
-      
-      // Update the password
-      await storage.updateUser(user.id, { passwordHash });
-      
-      console.log(`[routes] User ${user.email} changed their own password`);
-      
-      // Invalidate other sessions for security (keep current session)
-      // Note: User's current session remains valid until they log out
-      await storage.invalidateUserSessions(user.id, req.sessionID);
-      
-      res.json({ message: "Password changed successfully" });
-    } catch (error) {
-      console.error("Error changing password:", error);
-      res.status(500).json({ error: "Failed to change password" });
     }
   });
 
