@@ -108,7 +108,6 @@ export function SubtaskDetailDrawer({
   const [isCreatingTag, setIsCreatingTag] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("#3b82f6");
-  const [hasChanges, setHasChanges] = useState(false);
   const [localDueDate, setLocalDueDate] = useState<Date | null>(
     subtask?.dueDate ? new Date(subtask.dueDate) : null
   );
@@ -268,7 +267,6 @@ export function SubtaskDetailDrawer({
           : subtask.description ? JSON.stringify(subtask.description) : ""
       );
       setLocalDueDate(subtask.dueDate ? new Date(subtask.dueDate) : null);
-      setHasChanges(false);
     }
   }, [subtask?.id]); // Only reset when the actual subtask ID changes
 
@@ -293,35 +291,29 @@ export function SubtaskDetailDrawer({
   );
 
   const handleTitleSave = () => {
-    if (title.trim() && title !== subtask.title) {
-      onUpdate?.(subtask.id, { title: title.trim() });
-      setHasChanges(false);
-    }
+    // Title is saved via the Save button now, just close the editor
     setEditingTitle(false);
   };
 
   const handleDescriptionChange = (value: string) => {
     setDescription(value);
-    const currentDesc = typeof subtask.description === 'string' 
-      ? subtask.description 
-      : subtask.description ? JSON.stringify(subtask.description) : "";
-    
-    // Normalize empty strings/nulls for comparison
-    const normalizedValue = value || "";
-    const normalizedCurrent = currentDesc || "";
-    
-    setHasChanges(normalizedValue !== normalizedCurrent);
   };
 
   const handleDescriptionBlur = () => {
-    const currentDesc = typeof subtask.description === 'string' 
-      ? subtask.description 
-      : subtask.description ? JSON.stringify(subtask.description) : "";
-    if (description !== currentDesc) {
-      onUpdate?.(subtask.id, { description: description || null });
-      setHasChanges(false);
-    }
+    // No auto-save on blur - let the Save button handle it
   };
+
+  // Compute unsaved changes by comparing current state to original subtask
+  const originalDescription = typeof subtask.description === 'string' 
+    ? subtask.description 
+    : subtask.description ? JSON.stringify(subtask.description) : "";
+  const originalDueDate = subtask.dueDate ? new Date(subtask.dueDate).toISOString() : null;
+  const currentDueDate = localDueDate ? localDueDate.toISOString() : null;
+  
+  const hasUnsavedChanges = 
+    title !== subtask.title || 
+    description !== originalDescription ||
+    currentDueDate !== originalDueDate;
 
   const handleSaveAll = () => {
     if (title.trim()) {
@@ -330,19 +322,26 @@ export function SubtaskDetailDrawer({
         description: description || null,
         dueDate: localDueDate || null
       });
-      setHasChanges(false);
       toast({ title: "Subtask saved" });
     }
   };
 
   const handleDueDateChange = (date: Date | undefined) => {
     setLocalDueDate(date || null);
-    setHasChanges(true);
     setDueDatePopoverOpen(false);
   };
 
+  // Handle sheet close with unsaved changes warning
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen && hasUnsavedChanges) {
+      const confirmClose = window.confirm("You have unsaved changes. Are you sure you want to close without saving?");
+      if (!confirmClose) return;
+    }
+    onOpenChange(isOpen);
+  };
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         className="w-full sm:max-w-xl overflow-y-auto p-0"
         data-testid="subtask-detail-drawer"
@@ -844,10 +843,10 @@ export function SubtaskDetailDrawer({
             <Button 
               className="w-full" 
               onClick={handleSaveAll}
-              disabled={!hasChanges && title === subtask.title}
+              variant={hasUnsavedChanges ? "default" : "outline"}
               data-testid="button-save-subtask"
             >
-              Save Subtask
+              {hasUnsavedChanges ? "Save Subtask" : "No Changes"}
             </Button>
           </div>
     </div>
