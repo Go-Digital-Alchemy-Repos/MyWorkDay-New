@@ -1,17 +1,21 @@
 /**
- * Unified S3 Upload Service
+ * Unified R2 Upload Service
  * 
- * This module provides a centralized service for all S3 uploads across the application.
+ * This module provides a centralized service for all Cloudflare R2 uploads across the application.
+ * Uses S3-compatible API for R2 storage operations.
+ * 
  * It enforces:
  * - Category-based file type and size validation
- * - Tenant isolation via namespaced S3 keys
+ * - Tenant isolation via namespaced R2 keys
  * - Permission validation (server derives tenant/user context from session)
  * 
  * SECURITY INVARIANTS:
- * - S3 keys are ALWAYS generated server-side based on authenticated context
+ * - R2 keys are ALWAYS generated server-side based on authenticated context
  * - Client cannot specify arbitrary keys or tenant IDs
  * - Presigned URLs have limited expiration (5 minutes)
  * - File types and sizes are validated before presigning
+ * 
+ * Note: Cloudflare R2 is the exclusive storage provider. All S3 fallback code has been removed.
  */
 
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -152,28 +156,6 @@ interface ValidationResult {
   code?: string;
 }
 
-function getLegacyS3Client(): S3Client | null {
-  const region = process.env.AWS_REGION;
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-
-  if (!region || !accessKeyId || !secretAccessKey) {
-    return null;
-  }
-
-  return new S3Client({
-    region,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
-  });
-}
-
-function getLegacyBucketName(): string | null {
-  return process.env.AWS_S3_BUCKET_NAME || null;
-}
-
 function sanitizeFilename(filename: string): string {
   return filename
     .replace(/[/\\:*?"<>|]/g, "_")
@@ -190,11 +172,10 @@ function getDatePrefix(): { year: string; month: string } {
   };
 }
 
-export function isS3Configured(): boolean {
-  return getLegacyS3Client() !== null && !!getLegacyBucketName();
-}
-
-export async function isS3ConfiguredForTenant(tenantId: string | null): Promise<boolean> {
+/**
+ * Check if R2 storage is configured for a tenant
+ */
+export async function isR2ConfiguredForTenant(tenantId: string | null): Promise<boolean> {
   const status = await getStorageStatus(tenantId);
   return status.configured;
 }
@@ -283,31 +264,27 @@ export function generateS3Key(
 }
 
 export function getFileUrl(key: string, config?: S3Config): string {
-  const bucket = config?.bucketName || getLegacyBucketName();
-  const region = config?.region || process.env.AWS_REGION;
+  const bucket = config?.bucketName;
   if (!bucket) {
-    throw new StorageNotConfiguredError("S3 bucket name not configured");
+    throw new StorageNotConfiguredError("R2 bucket name not configured");
   }
   
   // For Cloudflare R2, use the public URL if configured
   // R2 requires either:
   // 1. Public bucket access via r2.dev subdomain (e.g., https://pub-xxxx.r2.dev)
   // 2. Custom domain attached to bucket (e.g., https://files.example.com)
-  if (config?.provider === "r2") {
-    if (config.publicUrl) {
-      // Remove trailing slash if present for consistent URL building
-      const baseUrl = config.publicUrl.replace(/\/$/, "");
-      return `${baseUrl}/${key}`;
-    }
-    // Fallback: Use endpoint with bucket path style
-    // Note: This may not work for public access without proper bucket configuration
-    if (config.endpoint) {
-      return `${config.endpoint}/${bucket}/${key}`;
-    }
+  if (config?.publicUrl) {
+    // Remove trailing slash if present for consistent URL building
+    const baseUrl = config.publicUrl.replace(/\/$/, "");
+    return `${baseUrl}/${key}`;
   }
   
-  // AWS S3 format
-  return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+  // Fallback: Use endpoint with bucket path style
+  if (config?.endpoint) {
+    return `${config.endpoint}/${bucket}/${key}`;
+  }
+  
+  throw new StorageNotConfiguredError("R2 public URL or endpoint not configured");
 }
 
 export async function createPresignedUpload(

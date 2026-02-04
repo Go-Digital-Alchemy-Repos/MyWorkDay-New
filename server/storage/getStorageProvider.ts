@@ -1,13 +1,17 @@
 /**
  * Centralized Storage Provider Resolver
  * 
- * Implements hierarchical S3 configuration:
- * 1. Tenant-specific S3 config (priority)
- * 2. System-level S3 config (fallback)
- * 3. Throws STORAGE_NOT_CONFIGURED if neither exists
+ * Implements hierarchical Cloudflare R2 configuration:
+ * 1. Tenant-specific R2 config (priority)
+ * 2. System-level R2 config (fallback)
+ * 3. Environment variable R2 config (CF_R2_*)
+ * 4. Throws STORAGE_NOT_CONFIGURED if none exists
+ * 
+ * Note: Cloudflare R2 is the exclusive storage provider for this application.
+ * All S3 fallback code has been removed.
  * 
  * SECURITY:
- * - S3 credentials never exposed to client
+ * - R2 credentials never exposed to client
  * - All resolution is server-side
  * - Tenant isolation enforced
  */
@@ -18,6 +22,10 @@ import { eq, and, isNull } from "drizzle-orm";
 import { decryptValue, isEncryptionAvailable } from "../lib/encryption";
 import { S3Client } from "@aws-sdk/client-s3";
 
+/**
+ * S3-compatible storage configuration (used for R2).
+ * Named S3Config for SDK compatibility, but exclusively uses Cloudflare R2.
+ */
 export interface S3Config {
   bucketName: string;
   region: string;
@@ -26,7 +34,7 @@ export interface S3Config {
   keyPrefixTemplate?: string;
   endpoint?: string;
   publicUrl?: string; // Public URL for R2 bucket (r2.dev or custom domain)
-  provider?: "s3" | "r2";
+  provider: "r2"; // Always R2 - kept for type compatibility
 }
 
 export interface StorageProviderResult {
@@ -58,7 +66,7 @@ interface S3SecretConfig {
 }
 
 function debugLog(message: string, data?: Record<string, any>) {
-  if (process.env.S3_STORAGE_DEBUG === "true") {
+  if (process.env.R2_STORAGE_DEBUG === "true") {
     const safeData = data ? { ...data } : {};
     delete safeData.accessKeyId;
     delete safeData.secretAccessKey;
@@ -84,7 +92,7 @@ export class StorageEncryptionNotAvailableError extends Error {
   }
 }
 
-async function getIntegrationConfig(tenantId: string | null, provider: string = "s3"): Promise<{
+async function getIntegrationConfig(tenantId: string | null, provider: string = "r2"): Promise<{
   publicConfig: S3PublicConfig | null;
   secretConfig: S3SecretConfig | null;
   integrationId: string;
@@ -135,12 +143,12 @@ function isValidS3Config(publicConfig: S3PublicConfig | null, secretConfig: S3Se
 }
 
 /**
- * Build S3Config from integration config
+ * Build S3Config from integration config (R2 only)
  */
 function buildConfigFromIntegration(
   publicConfig: S3PublicConfig,
   secretConfig: S3SecretConfig,
-  provider: "s3" | "r2"
+  provider: "r2"
 ): S3Config {
   return {
     bucketName: publicConfig.bucketName,
@@ -157,13 +165,11 @@ function buildConfigFromIntegration(
 /**
  * Get the storage provider configuration for a tenant.
  * 
- * Resolution order (R2 is prioritized over S3):
+ * Resolution order (Cloudflare R2 only):
  * 1. Tenant-specific R2 integration (if tenantId provided)
- * 2. Tenant-specific S3 integration (if tenantId provided)
- * 3. System-level R2 integration (tenantId = NULL) - preferred default
- * 4. System-level S3 integration (tenantId = NULL)
- * 5. Environment variables (legacy fallback)
- * 6. Throws StorageNotConfiguredError if none available
+ * 2. System-level R2 integration (tenantId = NULL)
+ * 3. Environment variables (CF_R2_*)
+ * 4. Throws StorageNotConfiguredError if none available
  * 
  * @param tenantId - The tenant ID to resolve storage for, or null for system-level only
  * @returns StorageProviderResult with config and source information
@@ -183,16 +189,7 @@ export async function getStorageProvider(tenantId: string | null): Promise<Stora
       };
     }
 
-    const tenantS3Config = await getIntegrationConfig(tenantId, "s3");
-    if (tenantS3Config && isValidS3Config(tenantS3Config.publicConfig, tenantS3Config.secretConfig)) {
-      debugLog("Using tenant S3 configuration", { tenantId, integrationId: tenantS3Config.integrationId });
-      return {
-        config: buildConfigFromIntegration(tenantS3Config.publicConfig!, tenantS3Config.secretConfig!, "s3"),
-        source: "tenant",
-        sourceId: tenantId,
-      };
-    }
-    debugLog("No valid tenant storage config, checking system fallback", { tenantId });
+    debugLog("No valid tenant R2 config, checking system fallback", { tenantId });
   }
 
   const systemR2Config = await getIntegrationConfig(null, "r2");
@@ -205,17 +202,7 @@ export async function getStorageProvider(tenantId: string | null): Promise<Stora
     };
   }
 
-  const systemS3Config = await getIntegrationConfig(null, "s3");
-  if (systemS3Config && isValidS3Config(systemS3Config.publicConfig, systemS3Config.secretConfig)) {
-    debugLog("Using system S3 configuration (fallback)", { tenantId });
-    return {
-      config: buildConfigFromIntegration(systemS3Config.publicConfig!, systemS3Config.secretConfig!, "s3"),
-      source: "system",
-      sourceId: null,
-    };
-  }
-
-  // Check for Cloudflare R2 environment variables (preferred over AWS S3)
+  // Check for Cloudflare R2 environment variables
   // Trim all values to avoid signature mismatches from trailing whitespace
   const r2AccountId = process.env.CF_R2_ACCOUNT_ID?.trim();
   const r2AccessKeyId = process.env.CF_R2_ACCESS_KEY_ID?.trim();
@@ -240,30 +227,8 @@ export async function getStorageProvider(tenantId: string | null): Promise<Stora
     };
   }
 
-  // Check for AWS S3 environment variables (legacy fallback)
-  const envRegion = process.env.AWS_REGION;
-  const envAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const envSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  const envBucketName = process.env.AWS_S3_BUCKET_NAME;
-
-  if (envRegion && envAccessKeyId && envSecretAccessKey && envBucketName) {
-    debugLog("Using environment variable S3 configuration (legacy)", { tenantId });
-    return {
-      config: {
-        bucketName: envBucketName,
-        region: envRegion,
-        accessKeyId: envAccessKeyId,
-        secretAccessKey: envSecretAccessKey,
-        keyPrefixTemplate: process.env.AWS_S3_KEY_PREFIX,
-        provider: "s3",
-      },
-      source: "env" as const,
-      sourceId: null,
-    };
-  }
-
   debugLog("No storage provider configured", { tenantId });
-  throw new StorageNotConfiguredError();
+  throw new StorageNotConfiguredError("Cloudflare R2 storage is not configured. Set CF_R2_* environment variables or configure via Super Admin Integrations.");
 }
 
 /**
@@ -304,18 +269,15 @@ export function createS3ClientFromConfig(config: S3Config): S3Client {
 export async function getStorageStatus(tenantId: string | null): Promise<{
   configured: boolean;
   source: "tenant" | "system" | "env" | "none";
-  provider?: "r2" | "s3";
+  provider: "r2";
   tenantHasOverride: boolean;
   systemHasDefault: boolean;
   systemR2Configured: boolean;
-  systemS3Configured: boolean;
   error?: string;
 }> {
   let tenantHasOverride = false;
-  let tenantProvider: "r2" | "s3" | undefined;
   let systemHasDefault = false;
   let systemR2Configured = false;
-  let systemS3Configured = false;
   let error: string | undefined;
 
   if (tenantId) {
@@ -323,13 +285,6 @@ export async function getStorageStatus(tenantId: string | null): Promise<{
       const tenantR2Config = await getIntegrationConfig(tenantId, "r2");
       if (tenantR2Config && isValidS3Config(tenantR2Config.publicConfig, tenantR2Config.secretConfig)) {
         tenantHasOverride = true;
-        tenantProvider = "r2";
-      } else {
-        const tenantS3Config = await getIntegrationConfig(tenantId, "s3");
-        if (tenantS3Config && isValidS3Config(tenantS3Config.publicConfig, tenantS3Config.secretConfig)) {
-          tenantHasOverride = true;
-          tenantProvider = "s3";
-        }
       }
     } catch (err) {
       if (err instanceof StorageDecryptionError || err instanceof StorageEncryptionNotAvailableError) {
@@ -343,11 +298,7 @@ export async function getStorageStatus(tenantId: string | null): Promise<{
   try {
     const systemR2Config = await getIntegrationConfig(null, "r2");
     systemR2Configured = systemR2Config !== null && isValidS3Config(systemR2Config.publicConfig, systemR2Config.secretConfig);
-    
-    const systemS3Config = await getIntegrationConfig(null, "s3");
-    systemS3Configured = systemS3Config !== null && isValidS3Config(systemS3Config.publicConfig, systemS3Config.secretConfig);
-    
-    systemHasDefault = systemR2Configured || systemS3Configured;
+    systemHasDefault = systemR2Configured;
   } catch (err) {
     if (err instanceof StorageDecryptionError || err instanceof StorageEncryptionNotAvailableError) {
       if (!error) error = err.message;
@@ -356,7 +307,7 @@ export async function getStorageStatus(tenantId: string | null): Promise<{
     }
   }
 
-  // Check for R2 env vars (preferred)
+  // Check for R2 env vars
   const envR2Configured = !!(
     process.env.CF_R2_ACCOUNT_ID &&
     process.env.CF_R2_ACCESS_KEY_ID &&
@@ -364,48 +315,27 @@ export async function getStorageStatus(tenantId: string | null): Promise<{
     process.env.CF_R2_BUCKET_NAME
   );
 
-  // Check for S3 env vars (legacy fallback)
-  const envS3Configured = !!(
-    process.env.AWS_REGION &&
-    process.env.AWS_ACCESS_KEY_ID &&
-    process.env.AWS_SECRET_ACCESS_KEY &&
-    process.env.AWS_S3_BUCKET_NAME
-  );
-
   let source: "tenant" | "system" | "env" | "none" = "none";
-  let provider: "r2" | "s3" | undefined;
   let configured = false;
 
   if (tenantHasOverride) {
     source = "tenant";
-    provider = tenantProvider;
     configured = true;
   } else if (systemR2Configured) {
     source = "system";
-    provider = "r2";
-    configured = true;
-  } else if (systemS3Configured) {
-    source = "system";
-    provider = "s3";
     configured = true;
   } else if (envR2Configured) {
     source = "env";
-    provider = "r2";
-    configured = true;
-  } else if (envS3Configured) {
-    source = "env";
-    provider = "s3";
     configured = true;
   }
 
   return {
     configured,
     source,
-    provider,
+    provider: "r2",
     error,
     tenantHasOverride,
     systemHasDefault,
     systemR2Configured,
-    systemS3Configured,
   };
 }

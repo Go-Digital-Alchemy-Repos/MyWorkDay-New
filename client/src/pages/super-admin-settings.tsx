@@ -66,7 +66,7 @@ interface TenantAgreementStatus {
 
 interface IntegrationStatus {
   mailgun: boolean;
-  s3: boolean;
+  r2: boolean;
   stripe: boolean;
   encryptionConfigured: boolean;
   ssoGoogle?: boolean;
@@ -112,17 +112,6 @@ interface MailgunSettings {
     apiKeyMasked: string | null;
     signingKeyMasked: string | null;
   } | null;
-  lastTestedAt: string | null;
-}
-
-interface S3Settings {
-  status: "configured" | "not_configured";
-  publicConfig: {
-    bucketName: string | null;
-    region: string | null;
-    keyPrefixTemplate: string | null;
-  } | null;
-  secretConfigured: boolean;
   lastTestedAt: string | null;
 }
 
@@ -1052,11 +1041,6 @@ export default function SuperAdminSettingsPage() {
     enabled: activeTab === "integrations",
   });
 
-  const { data: s3Settings, isLoading: s3Loading } = useQuery<S3Settings>({
-    queryKey: ["/api/v1/system/integrations/s3"],
-    enabled: activeTab === "integrations",
-  });
-
   const { data: r2Settings, isLoading: r2Loading } = useQuery<R2Settings>({
     queryKey: ["/api/v1/system/integrations/r2"],
     enabled: activeTab === "integrations",
@@ -1083,14 +1067,6 @@ export default function SuperAdminSettingsPage() {
     region: "US" as "US" | "EU",
     apiKey: "",
     signingKey: "",
-  });
-
-  const [s3Form, setS3Form] = useState({
-    region: "",
-    bucketName: "",
-    keyPrefixTemplate: "",
-    accessKeyId: "",
-    secretAccessKey: "",
   });
 
   const [r2Form, setR2Form] = useState({
@@ -1120,8 +1096,6 @@ export default function SuperAdminSettingsPage() {
 
   const [showMailgunApiKey, setShowMailgunApiKey] = useState(false);
   const [showMailgunSigningKey, setShowMailgunSigningKey] = useState(false);
-  const [showS3AccessKey, setShowS3AccessKey] = useState(false);
-  const [showS3SecretKey, setShowS3SecretKey] = useState(false);
   const [showR2AccessKey, setShowR2AccessKey] = useState(false);
   const [showR2SecretKey, setShowR2SecretKey] = useState(false);
   const [showStripeSecretKey, setShowStripeSecretKey] = useState(false);
@@ -1205,22 +1179,6 @@ export default function SuperAdminSettingsPage() {
     },
   });
 
-  const saveS3Mutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiRequest("PUT", "/api/v1/system/integrations/s3", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/system/integrations/s3"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/integrations/status"] });
-      toast({ title: "S3 settings saved successfully" });
-      setS3Form(prev => ({ ...prev, accessKeyId: "", secretAccessKey: "" }));
-    },
-    onError: (error: any) => {
-      const parsed = parseApiError(error);
-      toast({ title: "Failed to save S3 settings", description: parsed.message, variant: "destructive" });
-    },
-  });
-
   const saveR2Mutation = useMutation({
     mutationFn: async (data: any) => {
       return apiRequest("PUT", "/api/v1/system/integrations/r2", data);
@@ -1295,46 +1253,12 @@ export default function SuperAdminSettingsPage() {
     },
   });
 
-  const testS3Mutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/v1/system/integrations/s3/test", {});
-      return response.json();
-    },
-    onSuccess: (data: { success: boolean; message: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/system/integrations/s3"] });
-      if (data.success) {
-        toast({ title: "S3 test successful", description: data.message });
-      } else {
-        toast({ title: "S3 test failed", description: data.message, variant: "destructive" });
-      }
-    },
-    onError: (error: any) => {
-      const parsed = parseApiError(error);
-      toast({ title: "S3 test failed", description: parsed.message, variant: "destructive" });
-    },
-  });
-
   const clearMailgunSecretMutation = useMutation({
     mutationFn: async (secretName: string) => {
       return apiRequest("DELETE", `/api/v1/super/integrations/mailgun/secret/${secretName}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/integrations/mailgun"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/integrations/status"] });
-      toast({ title: "Secret cleared successfully" });
-    },
-    onError: (error: any) => {
-      const parsed = parseApiError(error);
-      toast({ title: "Failed to clear secret", description: parsed.message, variant: "destructive" });
-    },
-  });
-
-  const clearS3SecretMutation = useMutation({
-    mutationFn: async (secretName: string) => {
-      return apiRequest("DELETE", `/api/v1/system/integrations/s3/secret/${secretName}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/system/integrations/s3"] });
       queryClient.invalidateQueries({ queryKey: ["/api/v1/super/integrations/status"] });
       toast({ title: "Secret cleared successfully" });
     },
@@ -1694,21 +1618,6 @@ export default function SuperAdminSettingsPage() {
                         <span className="text-sm font-medium">R2 Storage</span>
                         <Badge variant={r2Settings?.status === "configured" ? "default" : "secondary"} className="ml-2">
                           {r2Settings?.status === "configured" ? "Configured" : "Not Configured"}
-                        </Badge>
-                      </a>
-                      <a 
-                        href="#section-s3" 
-                        className="flex items-center gap-2 p-3 border rounded-lg hover-elevate cursor-pointer"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          document.getElementById("section-s3")?.scrollIntoView({ behavior: "smooth" });
-                        }}
-                        data-testid="link-s3-section"
-                      >
-                        <HardDrive className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">S3 Storage</span>
-                        <Badge variant={integrationStatus?.s3 ? "default" : "secondary"} className="ml-2">
-                          {integrationStatus?.s3 ? "Configured" : "Not Configured"}
                         </Badge>
                       </a>
                       <a 
@@ -2175,193 +2084,6 @@ export default function SuperAdminSettingsPage() {
                             <Save className="h-4 w-4 mr-2" />
                           )}
                           Save R2 Settings
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* S3 Configuration (Fallback) */}
-              <Card id="section-s3">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <HardDrive className="h-5 w-5" />
-                        S3 Storage Configuration
-                        <Badge variant="outline" className="ml-2">Fallback</Badge>
-                      </CardTitle>
-                      <CardDescription>Configure AWS S3 as fallback storage (used if R2 is not configured)</CardDescription>
-                    </div>
-                    {s3Settings?.lastTestedAt && (
-                      <div className="text-xs text-muted-foreground">
-                        Last tested: {new Date(s3Settings.lastTestedAt).toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {s3Loading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="s3-region">Region</Label>
-                          <Input
-                            id="s3-region"
-                            value={s3Form.region || s3Settings?.publicConfig?.region || ""}
-                            onChange={(e) => setS3Form({ ...s3Form, region: e.target.value })}
-                            placeholder="us-east-1"
-                            data-testid="input-s3-region"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="s3-bucket">Bucket Name</Label>
-                          <Input
-                            id="s3-bucket"
-                            value={s3Form.bucketName || s3Settings?.publicConfig?.bucketName || ""}
-                            onChange={(e) => setS3Form({ ...s3Form, bucketName: e.target.value })}
-                            placeholder="my-app-bucket"
-                            data-testid="input-s3-bucket"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2 col-span-2">
-                          <Label htmlFor="s3-key-prefix">Key Prefix Template (Optional)</Label>
-                          <Input
-                            id="s3-key-prefix"
-                            value={s3Form.keyPrefixTemplate || s3Settings?.publicConfig?.keyPrefixTemplate || ""}
-                            onChange={(e) => setS3Form({ ...s3Form, keyPrefixTemplate: e.target.value })}
-                            placeholder="uploads/{tenantId}/"
-                            data-testid="input-s3-key-prefix"
-                          />
-                          <p className="text-xs text-muted-foreground">Use {"{tenantId}"} as placeholder</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="s3-access-key">Access Key ID</Label>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              id="s3-access-key"
-                              type={showS3AccessKey ? "text" : "password"}
-                              value={s3Form.accessKeyId}
-                              onChange={(e) => setS3Form({ ...s3Form, accessKeyId: e.target.value })}
-                              placeholder={s3Settings?.secretConfigured ? "Configured (enter new to replace)" : "Enter Access Key ID"}
-                              data-testid="input-s3-access-key"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-0 top-0 h-full"
-                              onClick={() => setShowS3AccessKey(!showS3AccessKey)}
-                            >
-                              {showS3AccessKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
-                          </div>
-                          {s3Settings?.secretConfigured && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              onClick={() => clearS3SecretMutation.mutate("accessKeyId")}
-                              disabled={clearS3SecretMutation.isPending}
-                              title="Clear Access Key"
-                              data-testid="button-clear-s3-access-key"
-                            >
-                              {clearS3SecretMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            </Button>
-                          )}
-                        </div>
-                        {s3Settings?.secretConfigured && !s3Form.accessKeyId && (
-                          <p className="text-xs text-muted-foreground">
-                            Credentials are configured (enter new value to replace)
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="s3-secret-key">Secret Access Key</Label>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              id="s3-secret-key"
-                              type={showS3SecretKey ? "text" : "password"}
-                              value={s3Form.secretAccessKey}
-                              onChange={(e) => setS3Form({ ...s3Form, secretAccessKey: e.target.value })}
-                              placeholder={s3Settings?.secretConfigured ? "Configured (enter new to replace)" : "Enter Secret Access Key"}
-                              data-testid="input-s3-secret-key"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-0 top-0 h-full"
-                              onClick={() => setShowS3SecretKey(!showS3SecretKey)}
-                            >
-                              {showS3SecretKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
-                          </div>
-                          {s3Settings?.secretConfigured && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              onClick={() => clearS3SecretMutation.mutate("secretAccessKey")}
-                              disabled={clearS3SecretMutation.isPending}
-                              title="Clear Secret Key"
-                              data-testid="button-clear-s3-secret-key"
-                            >
-                              {clearS3SecretMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap justify-end gap-2 pt-4">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => testS3Mutation.mutate()}
-                          disabled={testS3Mutation.isPending || !integrationStatus?.s3}
-                          data-testid="button-test-s3"
-                        >
-                          {testS3Mutation.isPending ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <TestTube className="h-4 w-4 mr-2" />
-                          )}
-                          Test Connection
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            const data: any = {};
-                            if (s3Form.region) data.region = s3Form.region;
-                            else if (s3Settings?.publicConfig?.region) data.region = s3Settings.publicConfig.region;
-                            if (s3Form.bucketName) data.bucketName = s3Form.bucketName;
-                            else if (s3Settings?.publicConfig?.bucketName) data.bucketName = s3Settings.publicConfig.bucketName;
-                            if (s3Form.keyPrefixTemplate !== undefined) data.keyPrefixTemplate = s3Form.keyPrefixTemplate || s3Settings?.publicConfig?.keyPrefixTemplate || "";
-                            if (s3Form.accessKeyId) data.accessKeyId = s3Form.accessKeyId;
-                            if (s3Form.secretAccessKey) data.secretAccessKey = s3Form.secretAccessKey;
-                            saveS3Mutation.mutate(data);
-                          }}
-                          disabled={saveS3Mutation.isPending}
-                          data-testid="button-save-s3"
-                        >
-                          {saveS3Mutation.isPending ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <Save className="h-4 w-4 mr-2" />
-                          )}
-                          Save S3 Settings
                         </Button>
                       </div>
                     </div>

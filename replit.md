@@ -39,7 +39,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Authentication**: Session-based authentication using Passport.js with email/password and Google OAuth, including account linking, first-user bootstrap, and rate limiting.
 - **Real-time Communication**: Socket.IO for live updates, supporting a tenant-scoped chat system with channels, DMs, file attachments, unread tracking, message search, @mentions, retention policies, and export. Features a draggable/resizable chat modal with minimize/maximize capabilities and persistent position/size via localStorage.
 - **Project Management**: Includes entities for workspaces, teams, clients, projects, tasks, activity logs, and time tracking. Projects support client assignment, team membership, and an optional division model for finer-grained access control.
-- **Client Notes & Documents**: Client detail pages include Notes and Documents tabs. Notes feature rich text (TipTap JSON), categorization (general, project, feedback, meeting, requirement), and version tracking with full edit history. Documents support S3 uploads with presigned URLs, categories per client, file metadata, and download functionality.
+- **Client Notes & Documents**: Client detail pages include Notes and Documents tabs. Notes feature rich text (TipTap JSON), categorization (general, project, feedback, meeting, requirement), and version tracking with full edit history. Documents support Cloudflare R2 uploads with presigned URLs (S3-compatible API), categories per client, file metadata, and download functionality.
 - **Task Management**: Tasks support subtasks, tags, comments with rich text, @mentions, and notifications.
 - **Workload Management**: Features workload forecast and reports for task distribution and budget utilization.
 - **Time Tracking**: Stopwatch-based time tracking with reliability features, cross-session persistence, and `My Time` dashboard.
@@ -50,7 +50,7 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Super Admin Capabilities**: Full tenant user management including inline editing (firstName, lastName, email, role), permanent user deletion with confirmation dialogs, password reset with session invalidation, and comprehensive tenant health diagnostics with repair automation.
 - **User Experience**: Global command palette, keyboard shortcuts, `useUnsavedChanges` hook for dirty state management, and a professional UI design with dark mode support.
 - **SaaS Agreement System**: Manages tenant SaaS agreements with lifecycle, versioning, and user acceptance tracking.
-- **Hierarchical Storage (R2/S3)**: Configurable storage with resolution order: tenant R2 → tenant S3 → system R2 → system S3 → env R2 → env S3. Cloudflare R2 is the preferred default provider.
+- **Cloudflare R2 Storage**: Cloudflare R2 is the exclusive storage provider for all file uploads. Resolution order: tenant R2 → system R2 → environment R2 (CF_R2_* variables). Uses S3-compatible API via AWS SDK.
 - **Centralized Type Augmentation**: `server/types.d.ts` provides TypeScript declarations for Express Request properties (tenant context, requestId, clientAccess) attached by middleware, eliminating `(req as any)` casts.
 
 ## Database Migrations & Schema Readiness
@@ -157,5 +157,4 @@ Super Admin API endpoint: `GET /api/v1/super/tenancy/backfill?dryRun=true` for p
 - **Passport.js**: Session-based authentication.
 - **Railway**: Deployment platform.
 - **Mailgun**: Email sending.
-- **Cloudflare R2**: Primary file storage for profile images, documents, attachments, and exports (S3-compatible API).
-- **AWS S3 (or compatible)**: Legacy fallback file storage for attachments and exports.
+- **Cloudflare R2**: Exclusive file storage for profile images, documents, attachments, and exports (S3-compatible API). Configured via environment variables (CF_R2_ACCOUNT_ID, CF_R2_ACCESS_KEY_ID, CF_R2_SECRET_ACCESS_KEY, CF_R2_BUCKET_NAME, CF_R2_PUBLIC_URL) or Super Admin Integrations.

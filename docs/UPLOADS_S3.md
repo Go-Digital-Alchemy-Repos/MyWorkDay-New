@@ -1,12 +1,14 @@
-# Unified S3 Upload Service
+# Unified R2 Upload Service
 
 ## Overview
 
-The MyWorkDay application uses a unified S3 upload service that provides consistent file upload functionality across all features. The service enforces category-based validation, tenant isolation, and permission checks.
+The MyWorkDay application uses a unified Cloudflare R2 upload service (via S3-compatible API) that provides consistent file upload functionality across all features. The service enforces category-based validation, tenant isolation, and permission checks.
+
+**Note:** Cloudflare R2 is the exclusive storage provider. All references to "S3" in component/hook names refer to the S3-compatible API used by R2.
 
 ## Security Invariants
 
-1. **Server-Side Key Generation**: S3 keys are ALWAYS generated server-side based on authenticated context
+1. **Server-Side Key Generation**: R2 keys are ALWAYS generated server-side based on authenticated context
 2. **Client Cannot Specify Keys**: Clients cannot specify arbitrary keys or tenant IDs
 3. **Presigned URL Expiration**: Presigned URLs expire after 5 minutes
 4. **File Validation**: File types and sizes are validated before presigning
@@ -24,7 +26,7 @@ The MyWorkDay application uses a unified S3 upload service that provides consist
 | `user-avatar` | 2MB | PNG, JPEG, WebP, GIF | Authenticated User |
 | `task-attachment` | 25MB | PDF, DOC, XLS, CSV, Images, ZIP, TXT | Any Tenant User |
 
-## S3 Key Structure
+## R2 Key Structure
 
 Keys are namespaced to prevent cross-tenant data access:
 
@@ -70,8 +72,8 @@ POST /api/v1/uploads/presign
 **Response:**
 ```json
 {
-  "uploadUrl": "https://bucket.s3.amazonaws.com/...",
-  "fileUrl": "https://bucket.s3.amazonaws.com/tenants/123/...",
+  "uploadUrl": "https://account.r2.cloudflarestorage.com/...",
+  "fileUrl": "https://pub-xxx.r2.dev/tenants/123/...",
   "key": "tenants/123/users/456/avatar/2025/01/uuid-filename.jpg",
   "expiresInSeconds": 300
 }
@@ -84,13 +86,13 @@ POST /api/v1/uploads/presign
 | 400 | Invalid category, missing fields, file validation failed |
 | 401 | Not authenticated |
 | 403 | Insufficient permissions for category |
-| 503 | S3 not configured |
+| 503 | R2 not configured |
 
 ## Frontend Components
 
 ### S3Dropzone Component
 
-A reusable dropzone component that handles the complete upload flow:
+A reusable dropzone component that handles the complete upload flow (named S3Dropzone for S3-compatible API):
 
 ```tsx
 import { S3Dropzone } from "@/components/common/S3Dropzone";
@@ -122,7 +124,7 @@ import { S3Dropzone } from "@/components/common/S3Dropzone";
 
 ### useS3Upload Hook
 
-Lower-level hook for custom upload implementations:
+Lower-level hook for custom upload implementations (named useS3Upload for S3-compatible API):
 
 ```tsx
 import { useS3Upload } from "@/hooks/useS3Upload";
@@ -161,12 +163,12 @@ Tenant branding implements an inheritance model:
 Task attachments use a specialized flow that creates database records:
 
 1. Client requests presigned URL via `/api/projects/{projectId}/tasks/{taskId}/attachments/presign`
-2. Upload file to S3 using presigned URL
+2. Upload file to R2 using presigned URL
 3. Complete upload via `/api/projects/{projectId}/tasks/{taskId}/attachments/{attachmentId}/complete`
 
 This flow differs from the unified service because it creates an attachment record in the database with metadata.
 
-The unified S3 service supports the `task-attachment` category for validation purposes, but the specialized attachment endpoints should be used for task attachments to ensure proper record management.
+The unified R2 service supports the `task-attachment` category for validation purposes, but the specialized attachment endpoints should be used for task attachments to ensure proper record management.
 
 ## Chat Attachments
 
@@ -188,12 +190,12 @@ Content-Type: multipart/form-data
   "fileName": "document.pdf",
   "mimeType": "application/pdf",
   "sizeBytes": 102400,
-  "url": "https://bucket.s3.region.amazonaws.com/chat-attachments/tenant-id/file.pdf",
-  "storageSource": "tenant" | "system" | "legacy"
+  "url": "https://pub-xxx.r2.dev/chat-attachments/tenant-id/file.pdf",
+  "storageSource": "tenant" | "system" | "env"
 }
 ```
 
-### S3 Key Structure
+### R2 Key Structure
 
 Chat attachments use tenant-isolated keys:
 ```
@@ -214,10 +216,10 @@ Maximum file size: 25MB per file
 
 ### Storage Provider Resolution
 
-Chat attachments use the hierarchical S3 storage resolver:
-1. Tenant-specific S3 configuration (if configured)
-2. System-level S3 configuration
-3. Environment variable S3 configuration
+Chat attachments use the hierarchical R2 storage resolver:
+1. Tenant-specific R2 configuration (if configured)
+2. System-level R2 configuration
+3. Environment variable R2 configuration (CF_R2_*)
 
 ### Sending Messages with Attachments
 
@@ -241,17 +243,17 @@ POST /api/v1/chat/channels/:channelId/messages
 
 ## Configuration
 
-S3 uploads require the following environment variables:
+Cloudflare R2 uploads require the following environment variables:
 
 ```
-S3_BUCKET_NAME=your-bucket
-S3_REGION=us-east-1
-S3_ACCESS_KEY_ID=AKIA...
-S3_SECRET_ACCESS_KEY=secret
-S3_ENDPOINT_URL=https://s3.us-east-1.amazonaws.com (optional, for S3-compatible services)
+CF_R2_ACCOUNT_ID=your-account-id
+CF_R2_ACCESS_KEY_ID=your-access-key
+CF_R2_SECRET_ACCESS_KEY=your-secret-key
+CF_R2_BUCKET_NAME=your-bucket-name
+CF_R2_PUBLIC_URL=https://pub-xxx.r2.dev (optional, for public access)
 ```
 
-For per-tenant S3 configuration, see the Tenant Integrations documentation.
+For per-tenant R2 configuration, see the Tenant Integrations documentation.
 
 ## Testing
 

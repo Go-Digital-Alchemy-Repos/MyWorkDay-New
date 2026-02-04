@@ -1,8 +1,11 @@
 /**
  * Super Admin Integrations Router
  * 
- * Handles global integration management for Mailgun, S3, and Stripe.
+ * Handles global integration management for Mailgun, Cloudflare R2, and Stripe.
  * All routes require super_user role.
+ * 
+ * Note: Cloudflare R2 is the default storage provider. R2 configuration is handled
+ * via environment variables (CF_R2_*) or the system integrations router.
  * 
  * Mounted at: /api/v1/super (endpoints: /integrations/*)
  * 
@@ -12,9 +15,6 @@
  * - POST /integrations/mailgun/test - Test Mailgun connection
  * - POST /integrations/mailgun/send-test-email - Send test email
  * - DELETE /integrations/mailgun/secret/:secretName - Clear Mailgun secret
- * - GET/PUT /integrations/s3 - S3 settings
- * - POST /integrations/s3/test - Test S3 connection
- * - DELETE /integrations/s3/secret/:secretName - Clear S3 secret
  * - GET/PUT /integrations/stripe - Stripe settings
  * - POST /integrations/stripe/test - Test Stripe connection
  * - DELETE /integrations/stripe/secret/:secretName - Clear Stripe secret
@@ -59,12 +59,15 @@ router.get("/integrations/status", requireSuperUser, async (req, res) => {
       settings?.mailgunFromEmail && 
       settings?.mailgunApiKeyEncrypted
     );
-    const s3Configured = !!(
-      settings?.s3Region && 
-      settings?.s3BucketName && 
-      settings?.s3AccessKeyIdEncrypted && 
-      settings?.s3SecretAccessKeyEncrypted
+    
+    // R2 is configured via environment variables or system integrations
+    const r2Configured = !!(
+      process.env.CF_R2_ACCOUNT_ID &&
+      process.env.CF_R2_ACCESS_KEY_ID &&
+      process.env.CF_R2_SECRET_ACCESS_KEY &&
+      process.env.CF_R2_BUCKET_NAME
     );
+    
     const stripeConfigured = !!(
       settings?.stripePublishableKey && 
       settings?.stripeSecretKeyEncrypted
@@ -74,7 +77,7 @@ router.get("/integrations/status", requireSuperUser, async (req, res) => {
     
     res.json({
       mailgun: mailgunConfigured,
-      s3: s3Configured,
+      r2: r2Configured,
       stripe: stripeConfigured,
       encryptionConfigured,
     });
@@ -82,7 +85,7 @@ router.get("/integrations/status", requireSuperUser, async (req, res) => {
     console.error("[integrations] Failed to check integration status:", error);
     res.json({
       mailgun: false,
-      s3: false,
+      r2: false,
       stripe: false,
       encryptionConfigured: isEncryptionAvailable(),
     });
@@ -322,211 +325,6 @@ router.delete("/integrations/mailgun/secret/:secretName", requireSuperUser, asyn
     res.json({ success: true, message: `${secretName} cleared successfully` });
   } catch (error) {
     console.error("[integrations] Failed to clear Mailgun secret:", error);
-    res.status(500).json({ error: "Failed to clear secret" });
-  }
-});
-
-const globalS3UpdateSchema = z.object({
-  region: z.string().optional(),
-  bucketName: z.string().optional(),
-  publicBaseUrl: z.string().optional(),
-  cloudfrontUrl: z.string().optional(),
-  accessKeyId: z.string().optional(),
-  secretAccessKey: z.string().optional(),
-});
-
-/**
- * GET /integrations/s3 - Get global S3 settings
- */
-router.get("/integrations/s3", requireSuperUser, async (req, res) => {
-  const notConfiguredResponse = {
-    status: "not_configured",
-    config: null,
-    secretMasked: null,
-    lastTestedAt: null,
-  };
-
-  try {
-    let settings: typeof systemSettings.$inferSelect | null = null;
-    try {
-      const [row] = await db.select().from(systemSettings).limit(1);
-      settings = row || null;
-    } catch (dbError: unknown) {
-      const message = dbError instanceof Error ? dbError.message : String(dbError);
-      if (message.includes("does not exist") || message.includes("column")) {
-        console.warn("[integrations] systemSettings table/column issue:", message);
-        return res.json(notConfiguredResponse);
-      }
-      throw dbError;
-    }
-    
-    if (!settings) {
-      return res.json(notConfiguredResponse);
-    }
-
-    let accessKeyIdMasked: string | null = null;
-    let secretAccessKeyMasked: string | null = null;
-    
-    if (settings.s3AccessKeyIdEncrypted && isEncryptionAvailable()) {
-      try {
-        const decrypted = decryptValue(settings.s3AccessKeyIdEncrypted);
-        accessKeyIdMasked = maskSecret(decrypted);
-      } catch (e) {
-        console.error("[integrations] Failed to decrypt S3 access key for masking");
-      }
-    }
-    
-    if (settings.s3SecretAccessKeyEncrypted && isEncryptionAvailable()) {
-      try {
-        const decrypted = decryptValue(settings.s3SecretAccessKeyEncrypted);
-        secretAccessKeyMasked = maskSecret(decrypted);
-      } catch (e) {
-        console.error("[integrations] Failed to decrypt S3 secret key for masking");
-      }
-    }
-
-    const isConfigured = !!(
-      settings.s3Region && 
-      settings.s3BucketName && 
-      settings.s3AccessKeyIdEncrypted && 
-      settings.s3SecretAccessKeyEncrypted
-    );
-
-    res.json({
-      status: isConfigured ? "configured" : "not_configured",
-      config: {
-        region: settings.s3Region,
-        bucketName: settings.s3BucketName,
-        publicBaseUrl: settings.s3PublicBaseUrl,
-        cloudfrontUrl: settings.s3CloudfrontUrl,
-      },
-      secretMasked: {
-        accessKeyIdMasked,
-        secretAccessKeyMasked,
-      },
-      lastTestedAt: settings.s3LastTestedAt?.toISOString() || null,
-    });
-  } catch (error) {
-    console.error("[integrations] Failed to get S3 settings:", error);
-    res.json(notConfiguredResponse);
-  }
-});
-
-/**
- * PUT /integrations/s3 - Update global S3 settings
- */
-router.put("/integrations/s3", requireSuperUser, async (req, res) => {
-  try {
-    const body = globalS3UpdateSchema.parse(req.body);
-    
-    const updateData: Record<string, any> = {
-      updatedAt: new Date(),
-    };
-    
-    if (body.region !== undefined) {
-      updateData.s3Region = body.region || null;
-    }
-    if (body.bucketName !== undefined) {
-      updateData.s3BucketName = body.bucketName || null;
-    }
-    if (body.publicBaseUrl !== undefined) {
-      updateData.s3PublicBaseUrl = body.publicBaseUrl || null;
-    }
-    if (body.cloudfrontUrl !== undefined) {
-      updateData.s3CloudfrontUrl = body.cloudfrontUrl || null;
-    }
-    if (body.accessKeyId && body.accessKeyId.trim()) {
-      if (!isEncryptionAvailable()) {
-        return res.status(400).json({ error: "Encryption not configured. Cannot store secrets." });
-      }
-      updateData.s3AccessKeyIdEncrypted = encryptValue(body.accessKeyId.trim());
-    }
-    if (body.secretAccessKey && body.secretAccessKey.trim()) {
-      if (!isEncryptionAvailable()) {
-        return res.status(400).json({ error: "Encryption not configured. Cannot store secrets." });
-      }
-      updateData.s3SecretAccessKeyEncrypted = encryptValue(body.secretAccessKey.trim());
-    }
-
-    const [existing] = await db.select().from(systemSettings).limit(1);
-    if (existing) {
-      await db.update(systemSettings).set(updateData).where(eq(systemSettings.id, 1));
-    } else {
-      await db.insert(systemSettings).values({ id: 1, ...updateData });
-    }
-
-    res.json({ success: true, message: "S3 settings saved successfully" });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "Validation error", details: error.errors });
-    }
-    console.error("[integrations] Failed to save S3 settings:", error);
-    res.status(500).json({ error: "Failed to save S3 settings" });
-  }
-});
-
-/**
- * POST /integrations/s3/test - Test global S3 connection
- */
-router.post("/integrations/s3/test", requireSuperUser, async (req, res) => {
-  try {
-    const [settings] = await db.select().from(systemSettings).limit(1);
-    
-    if (!settings?.s3Region || !settings?.s3BucketName || 
-        !settings?.s3AccessKeyIdEncrypted || !settings?.s3SecretAccessKeyEncrypted) {
-      return res.json({ success: false, message: "S3 is not fully configured" });
-    }
-
-    if (!isEncryptionAvailable()) {
-      return res.json({ success: false, message: "Encryption not available" });
-    }
-
-    const accessKeyId = decryptValue(settings.s3AccessKeyIdEncrypted);
-    const secretAccessKey = decryptValue(settings.s3SecretAccessKeyEncrypted);
-
-    const { S3Client, HeadBucketCommand } = await import("@aws-sdk/client-s3");
-    
-    const s3Client = new S3Client({
-      region: settings.s3Region,
-      credentials: {
-        accessKeyId,
-        secretAccessKey,
-      },
-    });
-
-    await s3Client.send(new HeadBucketCommand({ Bucket: settings.s3BucketName }));
-    
-    await db.update(systemSettings)
-      .set({ s3LastTestedAt: new Date(), updatedAt: new Date() })
-      .where(eq(systemSettings.id, 1));
-
-    res.json({ success: true, message: "S3 configuration is valid" });
-  } catch (error: any) {
-    console.error("[integrations] S3 test failed:", error.message);
-    res.json({ success: false, message: error.message || "Failed to validate S3 bucket" });
-  }
-});
-
-/**
- * DELETE /integrations/s3/secret/:secretName - Clear an S3 secret
- */
-router.delete("/integrations/s3/secret/:secretName", requireSuperUser, async (req, res) => {
-  try {
-    const { secretName } = req.params;
-    const updateData: Record<string, any> = { updatedAt: new Date() };
-    
-    if (secretName === "accessKeyId") {
-      updateData.s3AccessKeyIdEncrypted = null;
-    } else if (secretName === "secretAccessKey") {
-      updateData.s3SecretAccessKeyEncrypted = null;
-    } else {
-      return res.status(400).json({ error: "Invalid secret name" });
-    }
-
-    await db.update(systemSettings).set(updateData).where(eq(systemSettings.id, 1));
-    res.json({ success: true, message: `${secretName} cleared successfully` });
-  } catch (error) {
-    console.error("[integrations] Failed to clear S3 secret:", error);
     res.status(500).json({ error: "Failed to clear secret" });
   }
 });
