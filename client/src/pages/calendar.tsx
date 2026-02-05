@@ -310,7 +310,7 @@ export default function CalendarPage() {
         <div className="flex items-center justify-between md:justify-start gap-2 md:gap-3">
           <div className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-base md:text-lg font-semibold">Calendar</h1>
+            <h1 className="md:text-lg font-semibold text-[24px]">Team Calendar</h1>
           </div>
           <div className="flex items-center gap-1 md:hidden">
             <Button variant="outline" size="icon" onClick={handlePrev} data-testid="button-calendar-prev-mobile">
@@ -498,7 +498,6 @@ export default function CalendarPage() {
           </Popover>
         </div>
       </div>
-
       <div className="flex items-center gap-4 px-6 py-2 border-b bg-background">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="font-medium">Legend:</span>
@@ -524,7 +523,6 @@ export default function CalendarPage() {
           {filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}
         </div>
       </div>
-
       <div className="flex-1 p-6 overflow-auto">
         <div className="h-full min-h-[500px]">
           <FullCalendar
@@ -552,7 +550,6 @@ export default function CalendarPage() {
           />
         </div>
       </div>
-
       {selectedTask && (
         <TaskDetailDrawer
           task={selectedTask}
@@ -563,7 +560,6 @@ export default function CalendarPage() {
           }}
         />
       )}
-
       {selectedTimeEntry && (
         <TimeEntryViewDrawer
           entry={selectedTimeEntry}
