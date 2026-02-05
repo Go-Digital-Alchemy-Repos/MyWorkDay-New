@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE */
+/* LIGHT MODE BASE */
 :root {
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
@@ -18,26 +18,26 @@
   --sidebar: 0 0% 96%;
   --sidebar-foreground: 0 0% 9%;
   --sidebar-border: 0 0% 92%;
-  --sidebar-primary: 86 52% 46.3%;
-  --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 94%;
   --sidebar-accent-foreground: 0 0% 9%;
-  --sidebar-ring: 86 52% 46.3%;
   --popover: 0 0% 97%;
   --popover-foreground: 0 0% 9%;
   --popover-border: 0 0% 93%;
-  --primary: 86 52% 46.3%;
-  --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 93%;
   --secondary-foreground: 0 0% 9%;
   --muted: 0 3% 94%;
   --muted-foreground: 0 0% 40%;
-  --accent: 86 15% 95%;
-  --accent-foreground: 0 0% 9%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --input: 0 0% 80%;
+  --primary: 86 52% 46.3%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 86 15% 95%;
+  --accent-foreground: 0 0% 9%;
   --ring: 86 52% 48%;
+  --sidebar-primary: 86 52% 46.3%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 86 52% 46.3%;
   --chart-1: 86 52% 45%;
   --chart-2: 173 58% 39%;
   --chart-3: 197 37% 24%;
@@ -58,35 +58,23 @@
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
-/* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --sidebar-accent-border: hsl(var(--sidebar-accent));
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --primary-border: hsl(var(--primary));
   --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --secondary-border: hsl(var(--secondary));
   --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --muted-border: hsl(var(--muted));
   --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --accent-border: hsl(var(--accent));
   --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
+/* DARK MODE BASE */
 .dark {
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
@@ -102,26 +90,18 @@
   --sidebar: 0 0% 11%;
   --sidebar-foreground: 0 0% 98%;
   --sidebar-border: 0 0% 14%;
-  --sidebar-primary: 86 52% 46.3%;
-  --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 14%;
   --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-ring: 86 52% 46.3%;
   --popover: 0 0% 12%;
   --popover-foreground: 0 0% 98%;
   --popover-border: 0 0% 15%;
-  --primary: 86 52% 46.3%;
-  --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 15%;
   --secondary-foreground: 0 0% 98%;
   --muted: 0 3% 16%;
   --muted-foreground: 0 0% 65%;
-  --accent: 86 15% 15%;
-  --accent-foreground: 0 0% 98%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --input: 0 0% 25%;
-  --ring: 86 52% 48%;
   --chart-1: 86 52% 55%;
   --chart-2: 173 58% 65%;
   --chart-3: 197 37% 70%;
@@ -136,33 +116,124 @@
   --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
   --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
 
-/* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --sidebar-accent-border: hsl(var(--sidebar-accent));
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --primary-border: hsl(var(--primary));
   --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --secondary-border: hsl(var(--secondary));
   --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --muted-border: hsl(var(--muted));
   --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --accent-border: hsl(var(--accent));
   --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
-
-  /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+/* ==========================================================================
+   ACCENT COLOR PRESETS
+   Applied via class on <html> element. Overrides primary, accent, ring,
+   and sidebar-primary tokens. Default accent is "green" (matches original).
+   ========================================================================== */
+
+.accent-green,
+:root {
+  --primary: 86 52% 46.3%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 86 15% 95%;
+  --accent-foreground: 0 0% 9%;
+  --ring: 86 52% 48%;
+  --sidebar-primary: 86 52% 46.3%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 86 52% 46.3%;
+}
+.dark.accent-green,
+.dark {
+  --accent: 86 15% 15%;
+  --accent-foreground: 0 0% 98%;
+}
+
+.accent-blue {
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 221 30% 94%;
+  --accent-foreground: 221 47% 11%;
+  --ring: 217 91% 60%;
+  --sidebar-primary: 221 83% 53%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-ring: 221 83% 53%;
+}
+.dark.accent-blue {
+  --accent: 221 30% 15%;
+  --accent-foreground: 210 40% 98%;
+}
+
+.accent-indigo {
+  --primary: 243 75% 59%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 243 30% 94%;
+  --accent-foreground: 243 47% 11%;
+  --ring: 239 84% 67%;
+  --sidebar-primary: 243 75% 59%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-ring: 243 75% 59%;
+}
+.dark.accent-indigo {
+  --accent: 243 30% 15%;
+  --accent-foreground: 210 40% 98%;
+}
+
+.accent-teal {
+  --primary: 173 80% 32%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 173 30% 94%;
+  --accent-foreground: 173 47% 11%;
+  --ring: 172 66% 50%;
+  --sidebar-primary: 173 80% 32%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-ring: 173 80% 32%;
+}
+.dark.accent-teal {
+  --accent: 173 30% 15%;
+  --accent-foreground: 210 40% 98%;
+}
+
+.accent-orange {
+  --primary: 20 91% 48%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 20 30% 94%;
+  --accent-foreground: 20 47% 11%;
+  --ring: 25 95% 53%;
+  --sidebar-primary: 20 91% 48%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-ring: 20 91% 48%;
+}
+.dark.accent-orange {
+  --accent: 20 30% 15%;
+  --accent-foreground: 210 40% 98%;
+}
+
+.accent-slate {
+  --primary: 215 25% 27%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 215 15% 94%;
+  --accent-foreground: 215 25% 11%;
+  --ring: 215 16% 47%;
+  --sidebar-primary: 215 25% 27%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-ring: 215 25% 27%;
+}
+.dark.accent-slate {
+  --primary: 215 25% 50%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 215 15% 15%;
+  --accent-foreground: 210 40% 98%;
+  --ring: 215 25% 55%;
+  --sidebar-primary: 215 25% 50%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-ring: 215 25% 50%;
 }
 
 @layer base {
