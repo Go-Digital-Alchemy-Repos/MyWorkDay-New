@@ -13,7 +13,8 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/richtext";
+import { PrioritySelector, type PriorityLevel } from "@/components/forms/priority-selector";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -220,10 +221,11 @@ export function TaskCreateDrawer({
               <FormItem>
                 <FormLabel>Description</FormLabel>
                 <FormControl>
-                  <Textarea
+                  <RichTextEditor
+                    value={field.value || ""}
+                    onChange={field.onChange}
                     placeholder="Add a detailed description..."
-                    className="min-h-[120px] resize-none"
-                    {...field}
+                    className="min-h-[120px]"
                     data-testid="textarea-task-description"
                   />
                 </FormControl>
@@ -269,19 +271,13 @@ export function TaskCreateDrawer({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Priority</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-priority">
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <PrioritySelector
+                      value={field.value as PriorityLevel}
+                      onChange={field.onChange}
+                      data-testid="select-priority"
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

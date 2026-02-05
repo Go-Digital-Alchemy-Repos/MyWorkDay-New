@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PrioritySelector, type PriorityLevel } from "@/components/forms/priority-selector";
 import {
   Select,
   SelectContent,
@@ -184,17 +185,11 @@ export function TaskSelectorWithCreate({
             </div>
             <div className="space-y-2">
               <Label>Priority</Label>
-              <Select value={newTaskPriority} onValueChange={(v) => setNewTaskPriority(v as "low" | "medium" | "high" | "urgent")}>
-                <SelectTrigger data-testid="select-new-task-priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
+              <PrioritySelector
+                value={newTaskPriority}
+                onChange={(v) => setNewTaskPriority(v)}
+                data-testid="select-new-task-priority"
+              />
             </div>
             <Button
               type="button"

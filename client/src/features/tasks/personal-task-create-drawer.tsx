@@ -13,7 +13,8 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/richtext";
+import { PrioritySelector, type PriorityLevel } from "@/components/forms/priority-selector";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -187,10 +188,11 @@ export function PersonalTaskCreateDrawer({
               <FormItem>
                 <FormLabel>Description</FormLabel>
                 <FormControl>
-                  <Textarea
+                  <RichTextEditor
+                    value={field.value || ""}
+                    onChange={field.onChange}
                     placeholder="Add more details..."
-                    className="min-h-[150px] resize-none"
-                    {...field}
+                    className="min-h-[150px]"
                     data-testid="textarea-personal-task-description"
                   />
                 </FormControl>
@@ -209,19 +211,13 @@ export function PersonalTaskCreateDrawer({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Priority</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-personal-task-priority">
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <PrioritySelector
+                      value={field.value as PriorityLevel}
+                      onChange={field.onChange}
+                      data-testid="select-personal-task-priority"
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

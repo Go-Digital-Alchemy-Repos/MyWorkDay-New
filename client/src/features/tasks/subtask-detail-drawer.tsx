@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
+import { PrioritySelector, type PriorityLevel } from "@/components/forms/priority-selector";
 import { AvatarGroup } from "@/components/avatar-group";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AttachmentUploader } from "@/components/attachment-uploader";
@@ -606,20 +607,12 @@ export function SubtaskDetailDrawer({
                   <Flag className="h-3.5 w-3.5" />
                   Priority
                 </label>
-                <Select
-                  value={subtask.priority || "medium"}
-                  onValueChange={(value) => onUpdate?.(subtask.id, { priority: value })}
-                >
-                  <SelectTrigger className="w-[140px] h-8" data-testid="select-subtask-priority">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
+                <PrioritySelector
+                  value={(subtask.priority || "medium") as PriorityLevel}
+                  onChange={(value) => onUpdate?.(subtask.id, { priority: value })}
+                  className="w-[140px] h-8"
+                  data-testid="select-subtask-priority"
+                />
               </div>
 
               <div className="space-y-2">
