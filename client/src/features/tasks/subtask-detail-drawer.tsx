@@ -51,6 +51,8 @@ type SubtaskOrTask = (Subtask | (TaskWithRelations & { taskId?: string; complete
   projectId?: string | null;
 };
 
+// State for unsaved changes confirmation dialog
+
 function isSubtask(item: SubtaskOrTask | null): item is Subtask {
   if (!item) return false;
   return 'taskId' in item && 'completed' in item && typeof item.completed === 'boolean';
@@ -349,13 +351,19 @@ export function SubtaskDetailDrawer({
   // Handle sheet close with unsaved changes warning
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen && hasUnsavedChanges) {
-      const confirmClose = window.confirm("You have unsaved changes. Are you sure you want to close without saving?");
-      if (!confirmClose) return;
+      setShowUnsavedChangesDialog(true);
+      return;
     }
     onOpenChange(isOpen);
   };
+  
+  const handleConfirmClose = () => {
+    setShowUnsavedChangesDialog(false);
+    onOpenChange(false);
+  };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         className="w-full sm:max-w-xl overflow-y-auto p-0"
@@ -864,5 +872,28 @@ export function SubtaskDetailDrawer({
     </div>
   </SheetContent>
 </Sheet>
+
+      {/* Unsaved changes confirmation dialog */}
+      <AlertDialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes. Are you sure you want to close without saving?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-close-subtask">Keep Editing</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmClose}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-close-subtask"
+            >
+              Discard Changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

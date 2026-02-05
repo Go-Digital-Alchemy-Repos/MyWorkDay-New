@@ -104,6 +104,8 @@ function AdminDashboardSection({
   workloadLoading,
   unassigned,
   unassignedLoading,
+  recentMessages,
+  messagesLoading,
   onTaskClick,
 }: {
   analytics?: AnalyticsSummary;
@@ -112,6 +114,8 @@ function AdminDashboardSection({
   workloadLoading: boolean;
   unassigned?: { tasks: UnassignedTask[]; totalCount: number };
   unassignedLoading: boolean;
+  recentMessages?: any[];
+  messagesLoading: boolean;
   onTaskClick: (task: TaskWithRelations) => void;
 }) {
   const [, setLocation] = useLocation();
@@ -885,6 +889,8 @@ export default function Home() {
             workloadLoading={workloadLoading}
             unassigned={unassigned}
             unassignedLoading={unassignedLoading}
+            recentMessages={recentMessages}
+            messagesLoading={messagesLoading}
             onTaskClick={handleTaskClick}
           />
         ) : (

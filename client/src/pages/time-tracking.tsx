@@ -720,13 +720,17 @@ function ManualEntryDialog({
         </div>
         <div className="space-y-2">
           <Label>Description</Label>
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What did you work on?"
-            className="min-h-[100px]"
+          <div 
+            className="min-h-[120px] border rounded-md focus-within:ring-1 focus-within:ring-ring transition-shadow"
             data-testid="input-manual-description"
-          />
+          >
+            <RichTextEditor
+              value={description}
+              onChange={(val) => setDescription(val)}
+              placeholder="What did you work on?"
+              className="border-0 focus-visible:ring-0"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">

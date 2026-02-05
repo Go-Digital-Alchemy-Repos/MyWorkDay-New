@@ -176,6 +176,7 @@ export default function ChatPage() {
     conversationId: string;
   } | null>(null);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [startDmOpen, setStartDmOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
   const [newChannelPrivate, setNewChannelPrivate] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
@@ -217,6 +218,9 @@ export default function ChatPage() {
   const [startChatSearchQuery, setStartChatSearchQuery] = useState("");
   const [startChatSelectedUsers, setStartChatSelectedUsers] = useState<Set<string>>(new Set());
   const [startChatGroupName, setStartChatGroupName] = useState("");
+
+  // Delete channel confirmation dialog state
+  const [deleteChannelDialogOpen, setDeleteChannelDialogOpen] = useState(false);
 
   // Connection status tracking
   const [isConnected, setIsConnected] = useState(isSocketConnected());
@@ -1756,21 +1760,42 @@ export default function ChatPage() {
                   <Search className="h-4 w-4" />
                 </Button>
                 {user?.role === "admin" && selectedChannel && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      if (window.confirm(`Are you sure you want to delete channel #${selectedChannel.name}? This action cannot be undone.`)) {
-                        deleteChannelMutation.mutate(selectedChannel.id);
-                      }
-                    }}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    aria-label="Delete channel"
-                    title="Delete channel"
-                    data-testid="button-delete-channel"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteChannelDialogOpen(true)}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label="Delete channel"
+                      title="Delete channel"
+                      data-testid="button-delete-channel"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <AlertDialog open={deleteChannelDialogOpen} onOpenChange={setDeleteChannelDialogOpen}>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Channel</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete channel #{selectedChannel.name}? This action cannot be undone and all messages will be permanently lost.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel data-testid="button-cancel-delete-channel">Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => {
+                              deleteChannelMutation.mutate(selectedChannel.id);
+                              setDeleteChannelDialogOpen(false);
+                            }}
+                            className="bg-destructive text-destructive-foreground"
+                            data-testid="button-confirm-delete-channel"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
                 )}
                 <ChatContextPanelToggle
                   onClick={() => setContextPanelOpen(true)}
