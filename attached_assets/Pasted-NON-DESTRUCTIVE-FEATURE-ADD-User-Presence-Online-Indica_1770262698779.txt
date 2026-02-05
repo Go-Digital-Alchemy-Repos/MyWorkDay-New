@@ -1,0 +1,153 @@
+NON-DESTRUCTIVE FEATURE ADD: User Presence (Online Indicator) + Chat Read Receipts
+
+GOAL
+1) Show whether a user is currently online/active in the app (Slack-style indicator).
+2) Add read receipts for chat messages (at least “seen” at the conversation level, and optionally per-message).
+
+STRICT NON-DESTRUCTIVE RULES
+- Do NOT break existing chat flows or endpoints.
+- Do NOT change existing endpoint shapes in a breaking way; additive only.
+- Do NOT remove any current socket events; additive only.
+- Preserve tenant scoping and RBAC.
+- Prefer minimal schema changes; if required, additive migrations only.
+
+────────────────────────────────────────────────────────
+PART A — USER PRESENCE (ONLINE / OFFLINE / LAST SEEN)
+
+A1) Discovery
+- Identify current Socket.IO server initialization and client connection code.
+- Identify how userId + tenantId are associated to a socket (auth middleware, session, token, etc.).
+
+A2) Server: Presence tracking (in-memory + optional DB lastSeen)
+Implement presence tracking using an in-memory map:
+- key: tenantId:userId
+- values:
+  - activeSocketCount
+  - lastSeenAt (timestamp)
+  - status: "online" | "offline"
+
+Rules:
+- A user is "online" if they have >=1 active socket connections in that tenant.
+- Update lastSeenAt on:
+  - socket connect
+  - periodic heartbeat (“presence:ping”) every ~20–30s from client
+  - optional: on key activity events (sending message, typing)
+
+When socket disconnects:
+- decrement activeSocketCount
+- if count reaches 0, mark offline and set lastSeenAt = now.
+
+Optional (recommended, additive):
+- Persist lastSeenAt in DB so it survives server restarts:
+  - If a suitable user/profile table already exists, add nullable `lastSeenAt`.
+  - Otherwise add a tiny `user_presence` table keyed by (tenantId, userId) with lastSeenAt only.
+  - DO NOT store “online” in DB (it’s ephemeral). Only store lastSeenAt.
+
+A3) Server: Presence endpoints/events (additive)
+- Add socket events:
+  - client emits: "presence:ping" (tenantId implied via auth context)
+  - server emits to tenant room: "presence:update" with { userId, online, lastSeenAt }
+- Add REST endpoint (optional, helpful on initial page load):
+  GET /api/presence?userIds=...
+  returns: [{ userId, online, lastSeenAt }]
+
+Tenant safety:
+- Presence queries/events must only include users within the same tenant.
+
+A4) Client: Presence UI (Slack-style)
+- Add a reusable PresenceIndicator component:
+  - hollow ring when offline
+  - green dot/ring when online
+  - tooltip: "Online" or "Last seen: <time>"
+- Display it in:
+  1) Chat left panel (DM list rows and channel participant list if available)
+  2) Chat header for DM conversations (other participant)
+  3) Anywhere else lightweight (optional later)
+
+Client presence behavior:
+- On app start, connect socket and start emitting presence:ping every 25–30s.
+- Subscribe to presence:update and update a client presence store (React context or TanStack Query cache).
+- Make sure listeners are cleaned up to prevent duplicates.
+
+────────────────────────────────────────────────────────
+PART B — READ RECEIPTS FOR CHAT MESSAGES
+
+B1) Choose minimal viable receipt model (recommended first)
+Start with “conversation-level read state”:
+- For each conversation and user:
+  - lastReadMessageId (or lastReadAt)
+This supports:
+- unread counts
+- “Seen by X” for the most recent messages
+- does NOT require per-message read rows (heavy)
+
+B2) DB schema (additive only, only if missing)
+If you already have a conversation membership table, extend it:
+- conversation_members (or similar):
+  - add nullable lastReadMessageId
+  - add nullable lastReadAt
+
+If no membership table exists, create an additive table:
+chat_read_state:
+- id
+- tenantId
+- conversationId
+- userId
+- lastReadMessageId (nullable)
+- lastReadAt (nullable)
+- updatedAt
+Indexes:
+- (tenantId, conversationId, userId) unique
+- (tenantId, conversationId)
+
+B3) Server: mark-as-read (additive)
+Add endpoint:
+POST /api/chat/conversations/:conversationId/read
+Body: { lastReadMessageId }
+Rules:
+- Validate membership + tenant
+- Update read state only if lastReadMessageId is newer than stored
+- Return updated state
+
+Add socket event (optional, recommended):
+- client emits: "chat:read" { conversationId, lastReadMessageId }
+- server broadcasts to conversation room:
+  "chat:read:update" { conversationId, userId, lastReadMessageId, lastReadAt }
+
+B4) Client: when to mark read (avoid “false reads”)
+Mark as read only when:
+- conversation is open AND
+- user is at bottom of message list (or within a threshold) AND
+- the latest message is visible
+Then call:
+- POST read endpoint (and/or emit socket event)
+
+B5) Client: read receipts UI
+- In DM:
+  - show a small “Seen” indicator under the last message you sent once the other user’s lastReadMessageId >= that message
+- In channels:
+  - show “Seen by” with small avatars in a tooltip (optional), or “Seen by 3” for latest message region
+Keep it subtle; do not clutter every message row.
+
+B6) Performance / correctness
+- Debounce read updates (e.g., only send when lastReadMessageId changes, max once per 2–3 seconds).
+- Ensure tenant-scoped broadcasting; never leak read state across tenants.
+- Ensure multi-device behavior works (activeSocketCount already handles presence; read state is per user).
+
+────────────────────────────────────────────────────────
+DOCS + TESTS (REQUIRED)
+- Update Super Admin > App Docs:
+  - “Presence System”
+  - “Read Receipts”
+  - Socket events list + REST endpoints list
+- Add minimal tests:
+  - server: presence update does not leak tenants
+  - server: read endpoint requires membership
+  - server: read state only moves forward
+  - client: read updates only fire when at bottom (basic unit/integration if feasible)
+
+DELIVERABLES / ACCEPTANCE
+1) Presence indicator appears in DM list and DM header; updates live.
+2) Users show offline/online; offline shows last seen.
+3) Read receipts work in DM (Seen) and basic channel “Seen by” (optional).
+4) No breaking changes; all existing chat continues functioning.

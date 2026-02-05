@@ -27,6 +27,9 @@ import {
   RefreshCw,
   ChevronDown,
   Clock,
+  Copy,
+  Quote,
+  ListTodo,
 } from "lucide-react";
 
 export interface ChatMessage {
@@ -67,6 +70,9 @@ interface ChatMessageTimelineProps {
   onDeleteMessage?: (messageId: string) => void;
   onRetryMessage?: (message: ChatMessage) => void;
   onRemoveFailedMessage?: (tempId: string) => void;
+  onCopyMessage?: (body: string) => void;
+  onQuoteReply?: (authorName: string, body: string) => void;
+  onCreateTaskFromMessage?: (message: ChatMessage) => void;
   renderMessageBody?: (body: string) => React.ReactNode;
   getFileIcon?: (mimeType: string) => React.ComponentType<{ className?: string }>;
   formatFileSize?: (bytes: number) => string;
@@ -194,6 +200,9 @@ export function ChatMessageTimeline({
   onDeleteMessage,
   onRetryMessage,
   onRemoveFailedMessage,
+  onCopyMessage,
+  onQuoteReply,
+  onCreateTaskFromMessage,
   renderMessageBody,
   getFileIcon,
   formatFileSize,
@@ -559,7 +568,7 @@ export function ChatMessageTimeline({
                               )}
                           </div>
 
-                          {(canEdit || canDelete) && !isEditing && (
+                          {!isDeleted && !isEditing && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -572,6 +581,36 @@ export function ChatMessageTimeline({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    if (onCopyMessage) {
+                                      onCopyMessage(message.body);
+                                    } else {
+                                      navigator.clipboard.writeText(message.body);
+                                    }
+                                  }}
+                                  data-testid={`message-copy-${message.id}`}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy text
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    const authorName = message.author?.name || message.author?.email || "Unknown";
+                                    onQuoteReply?.(authorName, message.body);
+                                  }}
+                                  data-testid={`message-quote-${message.id}`}
+                                >
+                                  <Quote className="h-4 w-4 mr-2" />
+                                  Quote reply
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => onCreateTaskFromMessage?.(message)}
+                                  data-testid={`message-create-task-${message.id}`}
+                                >
+                                  <ListTodo className="h-4 w-4 mr-2" />
+                                  Create task
+                                </DropdownMenuItem>
                                 {canEdit && (
                                   <DropdownMenuItem
                                     onClick={() => {

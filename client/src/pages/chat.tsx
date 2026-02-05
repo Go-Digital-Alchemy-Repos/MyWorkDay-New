@@ -167,6 +167,14 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sendError, setSendError] = useState<string | null>(null);
   const [quoteReply, setQuoteReply] = useState<{ authorName: string; body: string } | null>(null);
+  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [createTaskMessage, setCreateTaskMessage] = useState<{
+    id: string;
+    body: string;
+    authorName: string;
+    conversationType: "channel" | "dm";
+    conversationId: string;
+  } | null>(null);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
   const [newChannelPrivate, setNewChannelPrivate] = useState(false);
@@ -1411,6 +1419,36 @@ export default function ChatPage() {
     // Shift+Enter allows default behavior (newline in textarea)
   };
 
+  // Message action handlers
+  const handleCopyMessage = (body: string) => {
+    navigator.clipboard.writeText(body);
+    toast({
+      title: "Copied to clipboard",
+      description: "Message text copied successfully.",
+    });
+  };
+
+  const handleQuoteReply = (authorName: string, body: string) => {
+    setQuoteReply({ authorName, body });
+    // Focus the input
+    setTimeout(() => messageInputRef.current?.focus(), 100);
+  };
+
+  const handleCreateTaskFromMessage = (message: ChatMessage) => {
+    const conversationType = selectedChannel ? "channel" : "dm";
+    const conversationId = selectedChannel?.id || selectedDm?.id || "";
+    const authorName = message.author?.name || message.author?.email || "Unknown";
+    
+    setCreateTaskMessage({
+      id: message.id,
+      body: message.body,
+      authorName,
+      conversationType,
+      conversationId,
+    });
+    setCreateTaskModalOpen(true);
+  };
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -1650,6 +1688,9 @@ export default function ChatPage() {
               onDeleteMessage={(messageId) => deleteMessageMutation.mutate(messageId)}
               onRetryMessage={retryFailedMessage}
               onRemoveFailedMessage={removeFailedMessage}
+              onCopyMessage={handleCopyMessage}
+              onQuoteReply={handleQuoteReply}
+              onCreateTaskFromMessage={handleCreateTaskFromMessage}
               renderMessageBody={renderMessageBody}
               getFileIcon={getFileIcon}
               formatFileSize={formatFileSize}
@@ -1878,6 +1919,65 @@ export default function ChatPage() {
               data-testid="button-confirm-create-channel"
             >
               Create Channel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Task from Message Modal */}
+      <Dialog open={createTaskModalOpen} onOpenChange={setCreateTaskModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Task from Message</DialogTitle>
+            <DialogDescription>
+              Create a new task with the message content prefilled.
+            </DialogDescription>
+          </DialogHeader>
+          {createTaskMessage && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Task Title</Label>
+                <Input
+                  defaultValue={createTaskMessage.body.length > 80 
+                    ? createTaskMessage.body.substring(0, 80) + "..." 
+                    : createTaskMessage.body}
+                  placeholder="Task title"
+                  data-testid="input-task-title"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Message Content</Label>
+                <div className="p-3 rounded-md bg-muted text-sm">
+                  <div className="text-xs text-muted-foreground mb-1">
+                    From {createTaskMessage.authorName}
+                  </div>
+                  <p className="whitespace-pre-wrap">
+                    {createTaskMessage.body.length > 300 
+                      ? createTaskMessage.body.substring(0, 300) + "..." 
+                      : createTaskMessage.body}
+                  </p>
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Reference: {createTaskMessage.conversationType === "channel" ? "Channel" : "DM"} &bull; Message ID: {createTaskMessage.id.substring(0, 8)}...
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateTaskModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                toast({
+                  title: "Coming soon",
+                  description: "Task creation from messages will be available in a future update.",
+                });
+                setCreateTaskModalOpen(false);
+              }}
+              data-testid="button-confirm-create-task"
+            >
+              Create Task
             </Button>
           </DialogFooter>
         </DialogContent>

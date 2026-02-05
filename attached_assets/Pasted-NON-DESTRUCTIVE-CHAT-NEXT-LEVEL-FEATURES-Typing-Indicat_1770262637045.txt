@@ -1,0 +1,127 @@
+NON-DESTRUCTIVE CHAT “NEXT LEVEL” FEATURES: Typing Indicators + Idle/Away Presence + Unread Counts + Jump-to-Unread
+
+SCOPE
+Add these incremental chat upgrades on top of existing chat + presence + read receipt work:
+1) Typing indicators (per conversation)
+2) Idle/Away vs Online presence states
+3) Accurate unread counts per conversation
+4) “Jump to first unread” and “New messages” affordances
+
+DO NOT refactor unrelated areas. Do not change existing endpoints in breaking ways. Additive only.
+
+NON-DESTRUCTIVE RULES
+1) Preserve tenant scoping + membership checks for every event and query.
+2) Avoid DB churn: prefer in-memory for ephemeral state (typing, idle), DB for durable state (read/unread).
+3) Do not spam the network: debounce/throttle typing + read updates.
+4) Keep UI consistent with existing app patterns (Inter, tailwind/shadcn).
+
+────────────────────────────────────────────────────────
+PART 1 — TYPING INDICATORS (SOCKET-ONLY, EPHEMERAL)
+
+1A) Server
+- Add socket events:
+  Client -> Server:
+    "chat:typing:start" { conversationId }
+    "chat:typing:stop"  { conversationId }
+  Server -> Room(conversationId):
+    "chat:typing:update" { conversationId, userId, isTyping }
+
+Rules:
+- Validate user is a member of the conversation and tenant-scoped before broadcasting.
+- Keep typing state in-memory:
+  Map key: tenantId:conversationId -> Set(userId)
+- Auto-expire typing state:
+  - If no "start" refresh within 5 seconds, remove user from typing set.
+  - Ensure disconnect clears typing state.
+
+1B) Client
+- When user types in composer:
+  - emit "chat:typing:start" once (throttle; e.g., at most once per 1s)
+  - emit periodic refresh while typing (or just re-emit start)
+  - emit "chat:typing:stop" after 1200ms of inactivity or when message sent/blur
+- Subscribe to "chat:typing:update" and render:
+  - In thread footer: “Mike is typing…” (DM)
+  - In channels: “Mike and 2 others are typing…” (pluralization)
+
+UI rules:
+- Do not show the current user in typing indicator.
+- Hide indicator if conversation not active.
+
+────────────────────────────────────────────────────────
+PART 2 — IDLE/AWAY PRESENCE (ONLINE / IDLE / OFFLINE)
+
+2A) Presence model
+- Define presence statuses:
+  - online: socket connected and recent activity
+  - idle: socket connected but no activity for N minutes (default 5)
+  - offline: no socket connections
+- Activity signals:
+  - mouse/keyboard activity (client)
+  - app focus/visibility changes
+  - message send
+  - optional: navigation events
+
+2B) Server
+- Extend presence in-memory state:
+  Map tenantId:userId -> { socketCount, status, lastActiveAt, lastSeenAt }
+- On presence:ping:
+  - update lastActiveAt
+  - if socketCount>0 -> status online
+- Add event:
+  Client -> Server:
+    "presence:idle" { isIdle: true|false }
+  Server -> tenant room:
+    "presence:update" { userId, status, lastActiveAt, lastSeenAt }
+
+Rules:
+- Idle does not persist in DB.
+- lastSeenAt persists (optional), status does not.
+
+2C) Client
+- Detect idle using a lightweight idle timer:
+  - if no activity for 5 minutes -> emit presence:idle true
+  - on activity -> emit presence:idle false + presence:ping
+- UI:
+  - online: green
+  - idle: yellow/amber
+  - offline: hollow/gray ring
+  - tooltip shows: Online / Idle / Last seen time
+
+────────────────────────────────────────────────────────
+PART 3 — UNREAD COUNTS (DURABLE, USE READ STATE)
+
+3A) Server logic
+- Unread counts should be computed from:
+  - lastReadMessageId (or lastReadAt) per user+conversation
+  - latest message id/time per conversation
+- Preferred: compute unread count efficiently:
+  - If messages have incremental createdAt and an index, count messages newer than lastReadAt
+  - Or if message IDs sortable, count where id > lastReadMessageId
+- Add endpoint (additive):
+  GET /api/chat/conversations
+  Return for each conversation:
+    - id, type, title/participants, lastMessage preview
+    - unreadCount for current user
+    - lastReadMessageId (optional)
+    - lastActivityAt
+
+If this endpoint already exists, add unreadCount as an additive field.
+
+3B) Client
+- Show unread badges in left panel.
+- When opening a conversation and user reaches bottom (or clicks “Mark as read”):
+  - update read state
+  - unreadCount becomes 0 in UI immediately (optimistic ok if safe)
+
+3C) Performance guardrails
+- Do not compute unread count by fetching all messages client-side.
+- Ensure DB indexes:
+  - messages: (tenantId, conversationId, createdAt)
+  - read_state: (tenantId, conversationId, userId) unique
+
+────────────────────────────────────────────────────────
+PART 4 — JUMP TO FIRST UNREAD + NEW MESSAGE UX
+
+4A) First unread calculation
+- When opening a conversation with unreadCount > 0:
+  - determine “first unread”
