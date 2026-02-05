@@ -5008,7 +5008,7 @@ function TabLoadingSkeleton({ rows = 3 }: { rows?: number }) {
  */
 function DataImportExportTab({ tenantId, tenantSlug }: { tenantId: string; tenantSlug: string }) {
   const { toast } = useToast();
-  const [activeSection, setActiveSection] = useState<"clients" | "users" | "time-entries">("clients");
+  const [activeSection, setActiveSection] = useState<"clients" | "users" | "time-entries" | "user-client-summary">("clients");
   const [isExporting, setIsExporting] = useState(false);
   
   const handleExport = async (type: "clients" | "users" | "time-entries") => {
@@ -5072,6 +5072,20 @@ function DataImportExportTab({ tenantId, tenantSlug }: { tenantId: string; tenan
     { key: "isManual", label: "Is Manual", aliases: ["manual"] },
   ];
 
+  const userClientSummaryColumns: CsvColumn[] = [
+    { key: "userEmail", label: "User Email", required: true, aliases: ["email", "user", "employee_email"] },
+    { key: "firstName", label: "First Name", aliases: ["first", "given_name"] },
+    { key: "lastName", label: "Last Name", aliases: ["last", "family_name", "surname"] },
+    { key: "role", label: "Role", aliases: ["user_role", "employee_role"] },
+    { key: "clientName", label: "Client Name", required: true, aliases: ["client", "company"] },
+    { key: "parentClientName", label: "Parent Client", aliases: ["parent", "parent_client", "parent_company"] },
+    { key: "billableHours", label: "Billable Hours", required: true, aliases: ["hours", "billable", "billable_time"] },
+    { key: "startTime", label: "Start Time", aliases: ["start", "date", "entry_date"] },
+    { key: "endTime", label: "End Time", aliases: ["end", "end_date"] },
+    { key: "description", label: "Description", aliases: ["notes", "task", "work_description"] },
+    { key: "scope", label: "Scope", aliases: ["billable_scope", "entry_scope"] },
+  ];
+
   const handleImportClients = async (rows: ParsedRow[], _options: Record<string, boolean>): Promise<{ created: number; skipped: number; errors: number; results: ImportResult[] }> => {
     const response = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/import/clients`, { rows });
     const data = await response.json();
@@ -5091,6 +5105,22 @@ function DataImportExportTab({ tenantId, tenantSlug }: { tenantId: string; tenan
   const handleImportTimeEntries = async (rows: ParsedRow[], _options: Record<string, boolean>): Promise<{ created: number; skipped: number; errors: number; results: ImportResult[] }> => {
     const response = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/import/time-entries`, { rows });
     const data = await response.json();
+    return {
+      created: data.created,
+      skipped: data.skipped,
+      errors: data.errors,
+      results: data.results.map((r: { name: string; status: string; reason?: string }) => ({
+        name: r.name,
+        status: r.status as "created" | "skipped" | "error",
+        reason: r.reason,
+      })),
+    };
+  };
+
+  const handleImportUserClientSummary = async (rows: ParsedRow[], _options: Record<string, boolean>): Promise<{ created: number; skipped: number; errors: number; results: ImportResult[] }> => {
+    const response = await apiRequest("POST", `/api/v1/super/tenants/${tenantId}/import/user-client-summary`, { rows });
+    const data = await response.json();
+    queryClient.invalidateQueries({ queryKey: [`/api/v1/super/tenants/${tenantId}`] });
     return {
       created: data.created,
       skipped: data.skipped,
@@ -5141,6 +5171,14 @@ function DataImportExportTab({ tenantId, tenantSlug }: { tenantId: string; tenan
             >
               <Clock className="h-4 w-4 mr-2" />
               Time Entries
+            </Button>
+            <Button
+              variant={activeSection === "user-client-summary" ? "default" : "outline"}
+              onClick={() => setActiveSection("user-client-summary")}
+              data-testid="button-section-user-client-summary"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              User-Client Summary
             </Button>
           </div>
         </CardContent>
@@ -5239,6 +5277,55 @@ function DataImportExportTab({ tenantId, tenantSlug }: { tenantId: string; tenan
             onImport={handleImportTimeEntries}
             nameField="userEmail"
           />
+        </>
+      )}
+
+      {activeSection === "user-client-summary" && (
+        <>
+          <CsvImportPanel
+            title="Import User-Client Summary"
+            description="Upload a CSV file containing team members with their time entries grouped by client. This import creates or updates users, establishes client hierarchies (parent/child relationships), and imports billable hours as time entries. Users are matched by email, clients by name. Parent clients are created automatically if they don't exist."
+            columns={userClientSummaryColumns}
+            templateFilename={`${tenantSlug}-user-client-summary-template.csv`}
+            onImport={handleImportUserClientSummary}
+            nameField="userEmail"
+          />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">CSV Format Guide</CardTitle>
+              <CardDescription>Expected columns for user-client summary import</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <strong>Required columns:</strong>
+                <ul className="list-disc list-inside ml-2 text-muted-foreground">
+                  <li><code>userEmail</code> - Employee email address</li>
+                  <li><code>clientName</code> - Client/company name</li>
+                  <li><code>billableHours</code> - Hours worked (decimal, e.g., 8.5)</li>
+                </ul>
+              </div>
+              <div>
+                <strong>Optional columns:</strong>
+                <ul className="list-disc list-inside ml-2 text-muted-foreground">
+                  <li><code>firstName</code>, <code>lastName</code> - User name (for new users)</li>
+                  <li><code>role</code> - User role (employee, admin)</li>
+                  <li><code>parentClientName</code> - Parent client for hierarchy</li>
+                  <li><code>startTime</code>, <code>endTime</code> - Time entry dates</li>
+                  <li><code>description</code> - Work description</li>
+                  <li><code>scope</code> - Billable scope (billable, internal)</li>
+                </ul>
+              </div>
+              <div className="pt-2 border-t">
+                <strong>Client hierarchy:</strong>
+                <p className="text-muted-foreground">
+                  If <code>parentClientName</code> is specified, the client will be created as a 
+                  sub-client under the parent. Parent clients are created automatically if they 
+                  don't exist.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

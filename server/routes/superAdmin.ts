@@ -8884,6 +8884,249 @@ router.post("/tenants/:tenantId/import/time-entries", requireSuperUser, async (r
   }
 });
 
+// POST /api/v1/super/tenants/:tenantId/import/user-client-summary - Import user-client summary with time entries and client hierarchy
+const userClientSummaryRowSchema = z.object({
+  userEmail: z.string().email(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  role: z.string().optional(),
+  clientName: z.string().min(1),
+  parentClientName: z.string().optional(),
+  billableHours: z.string().refine((v) => !isNaN(parseFloat(v)) && parseFloat(v) >= 0, "Must be a non-negative number"),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  description: z.string().optional(),
+  scope: z.string().optional(),
+});
+
+const userClientSummaryImportSchema = z.object({
+  rows: z.array(z.record(z.string())).min(1, "At least one row is required"),
+});
+
+router.post("/tenants/:tenantId/import/user-client-summary", requireSuperUser, async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    
+    const parsed = userClientSummaryImportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request body", details: parsed.error.issues });
+    }
+    
+    const { rows } = parsed.data;
+    
+    const tenant = await storage.getTenant(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+    
+    const requestId = req.headers["x-request-id"] as string | undefined;
+    const primaryWorkspaceId = await storage.getPrimaryWorkspaceIdOrFail(tenantId, requestId);
+    
+    const tenantUsers = await db.select().from(users).where(eq(users.tenantId, tenantId));
+    const usersByEmail = new Map(tenantUsers.map(u => [u.email.toLowerCase(), u]));
+    
+    const tenantClients = await db.select().from(clients).where(eq(clients.tenantId, tenantId));
+    const clientsByName = new Map(tenantClients.map(c => [c.companyName.toLowerCase(), c]));
+    
+    const results: Array<{ name: string; status: "created" | "skipped" | "error"; reason?: string }> = [];
+    let created = 0;
+    let skipped = 0;
+    let errors = 0;
+    
+    const validRoles = ["employee", "admin", "manager", "contractor"];
+    
+    for (const row of rows) {
+      const userEmail = row.userEmail?.trim().toLowerCase();
+      const clientName = row.clientName?.trim();
+      const parentClientName = row.parentClientName?.trim();
+      const billableHoursStr = row.billableHours?.trim();
+      
+      if (!userEmail || !clientName || !billableHoursStr) {
+        results.push({ 
+          name: `${userEmail || "unknown"} - ${clientName || "unknown"}`, 
+          status: "skipped", 
+          reason: "Missing required fields (userEmail, clientName, or billableHours)" 
+        });
+        skipped++;
+        continue;
+      }
+      
+      const billableHours = parseFloat(billableHoursStr);
+      if (isNaN(billableHours) || billableHours < 0) {
+        results.push({ 
+          name: `${userEmail} - ${clientName}`, 
+          status: "skipped", 
+          reason: "Invalid billable hours value" 
+        });
+        skipped++;
+        continue;
+      }
+      
+      try {
+        // Find or create user
+        let user = usersByEmail.get(userEmail);
+        if (!user) {
+          // Create new user with proper role mapping
+          const firstName = row.firstName?.trim() || userEmail.split("@")[0];
+          const lastName = row.lastName?.trim() || "";
+          const roleInput = row.role?.trim().toLowerCase() || "employee";
+          const role = validRoles.includes(roleInput) ? roleInput : "employee";
+          
+          const [newUser] = await db.insert(users).values({
+            tenantId,
+            email: userEmail,
+            firstName,
+            lastName,
+            role,
+            status: "pending",
+          }).returning();
+          
+          user = newUser;
+          usersByEmail.set(userEmail, user);
+        }
+        
+        // Handle parent client hierarchy
+        let parentClient = null;
+        if (parentClientName) {
+          parentClient = clientsByName.get(parentClientName.toLowerCase());
+          if (!parentClient) {
+            // Create parent client
+            const [newParent] = await db.insert(clients).values({
+              tenantId,
+              workspaceId: primaryWorkspaceId,
+              companyName: parentClientName,
+              status: "active",
+            }).returning();
+            parentClient = newParent;
+            clientsByName.set(parentClientName.toLowerCase(), parentClient);
+          }
+        }
+        
+        // Find or create client, always update parent if specified
+        let client = clientsByName.get(clientName.toLowerCase());
+        if (!client) {
+          const [newClient] = await db.insert(clients).values({
+            tenantId,
+            workspaceId: primaryWorkspaceId,
+            companyName: clientName,
+            parentClientId: parentClient?.id || null,
+            status: "active",
+          }).returning();
+          client = newClient;
+          clientsByName.set(clientName.toLowerCase(), client);
+        } else if (parentClient && client.parentClientId !== parentClient.id) {
+          // Always update client with specified parent (enforce hierarchy)
+          const [updatedClient] = await db.update(clients)
+            .set({ parentClientId: parentClient.id })
+            .where(eq(clients.id, client.id))
+            .returning();
+          client = updatedClient;
+          clientsByName.set(clientName.toLowerCase(), client);
+        }
+        
+        // Parse and validate dates for time entry
+        const startTimeStr = row.startTime?.trim();
+        const endTimeStr = row.endTime?.trim();
+        
+        let startTime: Date;
+        let endTime: Date;
+        let durationSeconds: number;
+        
+        // Validate startTime if provided
+        if (startTimeStr) {
+          startTime = new Date(startTimeStr);
+          if (isNaN(startTime.getTime())) {
+            results.push({ 
+              name: `${userEmail} - ${clientName}`, 
+              status: "skipped", 
+              reason: "Invalid startTime date format" 
+            });
+            skipped++;
+            continue;
+          }
+        } else {
+          startTime = new Date();
+        }
+        
+        // If endTime is provided, derive duration from it (takes precedence over billableHours)
+        if (endTimeStr) {
+          endTime = new Date(endTimeStr);
+          if (isNaN(endTime.getTime())) {
+            results.push({ 
+              name: `${userEmail} - ${clientName}`, 
+              status: "skipped", 
+              reason: "Invalid endTime date format" 
+            });
+            skipped++;
+            continue;
+          }
+          if (endTime <= startTime) {
+            results.push({ 
+              name: `${userEmail} - ${clientName}`, 
+              status: "skipped", 
+              reason: "endTime must be after startTime" 
+            });
+            skipped++;
+            continue;
+          }
+          // Calculate duration from start/end times (endTime takes precedence)
+          durationSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
+        } else {
+          // Use billableHours to calculate duration and endTime
+          durationSeconds = Math.round(billableHours * 3600);
+          endTime = new Date(startTime.getTime() + durationSeconds * 1000);
+        }
+        
+        const scope = row.scope?.trim().toLowerCase();
+        const entryScope = scope === "internal" || scope === "out_of_scope" ? scope : "in_scope";
+        
+        await db.insert(timeEntries).values({
+          tenantId,
+          workspaceId: primaryWorkspaceId,
+          userId: user.id,
+          clientId: client.id,
+          projectId: null,
+          taskId: null,
+          description: row.description?.trim() || `Billable hours for ${clientName}`,
+          scope: entryScope,
+          startTime,
+          endTime,
+          durationSeconds,
+          isManual: true,
+        });
+        
+        results.push({ 
+          name: `${userEmail} - ${clientName} (${billableHours}h)`, 
+          status: "created" 
+        });
+        created++;
+      } catch (err) {
+        console.error(`[import] Failed to import user-client summary row:`, err);
+        results.push({ 
+          name: `${userEmail} - ${clientName}`, 
+          status: "error", 
+          reason: "Database error" 
+        });
+        errors++;
+      }
+    }
+    
+    const superUser = req.user as any;
+    await recordTenantAuditEvent(
+      tenantId,
+      "user_client_summary_imported",
+      `Imported ${created} user-client summary entries (${skipped} skipped, ${errors} errors)`,
+      superUser?.id,
+      { created, skipped, errors }
+    );
+    
+    res.json({ created, skipped, errors, results });
+  } catch (error) {
+    console.error("[import] Failed to import user-client summary:", error);
+    res.status(500).json({ error: "Failed to import user-client summary" });
+  }
+});
+
 // =============================================================================
 // AI INTEGRATION ENDPOINTS
 // =============================================================================
