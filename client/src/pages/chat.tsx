@@ -526,6 +526,8 @@ export default function ChatPage() {
         if (newDm) {
           setSelectedDm(newDm);
           setSelectedChannel(null);
+          // Navigate to the new DM via URL
+          updateUrlForConversation("dm", newDm.id);
         }
       }
     },
@@ -561,6 +563,8 @@ export default function ChatPage() {
       if (result.channel?.id) {
         setSelectedChannel(result.channel);
         setSelectedDm(null);
+        // Navigate to the new channel via URL
+        updateUrlForConversation("channel", result.channel.id);
       }
       if (result.addMembersFailed) {
         toast({
