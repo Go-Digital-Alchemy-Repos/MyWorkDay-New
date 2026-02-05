@@ -86,3 +86,19 @@ Verified all buttons, inputs, selects, textareas, focus rings, labels, and helpe
 Zero hard-coded `bg-blue-*`, `text-gray-*`, `ring-blue-*`, `border-gray-*`, or similar patterns found.
 
 **Files changed:** 0
+
+### 2026-02-05 — Batch 3: Tables + Toolbars + List States
+
+**Result:** No migration needed.
+
+Verified tables (task list, projects list), data toolbars (filter chips, search inputs), pagination controls, and list hover/selected states. All already use semantic tokens:
+- Table headers: `bg-muted`, `text-foreground`
+- Table borders: `border-border`
+- Row hover: token-safe `bg-muted/50` or equivalent
+- Toolbar backgrounds: `bg-background` / `bg-card`
+- Filter chips: `bg-muted`, `text-foreground`, selected states use `bg-primary` tokens
+- Pagination: `text-foreground`, `border-border`, hover via elevation system
+
+Zero hard-coded color utilities found across all table and toolbar components.
+
+**Files changed:** 0
