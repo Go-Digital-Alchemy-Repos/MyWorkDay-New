@@ -5,6 +5,7 @@ import { useChatUrlState, ConversationListPanel, ChatMessageTimeline, ChatContex
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { getSocket, joinChatRoom, leaveChatRoom, onConnectionChange, isSocketConnected } from "@/lib/realtime/socket";
+import { useConversationTyping } from "@/hooks/use-typing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessageInput } from "@/components/chat-message-input";
@@ -186,6 +187,14 @@ export default function ChatPage() {
   const [dmSeenBy, setDmSeenBy] = useState<{ userId: string; messageId: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastMarkedReadRef = useRef<string | null>(null);
+  
+  // Typing indicator - compute conversationId based on selected channel/DM
+  const currentConversationId = selectedChannel 
+    ? `channel:${selectedChannel.id}` 
+    : selectedDm 
+      ? `dm:${selectedDm.id}` 
+      : null;
+  const { typingUsers, startTyping, stopTyping } = useConversationTyping(currentConversationId);
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -620,6 +629,11 @@ export default function ChatPage() {
 
   const handleMessageInputChange = (newValue: string) => {
     setMessageInput(newValue);
+    
+    // Emit typing start event (throttled by the hook)
+    if (newValue.trim()) {
+      startTyping();
+    }
     
     const textarea = messageInputRef.current;
     const cursorPos = textarea?.selectionStart || newValue.length;
@@ -1209,6 +1223,7 @@ export default function ChatPage() {
       
       setMessages(prev => [...prev, pendingMessage]);
       setMessageInput("");
+      stopTyping(); // Stop typing indicator on send
       setQuoteReply(null);
       setPendingAttachments([]);
       
@@ -1835,6 +1850,36 @@ export default function ChatPage() {
                 <span className="text-xs text-muted-foreground flex items-center gap-1 pt-1">
                   <CheckCheck className="h-3 w-3" />
                   Seen
+                </span>
+              </div>
+            )}
+
+            {/* Typing indicator - shows when other users are typing */}
+            {typingUsers.length > 0 && (
+              <div className="px-4 py-2 text-sm text-muted-foreground flex items-center gap-2" data-testid="typing-indicator">
+                <span className="flex gap-0.5">
+                  <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </span>
+                <span>
+                  {(() => {
+                    // Get user names from teamUsers
+                    const names = typingUsers.map(userId => {
+                      const teamUser = teamUsers.find(u => u.id === userId);
+                      return teamUser?.displayName || teamUser?.email?.split("@")[0] || "Someone";
+                    });
+                    
+                    if (names.length === 1) {
+                      return `${names[0]} is typing...`;
+                    } else if (names.length === 2) {
+                      return `${names[0]} and ${names[1]} are typing...`;
+                    } else if (names.length === 3) {
+                      return `${names[0]}, ${names[1]}, and ${names[2]} are typing...`;
+                    } else {
+                      return `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing...`;
+                    }
+                  })()}
                 </span>
               </div>
             )}

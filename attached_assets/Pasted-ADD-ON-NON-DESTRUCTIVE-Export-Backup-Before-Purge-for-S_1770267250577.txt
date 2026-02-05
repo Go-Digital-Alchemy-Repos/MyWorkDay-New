@@ -1,0 +1,151 @@
+ADD-ON (NON-DESTRUCTIVE): “Export/Backup Before Purge” for Super Admin Chat Data Settings
+
+GOAL
+Before running a destructive purge, allow Super Admin to export chat data up to a cutoff date (or retainDays cutoff) as a backup.
+Export should be:
+- tenant-scoped OR all-tenants scoped (matching purge scope)
+- downloadable (or stored in S3/R2/local with a signed link)
+- includes conversations, messages, participants metadata, and attachments metadata
+- optionally includes attachment files (ZIP) if feasible; otherwise export attachment references
+
+NON-DESTRUCTIVE RULES
+1) Do NOT break existing chat or purge functionality.
+2) Do NOT change existing endpoints in a breaking way; additive only.
+3) Export must not block the UI or time out; use background jobs with progress.
+4) Tenant isolation must be enforced.
+5) Default is metadata-only export (safer, lighter). Attachment file export is optional and clearly labeled.
+
+────────────────────────────────────────────────────────
+PART A — DATA MODEL (ADDITIVE)
+Add table: chat_export_jobs
+- id
+- requestedByUserId
+- scopeType: "tenant" | "allTenants"
+- tenantId (nullable)
+- cutoffType: "date" | "retainDays"
+- cutoffDate (nullable)
+- retainDays (nullable)
+- includeAttachmentFiles (boolean default false)
+- format: "jsonl" | "json" | "csv" (default "jsonl")
+- status: "queued" | "running" | "completed" | "failed" | "canceled"
+- progress: { conversations?, messages?, attachments?, bytesWritten?, elapsedMs? } (json)
+- outputLocation: { provider, bucket?, key?, path?, downloadUrl?, expiresAt? } (json)
+- error (nullable)
+- startedAt, finishedAt
+- createdAt, updatedAt
+
+Add audit log events for export job create/complete/fail.
+
+────────────────────────────────────────────────────────
+PART B — SERVER API (SUPER ADMIN ONLY, ADDITIVE)
+1) POST /api/super-admin/chat-data/export
+Body:
+{
+  scopeType: "tenant" | "allTenants",
+  tenantId?: string,
+  cutoffType: "date" | "retainDays",
+  cutoffDate?: string,
+  retainDays?: number,
+  format?: "jsonl" | "json" | "csv",
+  includeAttachmentFiles?: boolean
+}
+Returns: { exportJobId }
+
+2) GET /api/super-admin/chat-data/export/:exportJobId
+Returns: status, progress, outputLocation (including downloadUrl if ready)
+
+3) POST /api/super-admin/chat-data/export/:exportJobId/cancel
+Best-effort cancel if running.
+
+4) (Optional) GET /api/super-admin/chat-data/export/:exportJobId/download
+If you need to generate signed URLs at download time.
+
+RBAC:
+- Super Admin only.
+- Ensure export scope strictly matches requested scope and does not leak tenants.
+
+────────────────────────────────────────────────────────
+PART C — EXPORT ENGINE (STREAMING, BATCHED, RESUMABLE)
+Create server/services/chatExportService.ts with:
+1) computeCutoffDate()
+2) estimateExportSize()
+3) executeExportJob(exportJobId)
+
+Export behavior:
+- Default format JSONL (newline-delimited JSON) for huge datasets.
+- Export in this structure:
+  A) manifest.json (job metadata, cutoff, scope, createdAt)
+  B) conversations.jsonl (id, type, title, createdAt, tenantId, participants ids)
+  C) messages.jsonl (id, conversationId, parentMessageId?, authorId, body, createdAt, attachments refs)
+  D) attachments.jsonl (id, messageId, filename, size, contentType, storageKey/url ref)
+  E) users.jsonl (id, name, email if allowed; minimal)
+  F) read_state.jsonl (optional if you store read receipts and want them)
+- Ensure all exported rows are tenant-scoped and match cutoff (messages createdAt < cutoffDate, and associated parent rows included).
+
+Storage output:
+- Prefer writing to S3/R2 if configured; otherwise server local filesystem (safe path) with cleanup TTL.
+- If S3/R2 is available, store export artifact and return a signed download URL.
+
+Attachment file export (optional):
+- If includeAttachmentFiles=true:
+  - create a ZIP archive of attachment binaries referenced by exported messages
+  - this may be large; warn in UI and enforce max size/limit
+  - if too large, fallback to metadata-only and log warning
+
+Reliability:
+- Use batching (e.g., 5k messages at a time).
+- Update progress after each batch.
+- Support resume if job restarts (store cursor: last processed id/createdAt in progress).
+
+────────────────────────────────────────────────────────
+PART D — SUPER ADMIN UI INTEGRATION
+In “Chat Data Settings” tab:
+
+1) Add “Export/Backup” section above Purge:
+- Scope selector (tenant / all tenants)
+- Cutoff selector (date or retainDays)
+- Format selector (JSONL default; JSON/CSV optional)
+- Toggle: include attachment files (advanced, off by default)
+- Buttons:
+  - “Run Export” (creates job)
+  - show job progress + status
+  - when complete: show “Download Export” link/button
+
+2) Purge workflow integration:
+- In purge confirmation dialog, show:
+  - “Recommended: Export backup first”
+  - If an export job with same scope/cutoff completed recently, display it and allow using it as “backup reference”
+- Do NOT require export to purge (optional), but make it easy.
+
+3) Add Export Job History list:
+- last 10 exports with status, cutoff, scope, size, download link
+
+────────────────────────────────────────────────────────
+PART E — SECURITY + COMPLIANCE
+- Ensure export download URLs are:
+  - time-limited (signed URL)
+  - accessible only to Super Admin
+- Avoid exporting sensitive fields unless necessary.
+- If exporting user email, ensure only Super Admin can access.
+
+────────────────────────────────────────────────────────
+PART F — DOCS + TESTS (REQUIRED)
+Docs:
+- “Chat Export/Backup”
+- “Export formats (JSONL/CSV)”
+- “Attachment export limits”
+- “Recommended workflow: Export then Purge”
+API Registry updates for export endpoints.
+
+Tests:
+1) RBAC: export endpoints super-admin only
+2) Tenant scope: tenant export contains only tenant rows
+3) Cutoff correctness: only messages older than cutoff are exported
+4) Export job produces artifact and download link
+5) Cancel job works (best-effort)
+
+DELIVERABLE
+- Super Admin can run exports (metadata-only) and download results
+- Optional attachment file export with limits
+- Export jobs tracked, logged, and documented
+- Fully non-destructive and does not impact tenant chat users

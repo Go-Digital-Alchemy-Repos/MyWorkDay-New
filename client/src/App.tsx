@@ -64,6 +64,7 @@ import { GlobalChatDrawer } from "@/components/global-chat-drawer";
 import { TaskDrawerProvider } from "@/lib/task-drawer-context";
 import { FeaturesProvider } from "@/contexts/features-context";
 import { PresenceProvider } from "@/hooks/use-presence";
+import { TypingProvider } from "@/hooks/use-typing";
 import { FeaturesBanner } from "@/components/features-banner";
 import { Button } from "@/components/ui/button";
 import {
@@ -599,14 +600,16 @@ function App() {
         <TooltipProvider>
           <AuthProvider>
             <PresenceProvider>
-              <FeaturesProvider>
-                <TenantThemeProvider>
-                  <UserImpersonationWrapper>
-                    <FeaturesBanner />
-                    <AppLayout />
-                  </UserImpersonationWrapper>
-                </TenantThemeProvider>
-              </FeaturesProvider>
+              <TypingProvider>
+                <FeaturesProvider>
+                  <TenantThemeProvider>
+                    <UserImpersonationWrapper>
+                      <FeaturesBanner />
+                      <AppLayout />
+                    </UserImpersonationWrapper>
+                  </TenantThemeProvider>
+                </FeaturesProvider>
+              </TypingProvider>
             </PresenceProvider>
           </AuthProvider>
           <Toaster />

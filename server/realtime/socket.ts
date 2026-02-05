@@ -23,7 +23,10 @@ import {
   CHAT_ROOM_EVENTS,
   CONNECTION_EVENTS,
   PRESENCE_EVENTS,
-  ConnectionConnectedPayload
+  TYPING_EVENTS,
+  CHAT_EVENTS,
+  ConnectionConnectedPayload,
+  ChatTypingUpdatePayload
 } from '@shared/events';
 import { randomUUID } from 'crypto';
 import { log } from '../lib/log';
@@ -39,6 +42,16 @@ import {
   onUserOffline,
   getOnlineUsersForTenant
 } from './presence';
+import {
+  registerTypingSocket,
+  startTyping,
+  stopTyping,
+  cleanupSocketTyping,
+  parseConversationId,
+  startTypingCleanup,
+  onTypingExpired
+} from './typing';
+import { storage } from '../storage';
 
 // Extended socket interface with authenticated user data
 interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
@@ -155,6 +168,67 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     socket.on(PRESENCE_EVENTS.PING, () => {
       if (authSocket.userId && authSocket.tenantId) {
         recordPing(authSocket.tenantId, authSocket.userId);
+      }
+    });
+
+    // Register socket for typing tracking
+    if (authSocket.userId && authSocket.tenantId) {
+      registerTypingSocket(socket.id, authSocket.userId, authSocket.tenantId);
+    }
+
+    // Handle typing start
+    socket.on(TYPING_EVENTS.START, async ({ conversationId }) => {
+      if (!authSocket.userId || !authSocket.tenantId) return;
+      
+      const parsed = parseConversationId(conversationId);
+      if (!parsed) return;
+
+      // Validate membership
+      let isMember = false;
+      try {
+        if (parsed.type === 'channel') {
+          isMember = await storage.isUserInChatChannel(authSocket.userId, parsed.id);
+        } else {
+          const userDmThreads = await storage.getUserChatDmThreads(authSocket.tenantId, authSocket.userId);
+          isMember = userDmThreads.some(t => t.id === parsed.id);
+        }
+      } catch {
+        return;
+      }
+
+      if (!isMember) return;
+
+      const { stateChanged } = startTyping(authSocket.tenantId, authSocket.userId, conversationId, socket.id);
+      
+      if (stateChanged) {
+        // Broadcast typing update to conversation room
+        const roomName = parsed.type === 'channel' ? `chat:channel:${parsed.id}` : `chat:dm:${parsed.id}`;
+        const payload: ChatTypingUpdatePayload = {
+          conversationId,
+          userId: authSocket.userId,
+          isTyping: true,
+        };
+        io?.to(roomName).emit(CHAT_EVENTS.TYPING_UPDATE, payload);
+      }
+    });
+
+    // Handle typing stop
+    socket.on(TYPING_EVENTS.STOP, ({ conversationId }) => {
+      if (!authSocket.userId) return;
+
+      const parsed = parseConversationId(conversationId);
+      if (!parsed) return;
+
+      const { stateChanged } = stopTyping(authSocket.userId, conversationId, socket.id);
+      
+      if (stateChanged) {
+        const roomName = parsed.type === 'channel' ? `chat:channel:${parsed.id}` : `chat:dm:${parsed.id}`;
+        const payload: ChatTypingUpdatePayload = {
+          conversationId,
+          userId: authSocket.userId,
+          isTyping: false,
+        };
+        io?.to(roomName).emit(CHAT_EVENTS.TYPING_UPDATE, payload);
       }
     });
 
@@ -308,6 +382,21 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
         disconnectReason: reason,
       });
 
+      // Clean up typing state for this socket
+      const typingCleanup = cleanupSocketTyping(socket.id);
+      for (const { conversationId, userId } of typingCleanup) {
+        const parsed = parseConversationId(conversationId);
+        if (parsed) {
+          const roomName = parsed.type === 'channel' ? `chat:channel:${parsed.id}` : `chat:dm:${parsed.id}`;
+          const payload: ChatTypingUpdatePayload = {
+            conversationId,
+            userId,
+            isTyping: false,
+          };
+          io?.to(roomName).emit(CHAT_EVENTS.TYPING_UPDATE, payload);
+        }
+      }
+
       // Track user presence on disconnection
       if (authSocket.userId && authSocket.tenantId) {
         const { info, statusChanged } = markDisconnected(authSocket.tenantId, authSocket.userId);
@@ -327,6 +416,23 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
   onUserOffline((tenantId, userId, info) => {
     const tenantRoom = `tenant:${tenantId}`;
     io?.to(tenantRoom).emit(PRESENCE_EVENTS.UPDATE, toPresencePayload(info));
+  });
+
+  // Start typing indicator cleanup for expired entries
+  startTypingCleanup();
+  
+  // Register callback to emit typing updates when typing expires
+  onTypingExpired((conversationId, userId, tenantId) => {
+    const parsed = parseConversationId(conversationId);
+    if (parsed) {
+      const roomName = parsed.type === 'channel' ? `chat:channel:${parsed.id}` : `chat:dm:${parsed.id}`;
+      const payload: ChatTypingUpdatePayload = {
+        conversationId,
+        userId,
+        isTyping: false,
+      };
+      io?.to(roomName).emit(CHAT_EVENTS.TYPING_UPDATE, payload);
+    }
   });
 
   log('Socket.IO server initialized', 'socket.io');

@@ -531,6 +531,13 @@ export const CHAT_EVENTS = {
   MEMBER_ADDED: 'chat:memberAdded',
   MEMBER_REMOVED: 'chat:memberRemoved',
   CONVERSATION_READ: 'chat:conversationRead',
+  TYPING_UPDATE: 'chat:typing:update',
+} as const;
+
+export const TYPING_EVENTS = {
+  START: 'chat:typing:start',
+  STOP: 'chat:typing:stop',
+  UPDATE: 'chat:typing:update',
 } as const;
 
 export const CHAT_ROOM_EVENTS = {
@@ -625,6 +632,21 @@ export interface ChatConversationReadPayload {
   userId: string;
   lastReadAt: Date;
   lastReadMessageId: string;
+}
+
+// Typing indicator payloads
+export interface ChatTypingStartPayload {
+  conversationId: string; // "channel:{id}" or "dm:{id}"
+}
+
+export interface ChatTypingStopPayload {
+  conversationId: string;
+}
+
+export interface ChatTypingUpdatePayload {
+  conversationId: string;
+  userId: string;
+  isTyping: boolean;
 }
 
 export interface ChatJoinPayload {
@@ -771,6 +793,7 @@ export type ServerToClientEvents = {
   [CHAT_EVENTS.MEMBER_ADDED]: (payload: ChatMemberAddedPayload) => void;
   [CHAT_EVENTS.MEMBER_REMOVED]: (payload: ChatMemberRemovedPayload) => void;
   [CHAT_EVENTS.CONVERSATION_READ]: (payload: ChatConversationReadPayload) => void;
+  [CHAT_EVENTS.TYPING_UPDATE]: (payload: ChatTypingUpdatePayload) => void;
   // Connection events
   [CONNECTION_EVENTS.CONNECTED]: (payload: ConnectionConnectedPayload) => void;
   // Notification events
@@ -794,6 +817,9 @@ export type ClientToServerEvents = {
   [CHAT_ROOM_EVENTS.JOIN]: (payload: ChatJoinPayload) => void;
   [CHAT_ROOM_EVENTS.LEAVE]: (payload: ChatLeavePayload) => void;
   [CHAT_ROOM_EVENTS.SEND]: (payload: ChatSendPayload) => void;
+  // Typing indicator events
+  [TYPING_EVENTS.START]: (payload: ChatTypingStartPayload) => void;
+  [TYPING_EVENTS.STOP]: (payload: ChatTypingStopPayload) => void;
   // Presence events
   [PRESENCE_EVENTS.PING]: (payload: PresencePingPayload) => void;
 };
