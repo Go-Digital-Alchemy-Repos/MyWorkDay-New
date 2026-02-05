@@ -1419,6 +1419,7 @@ export const chatMessages = pgTable("chat_messages", {
   dmThreadId: varchar("dm_thread_id").references(() => chatDmThreads.id),
   authorUserId: varchar("author_user_id").references(() => users.id).notNull(),
   body: text("body").notNull(),
+  parentMessageId: varchar("parent_message_id"), // For threaded replies - nullable, self-referencing (one level only)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   editedAt: timestamp("edited_at"),
   deletedAt: timestamp("deleted_at"),
@@ -1432,6 +1433,7 @@ export const chatMessages = pgTable("chat_messages", {
   index("chat_messages_archived_idx").on(table.archivedAt),
   index("chat_messages_tenant_channel_created_idx").on(table.tenantId, table.channelId, table.createdAt),
   index("chat_messages_tenant_dm_created_idx").on(table.tenantId, table.dmThreadId, table.createdAt),
+  index("chat_messages_parent_idx").on(table.parentMessageId), // For thread replies lookup
 ]);
 
 /**
