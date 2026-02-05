@@ -358,10 +358,10 @@ export default function ChatPage() {
     enabled: startChatDrawerOpen,
   });
 
-  // Channel members query for the members drawer
+  // Channel members query for the members drawer and context panel
   const { data: channelMembers = [], refetch: refetchChannelMembers } = useQuery<ChannelMember[]>({
     queryKey: ["/api/v1/chat/channels", selectedChannel?.id, "members"],
-    enabled: !!selectedChannel && membersDrawerOpen,
+    enabled: !!selectedChannel && (membersDrawerOpen || contextPanelOpen),
   });
 
   // Mutation: Add members to channel
