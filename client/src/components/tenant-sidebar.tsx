@@ -19,6 +19,7 @@ import {
   UsersRound,
   BarChart3,
   CalendarDays,
+  FileStack,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -385,6 +386,17 @@ export function TenantSidebar() {
                     <Link href="/reports" data-testid="link-reports">
                       <BarChart3 className="h-4 w-4" />
                       <span>Reports</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/templates" || location.startsWith("/templates/")}
+                  >
+                    <Link href="/templates" data-testid="link-templates">
+                      <FileStack className="h-4 w-4" />
+                      <span>Templates</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

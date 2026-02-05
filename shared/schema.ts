@@ -883,6 +883,22 @@ export const hiddenProjects = pgTable("hidden_projects", {
   uniqueIndex("hidden_projects_unique").on(table.projectId, table.userId),
 ]);
 
+// Project Templates table - tenant-managed templates for creating projects with predefined sections/tasks
+export const projectTemplates = pgTable("project_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").default("general"), // e.g., 'client_onboarding', 'website_build', 'general'
+  isDefault: boolean("is_default").default(false), // Whether this is a default template
+  content: jsonb("content").notNull(), // JSON structure with sections and tasks
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("project_templates_tenant_idx").on(table.tenantId),
+]);
+
 // Sections table
 export const sections = pgTable("sections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -2037,6 +2053,12 @@ export const insertProjectMemberSchema = createInsertSchema(projectMembers).omit
   createdAt: true,
 });
 
+export const insertProjectTemplateSchema = createInsertSchema(projectTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertSectionSchema = createInsertSchema(sections).omit({
   id: true,
   createdAt: true,
@@ -2353,6 +2375,21 @@ export type InsertProject = z.infer<typeof insertProjectSchema>;
 
 export type ProjectMember = typeof projectMembers.$inferSelect;
 export type InsertProjectMember = z.infer<typeof insertProjectMemberSchema>;
+
+export type ProjectTemplate = typeof projectTemplates.$inferSelect;
+export type InsertProjectTemplate = z.infer<typeof insertProjectTemplateSchema>;
+
+// Template content structure type
+export interface ProjectTemplateContent {
+  sections: Array<{
+    name: string;
+    tasks: Array<{
+      title: string;
+      description?: string;
+      subtasks?: string[];
+    }>;
+  }>;
+}
 
 export type HiddenProject = typeof hiddenProjects.$inferSelect;
 

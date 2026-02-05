@@ -45,6 +45,7 @@ import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
 import ChatPage from "@/pages/chat";
 import ReportsPage from "@/pages/reports";
+import TemplatesPage from "@/pages/templates";
 import CalendarPage from "@/pages/calendar";
 import MyTimePage from "@/pages/my-time";
 import MyCalendarPage from "@/pages/my-calendar";
@@ -316,6 +317,9 @@ function TenantRouter() {
       </Route>
       <Route path="/reports">
         {() => <TenantRouteGuard component={ReportsPage} />}
+      </Route>
+      <Route path="/templates">
+        {() => <TenantRouteGuard component={TemplatesPage} />}
       </Route>
       <Route path="/teams/:id">
         {() => <TenantRouteGuard component={TeamDetailPage} />}
