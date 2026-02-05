@@ -311,7 +311,7 @@ export function ProjectDrawer({
                   name="divisionId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Division *</FormLabel>
+                      <FormLabel required>Division</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-division">
