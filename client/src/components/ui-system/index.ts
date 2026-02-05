@@ -7,7 +7,18 @@ export {
   type MetricCardVariant,
   type TrendDirection,
 } from "./MetricCard";
-export { EmptyState } from "./EmptyState";
+export { 
+  EmptyState,
+  EmptyTasks,
+  EmptyProjects,
+  EmptyClients,
+  EmptyChat,
+  EmptyReports,
+  EmptyTimeEntries,
+  EmptySearchResults,
+  EmptyFilteredResults,
+  type EmptyStateVariant,
+} from "./EmptyState";
 export { 
   LoadingSkeleton, 
   ChatMessageSkeleton, 

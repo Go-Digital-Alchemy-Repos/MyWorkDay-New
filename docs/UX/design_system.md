@@ -9,6 +9,7 @@ This design system provides foundational UI components and tokens to ensure visu
 - [Loading Patterns](./loading_patterns.md) - Skeleton loading and loading states
 - [DataToolbar Standard](./data_toolbar.md) - List page toolbar with search, filters, and actions
 - [Dashboard Cards](./dashboard_cards.md) - MetricCard component for dashboard statistics
+- [Empty States](./empty_states.md) - Guided empty states for all content areas
 
 ## Installation
 All components are available from `@/components/ui-system`:
