@@ -29,6 +29,17 @@ import type { Subtask, User, Tag as TagType, WorkspaceMember, TaskWithRelations 
 import { cn } from "@/lib/utils";
 import { ColorPicker } from "@/components/ui/color-picker";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
 type SubtaskOrTask = (Subtask | (TaskWithRelations & { taskId?: string; completed?: boolean; assigneeId?: string | null })) & {
   id: string;
   title: string;
@@ -112,6 +123,8 @@ export function SubtaskDetailDrawer({
   const [localDueDate, setLocalDueDate] = useState<Date | null>(
     subtask?.dueDate ? new Date(subtask.dueDate) : null
   );
+
+  const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false);
 
   const isActualSubtask = isSubtask(subtask);
 

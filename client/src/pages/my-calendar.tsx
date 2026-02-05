@@ -300,7 +300,7 @@ export default function MyCalendarPage() {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-semibold" data-testid="page-title">My Calendar</h1>
+          <h1 className="font-semibold text-[24px]" data-testid="page-title">My Calendar</h1>
           <Badge variant="secondary" className="text-xs">Personal View</Badge>
         </div>
         
@@ -381,7 +381,6 @@ export default function MyCalendarPage() {
           </div>
         </div>
       </div>
-      
       <div className="flex-1 p-4 min-h-0">
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
@@ -415,7 +414,6 @@ export default function MyCalendarPage() {
           />
         )}
       </div>
-      
       <div className="p-4 border-t">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-4 text-xs">
@@ -456,7 +454,6 @@ export default function MyCalendarPage() {
           </div>
         </div>
       </div>
-      
       {selectedTask && (
         <TaskDetailDrawer
           task={selectedTask}
@@ -464,7 +461,6 @@ export default function MyCalendarPage() {
           onOpenChange={setTaskDrawerOpen}
         />
       )}
-      
       {selectedTimeEntry && (
         <FullScreenDrawer
           open={timeEntryDrawerOpen}
