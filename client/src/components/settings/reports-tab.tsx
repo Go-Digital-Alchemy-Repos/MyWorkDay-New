@@ -351,10 +351,16 @@ interface TimeEntryWithRelations extends TimeEntry {
   project?: Project;
 }
 
-export function ReportsTab() {
+interface ReportsTabProps {
+  defaultTab?: "workload" | "time" | "projects" | "employees" | "teams";
+}
+
+export function ReportsTab({ defaultTab }: ReportsTabProps = {}) {
   const [dateRange, setDateRange] = useState("this-month");
   const [groupBy, setGroupBy] = useState("week");
   const [reportView, setReportView] = useState<"organization" | "employee" | "team">("organization");
+  
+  const tabDefaultValue = defaultTab === "time" ? "time-tracking" : defaultTab || "time-tracking";
 
   const { data: timeEntries } = useQuery<TimeEntryWithRelations[]>({
     queryKey: ["/api/time-entries"],
@@ -589,7 +595,7 @@ export function ReportsTab() {
         </Card>
       </div>
 
-      <Tabs defaultValue="time-tracking" className="space-y-4">
+      <Tabs defaultValue={tabDefaultValue} className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="time-tracking">Time Tracking</TabsTrigger>
           <TabsTrigger value="workload">Workload</TabsTrigger>

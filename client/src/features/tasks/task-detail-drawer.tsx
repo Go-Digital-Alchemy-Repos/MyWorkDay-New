@@ -930,7 +930,7 @@ export function TaskDetailDrawer({
               minHeight="100px"
               data-testid="textarea-description"
             />
-          </div>
+          </FormFieldWrapper>
 
           <Separator />
 
