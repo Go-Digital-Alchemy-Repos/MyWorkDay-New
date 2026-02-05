@@ -3,7 +3,7 @@
 ## Summary
 | ID | Area | Severity | Status | Description |
 |----|------|----------|--------|-------------|
-| BUG-001 | Data Integrity | Medium | Open | 10 rows with NULL tenantId in database |
+| BUG-001 | Data Integrity | **HIGH** | Open | 10 rows with NULL tenantId in database - security risk |
 | BUG-002 | Tests | Low | Known | FK constraint violations in test cleanup |
 | BUG-003 | UI | Low | Known | Client selector overlay flakiness in Create Project |
 
@@ -11,8 +11,8 @@
 
 ## BUG-001: NULL tenantId Rows in Database
 
-**Area**: Data Integrity  
-**Severity**: Medium  
+**Area**: Data Integrity / Security  
+**Severity**: HIGH - MUST FIX BEFORE PRODUCTION  
 **Status**: Open
 
 ### Steps to Reproduce
@@ -20,7 +20,7 @@
 2. Check startup logs for `tenantIdHealthCheck`
 
 ### Expected Behavior
-All rows should have valid `tenantId` values.
+All rows should have valid `tenantId` values for proper tenant isolation.
 
 ### Actual Behavior
 ```
@@ -30,14 +30,24 @@ All rows should have valid `tenantId` values.
   - workspaces: 1 rows
 ```
 
+### Security Impact
+NULL tenantId rows can bypass tenant isolation queries, potentially exposing data to wrong tenants or causing unexpected behavior in multi-tenant contexts.
+
 ### Suspected Root Cause
-Legacy data or test data created without proper tenant assignment.
+Legacy data or test data created without proper tenant assignment, likely from:
+- Super Admin users created before tenancy enforcement
+- Test data from development phase
 
 ### Recommended Fix
-Run backfill script: `npx tsx server/scripts/backfillTenantId.ts --dry-run`
+Run backfill script to assign proper tenantId values:
+```bash
+npx tsx server/scripts/backfillTenantId.ts --dry-run  # Preview changes
+npx tsx server/scripts/backfillTenantId.ts             # Apply changes
+```
 
 ### Verification
 - Re-run startup and check logs for zero NULL tenantId rows
+- Verify affected users can still log in after backfill
 
 ---
 
@@ -105,8 +115,38 @@ Review z-index stacking and modal dismissal timing.
 
 ---
 
+## Verified NOT Bugs
+
+### Super Admin First-User Bootstrap
+
+**Initial Report**: E2E test reported that registered user had `role=employee` and couldn't access Super Admin.
+
+**Investigation Result**: NOT A BUG - Expected Behavior
+
+The database already contains 23 users with 3 existing Super Admins. The "first user becomes Super Admin" logic correctly checks if ANY users exist in the database, not just in the current test session. New registrations are employees because Super Admins already exist.
+
+**Evidence**: `SELECT COUNT(*) FROM users` = 23, `SELECT COUNT(*) FROM users WHERE role = 'super_user'` = 3
+
+---
+
+## Testing Coverage Gaps
+
+The following areas were not fully tested via E2E:
+
+| Area | Reason | Risk |
+|------|--------|------|
+| Time Tracking | Not tested | Low - no issues in logs |
+| Workload Reports | Not tested | Low - no issues in logs |
+| Chat Export | Not tested via UI | Low - schema/API verified |
+| Notifications | Not tested | Low - no issues in logs |
+
+**Recommendation**: Add E2E tests for these areas in future QA sprints.
+
+---
+
 ## Notes
 
 - Last Updated: February 2026
 - Test Pass Rate: 717/809 (89%)
 - Most failures are test infrastructure issues, not app bugs
+- BUG-001 is the only HIGH severity issue that must be fixed before production
