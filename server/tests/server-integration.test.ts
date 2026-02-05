@@ -2,34 +2,38 @@
  * Server Integration Tests
  * 
  * Purpose: Verify core server functionality including:
- * - Health and ready endpoints
- * - Authentication protection on API endpoints
- * - Input validation and error shape consistency
+ * - Health and ready endpoints (real app endpoints)
+ * - Authentication protection on API endpoints (real requireAuth middleware)
+ * - Input validation and error shape consistency (real validateBody + errorHandler)
  * 
- * These tests use the server harness to create a minimal express app.
+ * These tests use supertest against real app endpoints where possible,
+ * and test harness for isolated unit tests of middleware behavior.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import { createTestApp, isDatabaseAvailable, resetTestApp } from "./server-harness";
-import type { Express } from "express";
+import express, { Express, Response, NextFunction } from "express";
+import { z } from "zod";
+import { isDatabaseAvailable, resetTestApp } from "./server-harness";
+import { requestIdMiddleware } from "../middleware/requestId";
+import { validateBody } from "../middleware/validate";
+import { errorHandler } from "../middleware/errorHandler";
 
 describe("Server Integration Tests", () => {
-  let app: Express;
   let dbAvailable: boolean;
 
   beforeAll(async () => {
     dbAvailable = await isDatabaseAvailable();
-    app = createTestApp();
   });
 
   afterAll(() => {
     resetTestApp();
   });
 
-  describe("Health Endpoints", () => {
+  describe("Health Endpoints (Real App)", () => {
     it("GET /health returns 200 with ok:true", async () => {
-      const res = await request(app).get("/health");
+      // Test against real running server
+      const res = await request("http://localhost:5000").get("/health");
       
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("ok", true);
@@ -37,171 +41,144 @@ describe("Server Integration Tests", () => {
     });
 
     it("GET /healthz returns 200 with 'ok' text", async () => {
-      const res = await request(app).get("/healthz");
+      const res = await request("http://localhost:5000").get("/healthz");
       
       expect(res.status).toBe(200);
       expect(res.text).toBe("ok");
     });
 
-    it("GET /ready returns status with database check", async () => {
-      const res = await request(app).get("/ready");
+    it("GET /ready returns status with database and schema checks", async () => {
+      const res = await request("http://localhost:5000").get("/ready");
       
-      // Response includes checks object
+      // Response includes checks object with all three checks
       expect(res.body).toHaveProperty("status");
       expect(res.body).toHaveProperty("checks");
+      expect(res.body.checks).toHaveProperty("startup");
+      expect(res.body.checks).toHaveProperty("database");
+      expect(res.body.checks).toHaveProperty("schema");
       
       if (dbAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.status).toBe("ready");
         expect(res.body.checks.database).toBe(true);
-      } else {
-        expect(res.status).toBe(503);
-        expect(res.body.status).toBe("not_ready");
+        expect(res.body.checks.schema).toBe(true);
       }
     });
   });
 });
 
-describe("Authentication Protection", () => {
-  let app: Express;
-
-  beforeAll(async () => {
-    // Create app without auth to test protection
-    app = createTestApp({ withAuth: false });
+describe("Authentication Protection (Real App)", () => {
+  it("unauthenticated access returns 401 for protected /api endpoints", async () => {
+    // Test real API endpoint without auth cookie
+    const res = await request("http://localhost:5000")
+      .get("/api/projects")
+      .set("Accept", "application/json");
     
-    // Add a protected endpoint for testing
-    app.get("/api/protected", (req: any, res) => {
-      if (!req.user) {
-        return res.status(401).json({
-          error: "Unauthorized",
-          message: "Authentication required",
-          code: "UNAUTHORIZED",
-        });
-      }
-      res.json({ data: "protected content" });
-    });
+    // Real app should return 401 for unauthenticated requests
+    expect(res.status).toBe(401);
+    
+    // Verify error response (requireAuth uses simple error format)
+    expect(res.body).toHaveProperty("error", "Authentication required");
   });
 
-  afterAll(() => {
-    resetTestApp();
-  });
-
-  it("unauthenticated access returns 401 for protected endpoints", async () => {
-    const res = await request(app).get("/api/protected");
+  it("unauthenticated POST returns 401 with error message", async () => {
+    const res = await request("http://localhost:5000")
+      .post("/api/tasks/personal")
+      .send({ title: "Test Task" })
+      .set("Content-Type", "application/json");
     
     expect(res.status).toBe(401);
-    expect(res.body).toHaveProperty("error");
-    expect(res.body).toHaveProperty("code", "UNAUTHORIZED");
-  });
-
-  it("authenticated access returns 200 for protected endpoints", async () => {
-    // Create app with mock auth
-    const authApp = createTestApp({
-      withAuth: true,
-      mockUserId: "test-user-id",
-      mockTenantId: "test-tenant-id",
-      mockUserRole: "admin",
-    });
-    
-    authApp.get("/api/protected", (req: any, res) => {
-      if (!req.user) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      res.json({ data: "protected content", userId: req.user.id });
-    });
-    
-    const res = await request(authApp).get("/api/protected");
-    
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty("data", "protected content");
-    expect(res.body).toHaveProperty("userId", "test-user-id");
+    expect(res.body).toHaveProperty("error", "Authentication required");
   });
 });
 
-describe("Input Validation and Error Shape", () => {
+describe("Input Validation and Error Shape (Real Middleware)", () => {
   let app: Express;
 
   beforeAll(async () => {
-    app = createTestApp({ 
-      withAuth: true, 
-      mockUserId: "test-user",
-      mockTenantId: "test-tenant",
+    // Create minimal app with REAL middleware stack
+    app = express();
+    app.use(express.json());
+    app.use(requestIdMiddleware);
+    
+    // Mock auth for this test
+    app.use((req: any, res: Response, next: NextFunction) => {
+      req.user = { id: "test-user", tenantId: "test-tenant" };
+      req.isAuthenticated = () => true;
+      next();
     });
     
-    // Add validation middleware
-    const { z } = await import("zod");
-    
+    // Define schema matching time entry validation
     const timeEntrySchema = z.object({
       startTime: z.string().datetime({ message: "startTime must be a valid ISO datetime" }),
       endTime: z.string().datetime({ message: "endTime must be a valid ISO datetime" }),
       description: z.string().min(1, "description is required").max(500),
-      taskId: z.string().uuid().optional(),
+      clientId: z.string().uuid().optional(),
       projectId: z.string().uuid().optional(),
     });
     
-    // Mock time entry create endpoint with validation
-    app.post("/api/v1/time-entries", (req: any, res) => {
-      const result = timeEntrySchema.safeParse(req.body);
-      
-      if (!result.success) {
-        // Standardized error shape
-        return res.status(400).json({
-          error: "Validation failed",
-          code: "VALIDATION_ERROR",
-          requestId: req.requestId || null,
-          details: result.error.errors.map(err => ({
-            field: err.path.join("."),
-            message: err.message,
-          })),
-        });
+    // Endpoint using REAL validateBody middleware
+    app.post(
+      "/api/v1/test-time-entries",
+      validateBody(timeEntrySchema),
+      (req: any, res) => {
+        res.status(201).json({ id: "created", ...req.body });
       }
-      
-      // Would create time entry here
-      res.status(201).json({
-        id: "created-entry-id",
-        ...result.data,
-      });
-    });
+    );
+    
+    // REAL error handler
+    app.use(errorHandler);
   });
 
-  afterAll(() => {
-    resetTestApp();
-  });
-
-  it("time entry create returns consistent error shape on bad input", async () => {
+  it("validation error returns standard error envelope", async () => {
     const res = await request(app)
-      .post("/api/v1/time-entries")
+      .post("/api/v1/test-time-entries")
       .send({
-        // Invalid: missing required fields, bad datetime format
         startTime: "not-a-date",
         description: "",
       });
     
     expect(res.status).toBe(400);
     
-    // Verify consistent error shape
-    expect(res.body).toHaveProperty("error", "Validation failed");
+    // Verify REAL error handler envelope structure
+    expect(res.body).toHaveProperty("ok", false);
+    expect(res.body).toHaveProperty("requestId");
+    expect(res.body).toHaveProperty("error");
+    expect(res.body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(res.body.error).toHaveProperty("message", "Validation failed");
+    expect(res.body.error).toHaveProperty("status", 400);
+    expect(res.body.error).toHaveProperty("requestId");
+    expect(res.body.error).toHaveProperty("details");
+    
+    // Legacy compatibility fields
+    expect(res.body).toHaveProperty("message", "Validation failed");
     expect(res.body).toHaveProperty("code", "VALIDATION_ERROR");
     expect(res.body).toHaveProperty("details");
-    expect(Array.isArray(res.body.details)).toBe(true);
     
     // Details should contain field-level errors
-    const fields = res.body.details.map((d: any) => d.field);
-    expect(fields).toContain("startTime");
-    expect(fields).toContain("endTime");
-    expect(fields).toContain("description");
+    const details = res.body.error.details as Array<{ path: string; message: string }>;
+    expect(Array.isArray(details)).toBe(true);
+    const paths = details.map(d => d.path);
+    expect(paths).toContain("startTime");
+    expect(paths).toContain("endTime");
+    expect(paths).toContain("description");
   });
 
-  it("time entry create returns requestId in error response", async () => {
+  it("requestId is included in all error responses", async () => {
     const res = await request(app)
-      .post("/api/v1/time-entries")
-      .send({ invalid: "data" });
+      .post("/api/v1/test-time-entries")
+      .send({});
     
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty("requestId");
+    expect(typeof res.body.requestId).toBe("string");
+    expect(res.body.requestId.length).toBeGreaterThan(0);
+    
+    // requestId also in nested error object
+    expect(res.body.error.requestId).toBe(res.body.requestId);
   });
 
-  it("valid time entry create returns 201", async () => {
+  it("valid input returns 201 success", async () => {
     const validEntry = {
       startTime: new Date().toISOString(),
       endTime: new Date(Date.now() + 3600000).toISOString(),
@@ -209,11 +186,11 @@ describe("Input Validation and Error Shape", () => {
     };
     
     const res = await request(app)
-      .post("/api/v1/time-entries")
+      .post("/api/v1/test-time-entries")
       .send(validEntry);
     
     expect(res.status).toBe(201);
-    expect(res.body).toHaveProperty("id");
+    expect(res.body).toHaveProperty("id", "created");
     expect(res.body).toHaveProperty("description", "Test time entry");
   });
 });

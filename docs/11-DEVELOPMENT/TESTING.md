@@ -152,15 +152,19 @@ describe("Feature Name", () => {
 
 ### Testing Authentication
 
+**Note:** The `requireAuth` middleware returns a simple `{ error: "Authentication required" }` 
+response rather than the standard error envelope. This is a known exception to the standard 
+error format.
+
 ```typescript
-// Test unauthenticated access
+// Test unauthenticated access (against real server)
 it("returns 401 without auth", async () => {
-  const app = createTestApp({ withAuth: false });
-  const res = await request(app).get("/api/protected");
+  const res = await request("http://localhost:5000").get("/api/projects");
   expect(res.status).toBe(401);
+  expect(res.body).toHaveProperty("error", "Authentication required");
 });
 
-// Test authenticated access
+// Test authenticated access (with mock auth)
 it("returns 200 with auth", async () => {
   const app = createTestApp({
     withAuth: true,
@@ -174,6 +178,31 @@ it("returns 200 with auth", async () => {
 
 ### Testing Validation
 
+The real error handler produces this envelope structure:
+
+```typescript
+// Standard error envelope
+{
+  ok: false,
+  requestId: "uuid-string",
+  error: {
+    code: "VALIDATION_ERROR",
+    message: "Validation failed",
+    status: 400,
+    requestId: "uuid-string",
+    details: [
+      { path: "fieldName", message: "Error message" }
+    ]
+  },
+  // Legacy compatibility fields
+  message: "Validation failed",
+  code: "VALIDATION_ERROR",
+  details: [...]
+}
+```
+
+Test example:
+
 ```typescript
 it("returns consistent error shape on bad input", async () => {
   const res = await request(app)
@@ -181,10 +210,11 @@ it("returns consistent error shape on bad input", async () => {
     .send({ invalid: "data" });
   
   expect(res.status).toBe(400);
-  expect(res.body).toHaveProperty("error");
-  expect(res.body).toHaveProperty("code", "VALIDATION_ERROR");
-  expect(res.body).toHaveProperty("details");
+  expect(res.body).toHaveProperty("ok", false);
   expect(res.body).toHaveProperty("requestId");
+  expect(res.body.error).toHaveProperty("code", "VALIDATION_ERROR");
+  expect(res.body.error).toHaveProperty("message", "Validation failed");
+  expect(res.body.error).toHaveProperty("details");
 });
 ```
 
