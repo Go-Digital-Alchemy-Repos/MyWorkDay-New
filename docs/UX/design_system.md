@@ -3,6 +3,9 @@
 ## Overview
 This design system provides foundational UI components and tokens to ensure visual consistency across the application.
 
+**Related Documentation:**
+- [DetailDrawer Pattern](./detail_drawer_pattern.md) - Standard slide-over panel implementation
+
 ## Installation
 All components are available from `@/components/ui-system`:
 
