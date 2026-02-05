@@ -205,6 +205,7 @@ export interface IStorage {
   
   getComment(id: string): Promise<Comment | undefined>;
   getCommentsByTask(taskId: string): Promise<(Comment & { user?: User })[]>;
+  getCommentsBySubtask(subtaskId: string): Promise<(Comment & { user?: User })[]>;
   createComment(comment: InsertComment): Promise<Comment>;
   updateComment(id: string, comment: Partial<InsertComment>): Promise<Comment | undefined>;
   deleteComment(id: string): Promise<void>;
@@ -1362,6 +1363,19 @@ export class DatabaseStorage implements IStorage {
   async getCommentsByTask(taskId: string): Promise<(Comment & { user?: User })[]> {
     const commentsList = await db.select().from(comments)
       .where(eq(comments.taskId, taskId))
+      .orderBy(asc(comments.createdAt));
+    
+    const result = [];
+    for (const comment of commentsList) {
+      const user = await this.getUser(comment.userId);
+      result.push({ ...comment, user });
+    }
+    return result;
+  }
+
+  async getCommentsBySubtask(subtaskId: string): Promise<(Comment & { user?: User })[]> {
+    const commentsList = await db.select().from(comments)
+      .where(eq(comments.subtaskId, subtaskId))
       .orderBy(asc(comments.createdAt));
     
     const result = [];

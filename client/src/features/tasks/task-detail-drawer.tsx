@@ -135,9 +135,27 @@ export function TaskDetailDrawer({
 
   const addCommentMutation = useMutation({
     mutationFn: async (body: string) => {
-      return apiRequest("POST", `/api/tasks/${task?.id}/comments`, { body });
+      const response = await apiRequest("POST", `/api/tasks/${task?.id}/comments`, { body });
+      return response.json() as Promise<Comment & { user?: User }>;
     },
-    onSuccess: invalidateCommentQueries,
+    onSuccess: (newComment) => {
+      // Optimistically add the new comment to the cache
+      if (task?.id && newComment) {
+        queryClient.setQueryData<(Comment & { user?: User })[]>(
+          [`/api/tasks/${task.id}/comments`],
+          (old = []) => [...old, newComment]
+        );
+      }
+      // Also invalidate to ensure consistency
+      invalidateCommentQueries();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to add comment",
+        description: error?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
   });
 
   const updateCommentMutation = useMutation({
@@ -145,6 +163,13 @@ export function TaskDetailDrawer({
       await apiRequest("PATCH", `/api/comments/${id}`, { body });
     },
     onSuccess: invalidateCommentQueries,
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update comment",
+        description: error?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
   });
 
   const deleteCommentMutation = useMutation({
@@ -152,6 +177,13 @@ export function TaskDetailDrawer({
       await apiRequest("DELETE", `/api/comments/${id}`);
     },
     onSuccess: invalidateCommentQueries,
+    onError: (error: any) => {
+      toast({
+        title: "Failed to delete comment",
+        description: error?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
   });
 
   const resolveCommentMutation = useMutation({

@@ -2280,6 +2280,157 @@ export async function registerRoutes(
     }
   });
 
+  // Subtask comments
+  app.get("/api/subtasks/:subtaskId/comments", async (req, res) => {
+    try {
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Validate subtask exists
+      const subtask = await storage.getSubtask(req.params.subtaskId);
+      if (!subtask) {
+        return sendError(res, AppError.notFound("Subtask"), req);
+      }
+      
+      // Validate parent task belongs to tenant
+      const parentTask = tenantId 
+        ? await storage.getTaskByIdAndTenant(subtask.taskId, tenantId)
+        : isSuperUser(req) 
+          ? await storage.getTask(subtask.taskId) 
+          : null;
+      
+      if (!parentTask) {
+        return sendError(res, AppError.notFound("Task"), req);
+      }
+      
+      const comments = await storage.getCommentsBySubtask(req.params.subtaskId);
+      res.json(comments);
+    } catch (error) {
+      console.error("Error fetching subtask comments:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/subtasks/:subtaskId/comments", async (req, res) => {
+    try {
+      const currentUserId = getCurrentUserId(req);
+      const tenantId = getEffectiveTenantId(req);
+      
+      // Validate subtask exists
+      const subtask = await storage.getSubtask(req.params.subtaskId);
+      if (!subtask) {
+        return sendError(res, AppError.notFound("Subtask"), req);
+      }
+      
+      // Validate parent task belongs to tenant
+      const parentTask = tenantId 
+        ? await storage.getTaskByIdAndTenant(subtask.taskId, tenantId)
+        : isSuperUser(req) 
+          ? await storage.getTask(subtask.taskId) 
+          : null;
+      
+      if (!parentTask) {
+        return sendError(res, AppError.notFound("Task"), req);
+      }
+      
+      const data = insertCommentSchema.parse({
+        ...req.body,
+        subtaskId: req.params.subtaskId,
+        userId: currentUserId,
+      });
+      const comment = await storage.createComment(data);
+      const commenter = await storage.getUser(currentUserId);
+
+      // Parse @mentions from TipTap JSON content and create notifications
+      const mentionedUserIds = extractMentionsFromTipTapJson(data.body);
+      const plainTextBody = getPlainTextFromTipTapJson(data.body);
+      const notifiedUserIds = new Set<string>();
+
+      for (const mentionedUserId of mentionedUserIds) {
+        // Validate mentioned user exists and is in the same tenant
+        const mentionedUser = await storage.getUser(mentionedUserId);
+        if (!mentionedUser || (tenantId && mentionedUser.tenantId !== tenantId)) {
+          continue;
+        }
+
+        // Create mention record
+        await storage.createCommentMention({
+          commentId: comment.id,
+          mentionedUserId: mentionedUserId,
+        });
+        notifiedUserIds.add(mentionedUserId);
+
+        // Send in-app notification for mention
+        notifyCommentMention(
+          mentionedUserId,
+          subtask.taskId,
+          subtask.title || "a subtask",
+          commenter?.name || commenter?.email || "Someone",
+          plainTextBody,
+          { tenantId, excludeUserId: currentUserId }
+        ).catch(() => {});
+
+        // Send notification email if user has email
+        if (mentionedUser.email && tenantId) {
+          try {
+            const { emailOutboxService } = await import("./services/emailOutbox");
+            await emailOutboxService.sendEmail({
+              tenantId,
+              messageType: "mention_notification",
+              toEmail: mentionedUser.email,
+              subject: `${commenter?.name || 'Someone'} mentioned you in a comment`,
+              textBody: `${commenter?.name || 'Someone'} mentioned you in a comment on subtask "${subtask.title || 'a subtask'}":\n\n"${plainTextBody}"`,
+              metadata: {
+                subtaskId: subtask.id,
+                subtaskTitle: subtask.title,
+                commentId: comment.id,
+                mentionedByUserId: currentUserId,
+                mentionedByName: commenter?.name,
+              },
+            });
+          } catch (emailError) {
+            console.error("Error sending mention notification:", emailError);
+          }
+        }
+      }
+
+      // Also notify subtask assignees about the new comment (except commenter and already-notified)
+      const subtaskWithRelations = await storage.getSubtaskWithRelations(req.params.subtaskId);
+      const assignees = (subtaskWithRelations as any)?.assignees || [];
+      for (const assignee of assignees) {
+        const assigneeUserId = assignee.userId;
+        if (assigneeUserId !== currentUserId && !notifiedUserIds.has(assigneeUserId)) {
+          notifyCommentAdded(
+            assigneeUserId,
+            subtask.taskId,
+            subtask.title || "a subtask",
+            commenter?.name || commenter?.email || "Someone",
+            plainTextBody,
+            { tenantId, excludeUserId: currentUserId }
+          ).catch(() => {});
+        }
+      }
+
+      // Return comment with user relation for immediate UI display
+      const commentWithUser = {
+        ...comment,
+        user: commenter ? {
+          id: commenter.id,
+          name: commenter.name,
+          email: commenter.email,
+          avatarUrl: commenter.avatarUrl,
+        } : undefined,
+      };
+
+      res.status(201).json(commentWithUser);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating subtask comment:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/workspaces/:workspaceId/tags", async (req, res) => {
     try {
       const tags = await storage.getTagsByWorkspace(req.params.workspaceId);
@@ -2453,7 +2604,18 @@ export async function registerRoutes(
         }
       }
 
-      res.status(201).json(comment);
+      // Return comment with user relation for immediate UI display
+      const commentWithUser = {
+        ...comment,
+        user: commenter ? {
+          id: commenter.id,
+          name: commenter.name,
+          email: commenter.email,
+          avatarUrl: commenter.avatarUrl,
+        } : undefined,
+      };
+
+      res.status(201).json(commentWithUser);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });

@@ -1044,10 +1044,11 @@ export const taskTags = pgTable("task_tags", {
   index("task_tags_tag").on(table.tagId),
 ]);
 
-// Comments table
+// Comments table - supports comments on both tasks and subtasks
 export const comments = pgTable("comments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  taskId: varchar("task_id").references(() => tasks.id).notNull(),
+  taskId: varchar("task_id").references(() => tasks.id),
+  subtaskId: varchar("subtask_id").references(() => subtasks.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   body: text("body").notNull(),
   isResolved: boolean("is_resolved").default(false).notNull(),
@@ -1057,6 +1058,7 @@ export const comments = pgTable("comments", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("comments_task_created").on(table.taskId, table.createdAt),
+  index("comments_subtask_created").on(table.subtaskId, table.createdAt),
 ]);
 
 // Activity Log table
