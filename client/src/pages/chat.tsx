@@ -2251,9 +2251,11 @@ export default function ChatPage() {
                     data-testid="input-add-member-search"
                   />
                 </div>
-                {addMemberSearchQuery && filteredUsersNotInChannel.length > 0 && (
-                  <ScrollArea className="h-32 border rounded-md p-2">
-                    {filteredUsersNotInChannel.map((u) => (
+                <ScrollArea className="h-32 border rounded-md p-2">
+                  {isLoadingTeamUsers ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Loading team members...</p>
+                  ) : filteredUsersNotInChannel.length > 0 ? (
+                    filteredUsersNotInChannel.map((u) => (
                       <button
                         key={u.id}
                         className="w-full flex items-center gap-2 p-2 rounded hover-elevate text-left"
@@ -2278,9 +2280,13 @@ export default function ChatPage() {
                         </div>
                         <Plus className="h-4 w-4 text-muted-foreground" />
                       </button>
-                    ))}
-                  </ScrollArea>
-                )}
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      {addMemberSearchQuery ? "No users found" : "All team members are already in this channel"}
+                    </p>
+                  )}
+                </ScrollArea>
               </div>
             )}
 
