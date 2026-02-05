@@ -1,0 +1,120 @@
+NON-DESTRUCTIVE FULL APP QA + BUGFIX SWEEP (TOP-TO-BOTTOM) — TEST, DEBUG, FIX
+
+GOAL
+Perform a comprehensive quality pass across the entire app:
+- identify failures, errors, broken flows, and regressions
+- add/expand automated tests
+- fix issues found
+- document every fix clearly
+
+STRICT NON-DESTRUCTIVE RULES
+1) Do NOT remove any existing features, pages, routes, or databases/tables.
+2) Do NOT change any public API endpoints or response shapes in a breaking way (additive only).
+3) Do NOT perform broad refactors “for cleanliness” unless required to fix a bug.
+4) Do NOT change authentication/authorization semantics except to fix a proven security bug.
+5) Prefer minimal, localized fixes. If a fix needs a refactor, isolate it to the smallest module.
+6) Every fix must include:
+   - root cause
+   - reproducible steps
+   - code change
+   - verification (test or manual checklist)
+7) No “silent failures” allowed—ensure errors surface clearly in UI/logs.
+8) Maintain tenant isolation and RBAC across all fixes.
+
+PHASE 0 — SET UP A QA HARNESS (NO FUNCTIONAL CHANGES)
+1) Ensure the app can run locally in dev with a repeatable command.
+2) Add/confirm a “smoke test” script that:
+   - starts server (or imports app)
+   - verifies health endpoint responds
+   - verifies static client build succeeds
+3) Add a standardized logging utility for server errors with requestId correlation (if missing).
+4) Create /docs/QA/QA_PLAN.md describing:
+   - how to run the app
+   - how to run tests
+   - environment variables required
+No feature changes in this phase.
+
+PHASE 1 — INVENTORY ALL FEATURES + FLOWS (DOCUMENT FIRST)
+1) Produce /docs/QA/FEATURE_INVENTORY.md:
+   - list every major app area and core flows, e.g.:
+     Auth, Tenants, Users/Roles, Clients, Projects, Tasks/Subtasks, Time Tracking, Reports, Chat, Notifications, Super Admin (Docs/Settings), Integrations
+   - for each flow: key routes/pages + core APIs used + expected behavior
+
+2) Produce /docs/QA/KNOWN_ISSUES.md with:
+   - errors discovered from logs/build output
+   - TypeScript issues
+   - runtime exceptions
+   - broken UI states
+Do not implement fixes until these docs exist.
+
+PHASE 2 — AUTOMATED TEST FOUNDATION (MINIMUM VIABLE COVERAGE)
+Backend (choose existing framework; if none, use a minimal setup):
+1) Add server tests:
+   - App starts (import/mount routers)
+   - Auth-protected endpoint returns 401/403 when unauthenticated
+   - Tenant isolation sanity test (cannot access another tenant’s record)
+2) Add database test helpers:
+   - seed minimal tenant, admin, employee, client, project, task, time entry, conversation/message (as applicable)
+   - ensure tests can run without wiping dev data (use test DB / sqlite if already supported)
+
+Frontend:
+3) Add minimal component tests only where valuable (optional)
+4) Prefer E2E smoke flows using Playwright if feasible:
+   - login
+   - navigate to core pages
+   - perform a basic create flow (client/project/task)
+Keep E2E minimal to avoid flakiness.
+
+PHASE 3 — RUN TOP-TO-BOTTOM QA & FIX ISSUES (ITERATIVE, CONTROLLED)
+For each feature area in FEATURE_INVENTORY:
+1) Execute its test(s) or manual script; capture:
+   - console errors (client)
+   - server errors (logs)
+   - failed requests (network)
+   - DB errors (constraints/joins)
+2) For each issue found:
+   A) Write a bug entry in /docs/QA/BUG_LOG.md:
+      - ID, area, severity (Blocker/Major/Minor)
+      - steps to reproduce
+      - expected vs actual
+      - suspected root cause
+   B) Implement the smallest fix possible.
+   C) Add/extend a test that would fail before the fix and pass after (when practical).
+   D) Verify manually and/or via test run.
+   E) Record fix details in BUG_LOG.md:
+      - files changed
+      - verification performed
+
+Critical areas to prioritize:
+- Auth/RBAC & tenant isolation
+- Create/edit flows: Clients, Projects, Tasks/Subtasks, Time Entries
+- Chat send/receive stability
+- Comments and notifications integrity
+- Reports loading and access control
+- Super Admin tools stability
+
+PHASE 4 — HARDEN ERROR HANDLING + UX FAILSTATES (NON-DESTRUCTIVE)
+1) Ensure API errors return consistent shapes and include requestId.
+2) Ensure UI displays errors for failed actions (no silent failures):
+   - toasts or inline messages
+3) Ensure long lists use pagination/virtualization where needed (only if bugs/perf issues proven).
+Do not redesign the UI—only improve reliability and clarity.
+
+PHASE 5 — RELEASE CHECKLIST + FINAL REPORT
+1) Add /docs/QA/RELEASE_CHECKLIST.md:
+   - commands to run (lint, typecheck, tests, build)
+   - required env vars
+   - smoke test flows to verify
+2) Produce /docs/QA/FINAL_REPORT.md:
+   - number of bugs found/fixed by area
+   - remaining known issues (if any) with severity
+   - performance or security notes
+   - “what changed” summary
+
+OUTPUT REQUIREMENTS (MUST PROVIDE)
+At the end of this work, output:
+- list of tests added and how to run them
+- bug summary (fixed + remaining)
+- files changed
+- any migrations added (should be rare; additive only)
+- confidence notes and any risky areas to retest
