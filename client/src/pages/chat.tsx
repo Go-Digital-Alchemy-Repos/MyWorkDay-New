@@ -201,6 +201,8 @@ export default function ChatPage() {
 
   // Members drawer state
   const [membersDrawerOpen, setMembersDrawerOpen] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [startDmOpen, setStartDmOpen] = useState(false);
   const [addMemberSearchQuery, setAddMemberSearchQuery] = useState("");
   const [removeMemberConfirmUserId, setRemoveMemberConfirmUserId] = useState<string | null>(null);
 
@@ -1264,6 +1266,25 @@ export default function ChatPage() {
     setMessages(prev => prev.filter(m => m._tempId !== tempId));
   };
 
+  const deleteChannelMutation = useMutation({
+    mutationFn: async (channelId: string) => {
+      const res = await apiRequest("DELETE", `/api/v1/chat/channels/${channelId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/chat/channels"] });
+      setSelectedChannel(null);
+      toast({ title: "Channel deleted" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to delete channel",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const joinChannelMutation = useMutation({
     mutationFn: async (channelId: string) => {
       return apiRequest("POST", `/api/v1/chat/channels/${channelId}/join`);
@@ -1736,6 +1757,23 @@ export default function ChatPage() {
                 >
                   <Search className="h-4 w-4" />
                 </Button>
+                {user?.role === "admin" && selectedChannel && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete channel #${selectedChannel.name}? This action cannot be undone.`)) {
+                        deleteChannelMutation.mutate(selectedChannel.id);
+                      }
+                    }}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    aria-label="Delete channel"
+                    title="Delete channel"
+                    data-testid="button-delete-channel"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
                 <ChatContextPanelToggle
                   onClick={() => setContextPanelOpen(true)}
                   isOpen={contextPanelOpen}

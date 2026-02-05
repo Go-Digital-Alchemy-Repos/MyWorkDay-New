@@ -15,6 +15,7 @@ import {
 import { TaskSelectorWithCreate } from "@/features/tasks";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { RichTextEditor } from "@/components/richtext";
 
 const BROADCAST_CHANNEL_NAME = "active-timer-sync";
 
@@ -302,16 +303,17 @@ export function StartTimerDrawer({
 
         <div className="space-y-2">
           <Label>Description</Label>
-          <Textarea
-            value={description}
-            onChange={(e) => {
-              setDescription(e.target.value);
-              handleFieldChange();
-            }}
-            placeholder="Additional details about the work..."
-            className="min-h-[100px] resize-none"
-            data-testid="input-start-timer-description"
-          />
+          <div className="min-h-[150px] border rounded-md focus-within:ring-1 focus-within:ring-ring transition-shadow">
+            <RichTextEditor
+              value={description}
+              onChange={(val) => {
+                setDescription(val);
+                handleFieldChange();
+              }}
+              placeholder="Additional details about the work..."
+              className="border-0 focus-visible:ring-0"
+            />
+          </div>
         </div>
       </div>
     </FullScreenDrawer>
