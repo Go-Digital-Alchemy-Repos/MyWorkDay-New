@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
-import { useChatUrlState } from "@/features/chat";
+import { useChatUrlState, ConversationListPanel } from "@/features/chat";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { getSocket, joinChatRoom, leaveChatRoom, onConnectionChange, isSocketConnected } from "@/lib/realtime/socket";
@@ -1245,6 +1245,24 @@ export default function ChatPage() {
     updateUrlForConversation("dm", dm.id);
   };
 
+  // Derived selected conversation for ConversationListPanel
+  const selectedConversation = selectedChannel
+    ? { type: "channel" as const, id: selectedChannel.id }
+    : selectedDm
+      ? { type: "dm" as const, id: selectedDm.id }
+      : null;
+
+  // Handler for ConversationListPanel selection
+  const handleConversationSelect = (type: "channel" | "dm", id: string) => {
+    if (type === "channel") {
+      const channel = channels.find((c) => c.id === id);
+      if (channel) handleSelectChannel(channel);
+    } else {
+      const dm = dmThreads.find((d) => d.id === id);
+      if (dm) handleSelectDm(dm);
+    }
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -1412,218 +1430,20 @@ export default function ChatPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Chats Tab */}
+          {/* Chats Tab - Using new ConversationListPanel */}
           <TabsContent value="chats" className="flex-1 flex flex-col overflow-hidden mt-0 p-0">
-            {/* Search Input */}
-            <div className="p-2 border-b">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  placeholder="Search messages..."
-                  className="pl-8 h-9"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    if (e.target.value.length >= 2) {
-                      setSearchOpen(true);
-                    }
-                  }}
-                  onFocus={() => {
-                    if (searchQuery.length >= 2) {
-                      setSearchOpen(true);
-                    }
-                  }}
-                  data-testid="input-sidebar-search"
-                />
-              </div>
-            </div>
-
-            {/* Start New Chat Button */}
-            <div className="p-2 border-b">
-              <Button
-                className="w-full justify-start gap-2"
-                variant="outline"
-                onClick={() => setStartChatDrawerOpen(true)}
-                data-testid="button-start-new-chat"
-              >
-                <UserPlus className="h-4 w-4" />
-                Start New Chat
-              </Button>
-            </div>
-
-            <div className="p-4 border-b">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-sidebar-foreground">Channels</h2>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setCreateChannelOpen(true)}
-                  data-testid="button-create-channel"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-              <ScrollArea className="h-48">
-                {isLoadingChannels ? (
-                  <div className="space-y-2 px-2" data-testid="channels-loading">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="animate-pulse flex items-start gap-2 p-2">
-                        <div className="h-4 w-4 bg-muted rounded flex-shrink-0" />
-                        <div className="flex-1 space-y-1">
-                          <div className="h-4 bg-muted rounded w-2/3" />
-                          <div className="h-3 bg-muted rounded w-full" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : isChannelsError ? (
-                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="channels-error">
-                    <AlertCircle className="h-6 w-6 text-destructive" />
-                    <p className="text-xs text-muted-foreground">Failed to load channels</p>
-                    <Button size="sm" variant="outline" onClick={() => refetchChannels()} data-testid="button-retry-channels">
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Retry
-                    </Button>
-                  </div>
-                ) : channels.length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="channels-empty">
-                    <Hash className="h-8 w-8 text-muted-foreground opacity-50" />
-                    <p className="text-xs text-muted-foreground">No channels yet</p>
-                    <Button size="sm" variant="outline" onClick={() => setCreateChannelOpen(true)} data-testid="button-create-first-channel-sidebar">
-                      <Plus className="h-3 w-3 mr-1" />
-                      Create Channel
-                    </Button>
-                  </div>
-                ) : (
-                  channels.map((channel) => (
-                    <button
-                      key={channel.id}
-                      onClick={() => handleSelectChannel(channel)}
-                      className={`w-full flex items-start gap-2 px-2 py-2 rounded text-left text-sm hover-elevate ${
-                        selectedChannel?.id === channel.id
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground"
-                      }`}
-                      data-testid={`channel-item-${channel.id}`}
-                    >
-                      <div className="flex-shrink-0 mt-0.5">
-                        {channel.isPrivate ? (
-                          <Lock className="h-4 w-4" />
-                        ) : (
-                          <Hash className="h-4 w-4" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="truncate font-medium">{channel.name}</span>
-                          {channel.lastMessage && (
-                            <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
-                              {formatRelativeTime(channel.lastMessage.createdAt)}
-                            </span>
-                          )}
-                        </div>
-                        {channel.lastMessage && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {channel.lastMessage.authorName ? `${channel.lastMessage.authorName}: ` : ""}
-                            {truncateMessage(channel.lastMessage.body)}
-                          </p>
-                        )}
-                      </div>
-                      {channel.unreadCount && channel.unreadCount > 0 && (
-                        <span 
-                          className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full flex-shrink-0"
-                          data-testid={`channel-unread-${channel.id}`}
-                        >
-                          {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
-                        </span>
-                      )}
-                    </button>
-                  ))
-                )}
-              </ScrollArea>
-            </div>
-
-            <div className="p-4 flex-1">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-sidebar-foreground">Direct Messages</h2>
-              </div>
-              <ScrollArea className="h-48">
-                {isLoadingDmThreads ? (
-                  <div className="space-y-2 px-2" data-testid="dms-loading">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="animate-pulse flex items-start gap-2 p-2">
-                        <div className="h-6 w-6 bg-muted rounded-full flex-shrink-0" />
-                        <div className="flex-1 space-y-1">
-                          <div className="h-4 bg-muted rounded w-2/3" />
-                          <div className="h-3 bg-muted rounded w-full" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : isDmThreadsError ? (
-                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="dms-error">
-                    <AlertCircle className="h-6 w-6 text-destructive" />
-                    <p className="text-xs text-muted-foreground">Failed to load conversations</p>
-                    <Button size="sm" variant="outline" onClick={() => refetchDmThreads()} data-testid="button-retry-dms">
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Retry
-                    </Button>
-                  </div>
-                ) : dmThreads.length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 p-4 text-center" data-testid="dms-empty">
-                    <MessageCircle className="h-8 w-8 text-muted-foreground opacity-50" />
-                    <p className="text-xs text-muted-foreground">No conversations yet</p>
-                    <Button size="sm" variant="outline" onClick={() => setStartChatDrawerOpen(true)} data-testid="button-start-first-dm">
-                      <UserPlus className="h-3 w-3 mr-1" />
-                      Start New Chat
-                    </Button>
-                  </div>
-                ) : (
-                  dmThreads.map((dm) => (
-                    <button
-                      key={dm.id}
-                      onClick={() => handleSelectDm(dm)}
-                      className={`w-full flex items-start gap-2 px-2 py-2 rounded text-left text-sm hover-elevate ${
-                        selectedDm?.id === dm.id
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground"
-                      }`}
-                      data-testid={`dm-item-${dm.id}`}
-                    >
-                      <Avatar className="h-6 w-6 flex-shrink-0 mt-0.5">
-                        <AvatarFallback className="text-xs">
-                          {getInitials(getDmDisplayName(dm))}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="truncate font-medium">{getDmDisplayName(dm)}</span>
-                          {dm.lastMessage && (
-                            <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
-                              {formatRelativeTime(dm.lastMessage.createdAt)}
-                            </span>
-                          )}
-                        </div>
-                        {dm.lastMessage && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {dm.lastMessage.authorName ? `${dm.lastMessage.authorName}: ` : ""}
-                            {truncateMessage(dm.lastMessage.body)}
-                          </p>
-                        )}
-                      </div>
-                      {dm.unreadCount && dm.unreadCount > 0 && (
-                        <span 
-                          className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded-full flex-shrink-0"
-                          data-testid={`dm-unread-${dm.id}`}
-                        >
-                          {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
-                        </span>
-                      )}
-                    </button>
-                  ))
-                )}
-              </ScrollArea>
-            </div>
+            <ConversationListPanel
+              channels={channels}
+              dmThreads={dmThreads}
+              currentUserId={user?.id}
+              selectedConversation={selectedConversation}
+              onSelectConversation={handleConversationSelect}
+              onNewDm={() => setStartChatDrawerOpen(true)}
+              onNewChannel={() => setCreateChannelOpen(true)}
+              isLoading={isLoadingChannels || isLoadingDmThreads}
+              showNewChannelButton={true}
+              className="flex-1"
+            />
           </TabsContent>
 
           {/* Team Tab */}
