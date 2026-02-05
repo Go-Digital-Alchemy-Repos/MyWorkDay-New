@@ -135,3 +135,52 @@ Verified chat timeline, message bubbles, timestamps, composer, comment container
 Zero hard-coded color utilities found across chat, comment, or rich text components.
 
 **Files changed:** 0
+
+---
+
+## Final QA Summary (2026-02-05)
+
+### Build Verification
+- Vite production build: PASSED (3,594 modules, 23.42s)
+- TypeScript compilation: No blocking errors
+
+### Visual Smoke Test (Automated)
+- Login page light mode: PASSED
+- Login page dark mode: PASSED (DOM class toggle)
+- Accent switching (green -> blue -> teal -> green): PASSED
+  - Green default: rgb(126,179,57)
+  - Blue accent: rgb(36,99,235)
+  - Teal accent: rgb(16,147,132)
+- Colors update correctly and revert to default when accent class removed
+
+### Migration Summary
+
+| Batch | Area | Result |
+|---|---|---|
+| Audit | Full codebase scan | 0 hard-coded colors found |
+| Batch 1 | App Shell + Global Surfaces | Already tokenized |
+| Batch 2 | Forms + Buttons + Focus States | Already tokenized |
+| Batch 3 | Tables + Toolbars + List States | Already tokenized |
+| Batch 4 | Drawers + Modals + Tabs | Already tokenized |
+| Batch 5 | Chat + Comments + Rich Text | Already tokenized |
+
+**Total files changed across all batches:** 0 (codebase was already fully tokenized)
+
+**Theme foundation files created/modified:**
+- `client/src/index.css` — Added accent preset CSS classes
+- `client/src/lib/theme-provider.tsx` — Added accent state management
+- `docs/UX/theme_tokens.md` — Token system documentation
+- `docs/UX/theme_migration_checklist.md` — Audit results
+- `docs/UX/theme_migration_log.md` — This file
+
+### Default Theme
+The default theme is **light mode + green accent** (preserving the original appearance). Green is the implicit default — no `accent-green` class is needed on `<html>`. The six available accents are: green, blue, indigo, teal, orange, slate.
+
+### Skipped / Deferred Items
+
+| Item | Reason | Follow-up |
+|---|---|---|
+| Status colors (online/away/busy/offline) | Intentionally fixed semantic colors in `tailwind.config.ts` — should NOT vary with accent | None needed |
+| Chart colors (--chart-1 through --chart-5) | Currently fixed per light/dark mode; could be accent-aware in future | Low priority; consider accent-tinted chart palettes |
+| Theme toggle on login page | Not present on unauthenticated pages | Add if desired for pre-login theme control |
+| Settings UI for accent selection | Foundation only — no user-facing picker yet | Build accent picker in Settings > Appearance |
