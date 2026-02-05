@@ -499,11 +499,11 @@ export default function ClientDetailPage() {
       case "active":
         return "bg-green-500/10 text-green-600 dark:text-green-400";
       case "inactive":
-        return "bg-gray-500/10 text-gray-600 dark:text-gray-400";
+        return "bg-muted text-muted-foreground";
       case "prospect":
         return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
       default:
-        return "bg-gray-500/10 text-gray-600";
+        return "bg-muted text-muted-foreground";
     }
   };
 

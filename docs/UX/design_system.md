@@ -12,6 +12,7 @@ This design system provides foundational UI components and tokens to ensure visu
 - [Empty States](./empty_states.md) - Guided empty states for all content areas
 - [Avatar System](./avatar_system.md) - User identity display with presence indicators
 - [Command Palette](./command_palette.md) - Global Cmd/Ctrl+K command palette
+- [UI Polish Checklist](./ui_polish_checklist.md) - Visual consistency review checklist
 
 ## Installation
 All components are available from `@/components/ui-system`:
