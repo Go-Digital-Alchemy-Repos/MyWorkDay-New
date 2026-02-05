@@ -201,8 +201,6 @@ export default function ChatPage() {
 
   // Members drawer state
   const [membersDrawerOpen, setMembersDrawerOpen] = useState(false);
-  const [createChannelOpen, setCreateChannelOpen] = useState(false);
-  const [startDmOpen, setStartDmOpen] = useState(false);
   const [addMemberSearchQuery, setAddMemberSearchQuery] = useState("");
   const [removeMemberConfirmUserId, setRemoveMemberConfirmUserId] = useState<string | null>(null);
 
@@ -1616,7 +1614,7 @@ export default function ChatPage() {
           </TabsContent>
 
           {/* Team Tab */}
-          <TabsContent value="team" className="flex-1 flex flex-col overflow-hidden mt-0 p-0">
+          <TabsContent value="team" className="flex-1 flex flex-col overflow-hidden p-0">
             <div className="p-4 border-b">
               <Input
                 placeholder="Search team members..."
