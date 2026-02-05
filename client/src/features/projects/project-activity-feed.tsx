@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type ActivityType = "task_created" | "task_updated" | "comment_added" | "time_logged";
 
@@ -20,6 +20,7 @@ interface ActivityItem {
   actorId: string;
   actorName: string;
   actorEmail: string;
+  actorAvatarUrl: string | null;
   entityId: string;
   entityTitle: string;
   metadata?: Record<string, unknown>;
@@ -122,6 +123,7 @@ export function ProjectActivityFeed({ projectId, limit = 20, onTaskClick }: Proj
             data-testid={`activity-item-${item.id}`}
           >
             <Avatar className="h-7 w-7">
+              {item.actorAvatarUrl && <AvatarImage src={item.actorAvatarUrl} alt={item.actorName} />}
               <AvatarFallback className="text-xs">
                 {getInitials(item.actorName)}
               </AvatarFallback>

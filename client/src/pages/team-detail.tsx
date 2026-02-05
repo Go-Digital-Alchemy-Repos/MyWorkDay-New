@@ -5,7 +5,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { TeamDrawer } from "@/features/teams";
@@ -221,6 +221,7 @@ export default function TeamDetailPage() {
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
+                            {member.user?.avatarUrl && <AvatarImage src={member.user.avatarUrl} alt={`${member.user?.firstName || ""} ${member.user?.lastName || ""}`} />}
                             <AvatarFallback>
                               {member.user?.firstName?.charAt(0) || member.user?.email?.charAt(0) || "U"}
                             </AvatarFallback>

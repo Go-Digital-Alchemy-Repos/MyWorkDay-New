@@ -97,6 +97,7 @@ export type ProjectActivityItem = {
   actorId: string;
   actorName: string;
   actorEmail: string;
+  actorAvatarUrl: string | null;
   entityId: string;
   entityTitle: string;
   metadata?: Record<string, unknown>;
@@ -1490,6 +1491,7 @@ export class DatabaseStorage implements IStorage {
         actorId: task.createdBy || "system",
         actorName: "",
         actorEmail: "",
+        actorAvatarUrl: null,
         entityId: task.id,
         entityTitle: task.title,
       });
@@ -1504,6 +1506,7 @@ export class DatabaseStorage implements IStorage {
           actorId: task.createdBy || "system",
           actorName: "",
           actorEmail: "",
+          actorAvatarUrl: null,
           entityId: task.id,
           entityTitle: task.title,
         });
@@ -1527,6 +1530,7 @@ export class DatabaseStorage implements IStorage {
           actorId: comment.userId,
           actorName: "",
           actorEmail: "",
+          actorAvatarUrl: null,
           entityId: comment.taskId,
           entityTitle: task?.title || "Task",
           metadata: { commentBody: comment.body.substring(0, 100) },
@@ -1550,6 +1554,7 @@ export class DatabaseStorage implements IStorage {
         actorId: entry.userId,
         actorName: "",
         actorEmail: "",
+        actorAvatarUrl: null,
         entityId: entry.taskId || projectId,
         entityTitle: task?.title || entry.description || "Time logged",
         metadata: { durationSeconds: entry.durationSeconds },
@@ -1557,9 +1562,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     // 5. Batch fetch all users
-    const userMap = new Map<string, { id: string; name: string; email: string }>();
+    const userMap = new Map<string, { id: string; name: string; email: string; avatarUrl: string | null }>();
     if (userIds.size > 0) {
-      const userList = await db.select({ id: users.id, name: users.name, email: users.email })
+      const userList = await db.select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
         .from(users)
         .where(inArray(users.id, Array.from(userIds)));
       for (const u of userList) {
@@ -1572,10 +1577,12 @@ export class DatabaseStorage implements IStorage {
       if (item.actorId === "system") {
         item.actorName = "System";
         item.actorEmail = "";
+        item.actorAvatarUrl = null;
       } else {
         const user = userMap.get(item.actorId);
         item.actorName = user?.name || "Unknown";
         item.actorEmail = user?.email || "";
+        item.actorAvatarUrl = user?.avatarUrl || null;
       }
     }
 

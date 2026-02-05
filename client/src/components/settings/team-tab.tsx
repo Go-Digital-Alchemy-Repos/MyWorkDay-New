@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { UserDrawer } from "@/components/user-drawer";
 import { TeamDrawer } from "@/features/teams";
@@ -455,6 +455,7 @@ export function TeamTab({ isAdmin = true }: TeamTabProps) {
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
+                              {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={getFullName(user)} />}
                               <AvatarFallback className="text-xs">
                                 {getInitials(user)}
                               </AvatarFallback>
@@ -911,6 +912,7 @@ function TeamWithMembers({
               >
                 <div className="flex items-center gap-2">
                   <Avatar className="h-6 w-6">
+                    {member.user?.avatarUrl && <AvatarImage src={member.user.avatarUrl} alt={member.user ? getFullName(member.user) : ""} />}
                     <AvatarFallback className="text-xs">
                       {member.user ? getInitials(member.user) : "?"}
                     </AvatarFallback>
