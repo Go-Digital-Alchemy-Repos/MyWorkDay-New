@@ -8176,6 +8176,8 @@ const CATEGORY_CONFIG: Record<string, { displayName: string; icon: string; order
   "14-TROUBLESHOOTING": { displayName: "Troubleshooting", icon: "alert-triangle", order: 14 },
   "15-REFERENCE": { displayName: "Reference", icon: "book", order: 15 },
   "16-CHANGELOG": { displayName: "Changelog", icon: "clock", order: 16 },
+  "17-API-REGISTRY": { displayName: "API Registry", icon: "code", order: 17 },
+  "00-AUDIT": { displayName: "Audit Reports", icon: "check-circle", order: 0 },
   "admin": { displayName: "Admin", icon: "settings", order: 20 },
   "architecture": { displayName: "Architecture (Legacy)", icon: "layout", order: 21 },
   "auth": { displayName: "Authentication", icon: "key", order: 22 },
