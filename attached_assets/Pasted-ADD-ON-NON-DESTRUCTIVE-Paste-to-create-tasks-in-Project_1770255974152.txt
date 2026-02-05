@@ -1,0 +1,112 @@
+ADD-ON (NON-DESTRUCTIVE): “Paste-to-create tasks” in Project Template Editor
+
+SCOPE
+Enhance the Project Template Editor so Tenant Admins can quickly add many task templates at once by pasting text (bulleted or line-separated). This must be additive and must not break existing template editing.
+
+NON-DESTRUCTIVE RULES
+1) Do not remove or modify existing task template creation/editing behavior—only add this as an optional faster input path.
+2) Keep styling consistent (Inter, existing shadcn/tailwind patterns).
+3) Do not change existing endpoints in a breaking way. Prefer using existing “create task template” endpoint(s) or add a single additive bulk endpoint.
+4) Preserve tenant scoping and RBAC (admin-only).
+
+UX REQUIREMENTS
+1) In the Template Editor, inside a selected Template Section’s task list area, add a button:
+   - “Paste tasks” (or “Bulk add”)
+2) Clicking opens a dialog or slide-over panel with:
+   - A multiline textarea
+   - Helper text: “Paste one task per line. Bullets and numbering will be cleaned automatically.”
+   - Options:
+     a) “Append to end” (default)
+     b) “Insert at top” (optional)
+     c) “Auto-trim bullets/numbering” (default ON)
+     d) “Skip blank lines” (default ON)
+   - Preview panel showing parsed tasks before saving:
+     - Shows each resulting task title line
+     - Shows count: “N tasks will be created”
+3) Buttons:
+   - Cancel
+   - “Create tasks”
+4) After success:
+   - Newly created tasks appear in the list immediately in correct sortOrder
+   - Toast: “Added N tasks”
+5) Validation:
+   - Empty input → disable Create
+   - Enforce max tasks per paste (e.g., 100) with clear error message
+   - Enforce max title length if app has limits; truncate only if necessary and warn
+
+PARSING LOGIC (CLIENT-SIDE)
+Implement a parser that converts pasted text into task titles:
+- Split by newline
+- Trim whitespace
+- Drop empty lines
+- Remove common bullet/number prefixes:
+  - "-", "*", "•"
+  - "1.", "1)", "(1)", "01.", "01)"
+  - "—", "–"
+- Collapse multiple spaces to one
+- Result: array of { title, sortOrder }
+
+Keep it robust but simple.
+
+SERVER-SIDE IMPLEMENTATION (PREFERRED: BULK ENDPOINT, ADDITIVE)
+Option A (preferred): Add one bulk-create endpoint to reduce chattiness:
+POST /api/templates/projects/:templateId/sections/:sectionId/tasks/bulk
+Body:
+{
+  tasks: [
+    { title: string, description?: string, relativeDueOffsetDays?: number, defaultPriority?: string, ... }
+  ],
+  insertMode: "append" | "prepend" (optional)
+}
+Behavior:
+- Admin-only
+- Tenant-scoped: templateId and sectionId must belong to tenant
+- Determine starting sortOrder:
+  - append: start after current max sortOrder
+  - prepend: shift existing sortOrder down (only if prepend supported), otherwise just append
+- Create tasks in a transaction
+- Return created task templates ordered by sortOrder
+
+Option B (fallback): Reuse existing single-create endpoint in a loop:
+- If bulk endpoint is too invasive, implement client-side loop with concurrency limit (e.g., 3–5 requests) and show progress.
+- Still non-destructive, but less efficient.
+
+IMPORTANT: Do not change existing single-create route behavior. Bulk is additive.
+
+DATA / SORTORDER REQUIREMENTS
+1) All created tasks must have stable ordering:
+   - If user pasted N lines, maintain their order
+2) Ensure sortOrder does not collide:
+   - Use maxSortOrder + i increments
+3) The UI must re-render in correct order with no page refresh.
+
+RBAC / SECURITY
+- Only Tenant Admin (and Super Admin if allowed) can bulk add tasks.
+- Employees must not have access to the bulk-create endpoint.
+- Validate that the section belongs to the template and tenant.
+
+DOCS (REQUIRED)
+Update in-app App Docs (Tenant Admin docs area) under:
+- “Project Templates > Editor”
+Add a subsection:
+- “Bulk Add / Paste Tasks”
+Include:
+- supported formats (bullets, numbering)
+- limits (max tasks per paste)
+Update API Registry if bulk endpoint is added.
+
+TESTS (MINIMUM)
+Backend:
+- bulk endpoint rejects non-admin
+- creates correct number of tasks
+- preserves order
+Frontend:
+- parser removes bullets/numbering correctly
+- preview count matches created count
+- tasks appear immediately after creation
+
+DELIVERABLE
+- “Paste tasks” UI in Template Editor
+- Robust parsing + preview
+- Efficient creation (bulk endpoint preferred)
+- Docs updated, non-destructive changes only

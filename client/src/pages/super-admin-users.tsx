@@ -486,6 +486,21 @@ export default function SuperAdminUsers() {
     },
   });
 
+  const activatePendingUserMutation = useMutation({
+    mutationFn: async ({ invitationId, tenantId }: { invitationId: string; tenantId: string }) => {
+      return apiRequest("POST", `/api/v1/super/tenants/${tenantId}/invitations/${invitationId}/activate`, {});
+    },
+    onSuccess: () => {
+      toast({ title: "User activated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/super/users"] });
+      setAppUserDrawerOpen(false);
+      setSelectedAppUser(null);
+    },
+    onError: (error: any) => {
+      toast({ title: error.message || "Failed to activate user", variant: "destructive" });
+    },
+  });
+
   const deleteInvitationMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/v1/super/invitations/${id}`);
@@ -1051,14 +1066,27 @@ export default function SuperAdminUsers() {
                       <Button 
                         className="w-full justify-start" 
                         variant="outline"
+                        onClick={() => activatePendingUserMutation.mutate({ 
+                          invitationId: selectedAppUser.id, 
+                          tenantId: selectedAppUser.tenantId || "" 
+                        })}
+                        disabled={activatePendingUserMutation.isPending || !selectedAppUser.tenantId}
+                        data-testid="button-activate-pending-user"
+                      >
+                        {activatePendingUserMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <UserCheck className="h-4 w-4 mr-2" />}
+                        Activate User
+                      </Button>
+                      <Button 
+                        className="w-full justify-start" 
+                        variant="outline"
                         onClick={() => {
                           setAppUserPasswordDrawerOpen(true);
                           setGeneratedAppUserInviteUrl(null);
                         }}
-                        data-testid="button-activate-user"
+                        data-testid="button-activate-set-password"
                       >
-                        <UserCheck className="h-4 w-4 mr-2" />
-                        Activate User & Set Password
+                        <KeyRound className="h-4 w-4 mr-2" />
+                        Activate & Set Password
                       </Button>
                       <Button 
                         className="w-full justify-start" 
