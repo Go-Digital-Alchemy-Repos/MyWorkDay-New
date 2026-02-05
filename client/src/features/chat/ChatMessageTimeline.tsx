@@ -349,9 +349,13 @@ export function ChatMessageTimeline({
               className="flex flex-col items-center justify-center h-40 text-muted-foreground"
               data-testid="empty-messages"
             >
-              <MessageCircle className="h-12 w-12 mb-2 opacity-50" />
-              <p className="text-sm">No messages yet</p>
-              <p className="text-xs">Be the first to send a message!</p>
+              <div className="flex items-center justify-center h-16 w-16 rounded-full bg-primary/10 mb-4">
+                <MessageCircle className="h-8 w-8 text-primary" />
+              </div>
+              <p className="text-base font-medium text-foreground mb-1">Say hello!</p>
+              <p className="text-sm text-center max-w-[200px]">
+                Start the conversation by sending your first message.
+              </p>
             </div>
           )}
 

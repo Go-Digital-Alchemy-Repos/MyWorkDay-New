@@ -784,6 +784,51 @@ export default function ChatPage() {
     return () => clearTimeout(timeoutId);
   }, [messageInput, selectedChannel?.id, selectedDm?.id]);
 
+  // Keyboard shortcuts: Esc closes panels/menus, Ctrl/Cmd+K focuses conversation search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+K: Focus conversation search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInput = document.querySelector('[data-testid="input-conversation-search"]') as HTMLInputElement;
+        searchInput?.focus();
+        return;
+      }
+      
+      // Escape: Close open panels/menus in priority order
+      if (e.key === 'Escape') {
+        // Close search popover first
+        if (searchOpen) {
+          setSearchOpen(false);
+          return;
+        }
+        // Close context panel
+        if (contextPanelOpen) {
+          setContextPanelOpen(false);
+          return;
+        }
+        // Close members drawer
+        if (membersDrawerOpen) {
+          setMembersDrawerOpen(false);
+          return;
+        }
+        // Close create channel dialog
+        if (createChannelOpen) {
+          setCreateChannelOpen(false);
+          return;
+        }
+        // Close start DM dialog
+        if (startDmOpen) {
+          setStartDmOpen(false);
+          return;
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [searchOpen, contextPanelOpen, membersDrawerOpen, createChannelOpen, startDmOpen]);
+
   // Bi-directional URL sync - react to URL changes (back/forward nav) and restore from URL
   // Derive selection keys for proper dependency tracking
   const selectedChannelId = selectedChannel?.id ?? null;
@@ -1685,6 +1730,8 @@ export default function ChatPage() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setSearchOpen(true)}
+                  aria-label="Search messages"
+                  title="Search messages"
                   data-testid="button-chat-search"
                 >
                   <Search className="h-4 w-4" />
@@ -1825,6 +1872,8 @@ export default function ChatPage() {
                   variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading || sendMessageMutation.isPending}
+                  aria-label="Attach file"
+                  title="Attach file"
                   data-testid="button-attach-file"
                 >
                   {isUploading ? (
@@ -1871,6 +1920,8 @@ export default function ChatPage() {
                   type="submit"
                   size="icon"
                   disabled={(!messageInput.trim() && pendingAttachments.length === 0) || sendMessageMutation.isPending}
+                  aria-label="Send message"
+                  title="Send message"
                   data-testid="button-send-message"
                 >
                   <Send className="h-4 w-4" />
@@ -1881,18 +1932,30 @@ export default function ChatPage() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <Card className="p-8 text-center max-w-sm">
-              <MessageCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">Welcome to Chat</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Select a channel or direct message to start chatting with your team.
+              <div className="flex items-center justify-center h-16 w-16 rounded-full bg-primary/10 mx-auto mb-4">
+                <MessageCircle className="h-8 w-8 text-primary" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">Welcome to Chat</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Select a conversation from the sidebar or start a new one to begin chatting with your team.
               </p>
-              <Button
-                onClick={() => setCreateChannelOpen(true)}
-                data-testid="button-create-first-channel"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Channel
-              </Button>
+              <div className="flex gap-2 justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setStartDmOpen(true)}
+                  data-testid="button-start-first-dm-welcome"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Start DM
+                </Button>
+                <Button
+                  onClick={() => setCreateChannelOpen(true)}
+                  data-testid="button-create-first-channel"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Channel
+                </Button>
+              </div>
             </Card>
           </div>
         )}

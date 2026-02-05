@@ -354,6 +354,7 @@ export function ChatContextPanelToggle({
       variant="ghost"
       size="icon"
       onClick={onClick}
+      aria-label="Show details panel"
       title="Show details"
       data-testid="button-open-context-panel"
     >

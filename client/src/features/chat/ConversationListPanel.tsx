@@ -215,8 +215,28 @@ export function ConversationListPanel({
           {dmsExpanded && (
             <div className="px-2 space-y-0.5">
               {filteredDmThreads.length === 0 ? (
-                <div className="px-2 py-3 text-sm text-muted-foreground text-center">
-                  {searchQuery ? "No DMs match your search" : "No direct messages yet"}
+                <div className="px-2 py-6 text-center">
+                  {searchQuery ? (
+                    <p className="text-sm text-muted-foreground">No DMs match your search</p>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 mx-auto mb-2">
+                        <MessageSquare className="h-5 w-5 text-primary" />
+                      </div>
+                      <p className="text-sm font-medium mb-1">No conversations yet</p>
+                      <p className="text-xs text-muted-foreground mb-3">Start a direct message with a teammate</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onNewDm}
+                        className="mx-auto"
+                        data-testid="button-start-first-dm"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                        Start a DM
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : (
                 filteredDmThreads.map((dm) => (

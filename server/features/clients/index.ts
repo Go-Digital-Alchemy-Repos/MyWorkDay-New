@@ -7,7 +7,7 @@ import documentsRouter from "./documents.router";
 
 const router = Router();
 
-router.use("/clients", clientsRouter);
+router.use("/v1/clients", clientsRouter);
 router.use("/clients", portalRouter);
 router.use("/clients", notesRouter);
 router.use("/clients", documentsRouter);
