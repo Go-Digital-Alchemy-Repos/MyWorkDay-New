@@ -36,7 +36,8 @@ import { chatDebugStore, isChatDebugEnabled } from './chatDebug';
 import { 
   markConnected, 
   markDisconnected, 
-  recordPing, 
+  recordPing,
+  setIdle,
   toPresencePayload,
   startPresenceCleanup,
   onUserOffline,
@@ -167,7 +168,23 @@ export function initializeSocketIO(httpServer: HttpServer): Server<ClientToServe
     // Handle presence ping (heartbeat)
     socket.on(PRESENCE_EVENTS.PING, () => {
       if (authSocket.userId && authSocket.tenantId) {
-        recordPing(authSocket.tenantId, authSocket.userId);
+        const { info, statusChanged } = recordPing(authSocket.tenantId, authSocket.userId);
+        // Broadcast if status changed (e.g., idle -> online)
+        if (statusChanged) {
+          const tenantRoom = `tenant:${authSocket.tenantId}`;
+          io?.to(tenantRoom).emit(PRESENCE_EVENTS.UPDATE, toPresencePayload(info));
+        }
+      }
+    });
+
+    // Handle presence idle toggle
+    socket.on(PRESENCE_EVENTS.IDLE, ({ isIdle }: { isIdle: boolean }) => {
+      if (authSocket.userId && authSocket.tenantId) {
+        const { info, statusChanged } = setIdle(authSocket.tenantId, authSocket.userId, isIdle);
+        if (statusChanged) {
+          const tenantRoom = `tenant:${authSocket.tenantId}`;
+          io?.to(tenantRoom).emit(PRESENCE_EVENTS.UPDATE, toPresencePayload(info));
+        }
       }
     });
 

@@ -1,11 +1,12 @@
 /**
  * Presence Indicator Component
  * 
- * Displays online/offline status with a Slack-style indicator.
+ * Displays online/idle/offline status with a Slack-style indicator.
  * - Green filled circle: online
- * - Hollow ring: offline
+ * - Amber/yellow filled circle: idle
+ * - Hollow gray ring: offline
  * 
- * Optionally shows "Last seen: X" tooltip when offline.
+ * Optionally shows tooltip with status and last seen time.
  */
 
 import { cn } from "@/lib/utils";
@@ -26,25 +27,48 @@ const sizeClasses = {
   lg: "h-3 w-3",
 };
 
+function getStatusClasses(status: 'online' | 'idle' | 'offline'): string {
+  switch (status) {
+    case 'online':
+      return 'bg-green-500';
+    case 'idle':
+      return 'bg-amber-400';
+    case 'offline':
+      return 'bg-transparent border-2 border-muted-foreground/50';
+  }
+}
+
+function getTooltipText(status: 'online' | 'idle' | 'offline', lastSeenAt: Date | null): string {
+  switch (status) {
+    case 'online':
+      return 'Online';
+    case 'idle':
+      return 'Idle';
+    case 'offline':
+      return lastSeenAt
+        ? `Last seen ${formatDistanceToNow(lastSeenAt, { addSuffix: true })}`
+        : 'Offline';
+  }
+}
+
 export function PresenceIndicator({
   userId,
   size = "md",
   showTooltip = true,
   className,
 }: PresenceIndicatorProps) {
-  const { online, lastSeenAt } = useUserPresence(userId);
+  const { status, lastSeenAt } = useUserPresence(userId);
 
   const indicator = (
     <span
       className={cn(
         "inline-block rounded-full flex-shrink-0",
         sizeClasses[size],
-        online
-          ? "bg-green-500"
-          : "bg-transparent border-2 border-muted-foreground/50",
+        getStatusClasses(status),
         className
       )}
       data-testid={`presence-indicator-${userId}`}
+      data-status={status}
     />
   );
 
@@ -52,11 +76,7 @@ export function PresenceIndicator({
     return indicator;
   }
 
-  const tooltipText = online
-    ? "Online"
-    : lastSeenAt
-      ? `Last seen ${formatDistanceToNow(lastSeenAt, { addSuffix: true })}`
-      : "Offline";
+  const tooltipText = getTooltipText(status, lastSeenAt);
 
   return (
     <Tooltip>
@@ -78,6 +98,17 @@ interface AvatarPresenceIndicatorProps extends PresenceIndicatorProps {
   avatarSize?: number;
 }
 
+function getAvatarStatusClasses(status: 'online' | 'idle' | 'offline'): string {
+  switch (status) {
+    case 'online':
+      return 'bg-green-500';
+    case 'idle':
+      return 'bg-amber-400';
+    case 'offline':
+      return 'bg-muted-foreground/30';
+  }
+}
+
 export function AvatarPresenceIndicator({
   userId,
   size = "sm",
@@ -85,7 +116,7 @@ export function AvatarPresenceIndicator({
   avatarSize = 32,
   className,
 }: AvatarPresenceIndicatorProps) {
-  const { online, lastSeenAt } = useUserPresence(userId);
+  const { status, lastSeenAt } = useUserPresence(userId);
 
   // Calculate position based on avatar size
   const offsetClasses = avatarSize <= 24 
@@ -100,12 +131,11 @@ export function AvatarPresenceIndicator({
         "absolute inline-block rounded-full border-2 border-background flex-shrink-0",
         sizeClasses[size],
         offsetClasses,
-        online
-          ? "bg-green-500"
-          : "bg-muted-foreground/30",
+        getAvatarStatusClasses(status),
         className
       )}
       data-testid={`avatar-presence-${userId}`}
+      data-status={status}
     />
   );
 
@@ -113,11 +143,7 @@ export function AvatarPresenceIndicator({
     return indicator;
   }
 
-  const tooltipText = online
-    ? "Online"
-    : lastSeenAt
-      ? `Last seen ${formatDistanceToNow(lastSeenAt, { addSuffix: true })}`
-      : "Offline";
+  const tooltipText = getTooltipText(status, lastSeenAt);
 
   return (
     <Tooltip>

@@ -672,24 +672,35 @@ export interface ChatSendPayload {
 
 export const PRESENCE_EVENTS = {
   PING: 'presence:ping',
+  IDLE: 'presence:idle',
   UPDATE: 'presence:update',
   BULK_UPDATE: 'presence:bulkUpdate',
 } as const;
 
+export type PresenceStatus = 'online' | 'idle' | 'offline';
+
 export interface PresenceState {
   userId: string;
-  online: boolean;
+  status: PresenceStatus;
+  online: boolean; // Backwards compatibility: true if status is 'online' or 'idle'
   lastSeenAt: Date | string;
+  lastActiveAt?: Date | string; // When user last had activity (not idle)
 }
 
 export interface PresencePingPayload {
   // Minimal payload - server derives userId/tenantId from session
 }
 
+export interface PresenceIdlePayload {
+  isIdle: boolean;
+}
+
 export interface PresenceUpdatePayload {
   userId: string;
-  online: boolean;
+  status: PresenceStatus;
+  online: boolean; // Backwards compatibility
   lastSeenAt: Date | string;
+  lastActiveAt?: Date | string;
 }
 
 export interface PresenceBulkUpdatePayload {
@@ -822,4 +833,5 @@ export type ClientToServerEvents = {
   [TYPING_EVENTS.STOP]: (payload: ChatTypingStopPayload) => void;
   // Presence events
   [PRESENCE_EVENTS.PING]: (payload: PresencePingPayload) => void;
+  [PRESENCE_EVENTS.IDLE]: (payload: PresenceIdlePayload) => void;
 };

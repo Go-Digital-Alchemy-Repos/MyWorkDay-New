@@ -7,18 +7,26 @@
  * Implementation:
  * - Uses an in-memory Map for fast lookups
  * - Key: `${tenantId}:${userId}`
- * - Value: { activeSocketCount, lastSeenAt, status }
+ * - Value: { activeSocketCount, lastSeenAt, lastActiveAt, status }
  * 
- * A user is "online" if they have >= 1 active socket connections.
- * lastSeenAt is updated on: connect, ping, disconnect.
+ * Status types:
+ * - "online": User has >= 1 active socket and recent activity
+ * - "idle": User has >= 1 active socket but no activity for N minutes
+ * - "offline": User has 0 active sockets
+ * 
+ * lastSeenAt: Updated on connect, ping, disconnect
+ * lastActiveAt: Updated on connect, ping, and when returning from idle
  */
 
 import { log } from '../lib/log';
 
+export type PresenceStatus = 'online' | 'idle' | 'offline';
+
 export interface PresenceInfo {
   activeSocketCount: number;
   lastSeenAt: Date;
-  status: 'online' | 'offline';
+  lastActiveAt: Date;
+  status: PresenceStatus;
   tenantId: string;
   userId: string;
 }
@@ -51,6 +59,7 @@ export function getPresenceForUsers(tenantId: string, userIds: string[]): Presen
       userId,
       activeSocketCount: 0,
       lastSeenAt: new Date(0), // Unknown
+      lastActiveAt: new Date(0),
       status: 'offline' as const,
     };
   });
@@ -59,10 +68,13 @@ export function getPresenceForUsers(tenantId: string, userIds: string[]): Presen
 /**
  * Get all online users for a tenant.
  */
+/**
+ * Get all online or idle users for a tenant (users with active sockets).
+ */
 export function getOnlineUsersForTenant(tenantId: string): PresenceInfo[] {
   const online: PresenceInfo[] = [];
   presenceStore.forEach((info, key) => {
-    if (info.tenantId === tenantId && info.status === 'online') {
+    if (info.tenantId === tenantId && (info.status === 'online' || info.status === 'idle')) {
       online.push(info);
     }
   });
@@ -95,18 +107,21 @@ export function markConnected(
   const now = new Date();
 
   if (existing) {
-    const wasOffline = existing.status === 'offline';
+    const previousStatus = existing.status;
     existing.activeSocketCount += 1;
     existing.lastSeenAt = now;
+    existing.lastActiveAt = now;
     existing.status = 'online';
+    const statusChanged = previousStatus !== 'online';
     log(`[presence] User ${userId} connected (sockets: ${existing.activeSocketCount})`, 'presence');
-    return { info: existing, statusChanged: wasOffline };
+    return { info: existing, statusChanged };
   } else {
     const info: PresenceInfo = {
       tenantId,
       userId,
       activeSocketCount: 1,
       lastSeenAt: now,
+      lastActiveAt: now,
       status: 'online',
     };
     presenceStore.set(key, info);
@@ -128,14 +143,16 @@ export function markDisconnected(
   const now = new Date();
 
   if (existing) {
+    const previousStatus = existing.status;
     existing.activeSocketCount = Math.max(0, existing.activeSocketCount - 1);
     existing.lastSeenAt = now;
     const wentOffline = existing.activeSocketCount === 0;
     if (wentOffline) {
       existing.status = 'offline';
     }
+    const statusChanged = wentOffline && previousStatus !== 'offline';
     log(`[presence] User ${userId} disconnected (sockets: ${existing.activeSocketCount})`, 'presence');
-    return { info: existing, statusChanged: wentOffline };
+    return { info: existing, statusChanged };
   } else {
     // Shouldn't happen, but handle gracefully
     const info: PresenceInfo = {
@@ -143,6 +160,7 @@ export function markDisconnected(
       userId,
       activeSocketCount: 0,
       lastSeenAt: now,
+      lastActiveAt: now,
       status: 'offline',
     };
     presenceStore.set(key, info);
@@ -151,25 +169,84 @@ export function markDisconnected(
 }
 
 /**
- * Update lastSeenAt on heartbeat ping.
+ * Update lastSeenAt and lastActiveAt on heartbeat ping.
+ * Returns the updated info and whether status changed (e.g., idle -> online).
  */
-export function recordPing(tenantId: string, userId: string): void {
+export function recordPing(
+  tenantId: string, 
+  userId: string
+): { info: PresenceInfo; statusChanged: boolean } {
   const key = getKey(tenantId, userId);
   const existing = presenceStore.get(key);
   const now = new Date();
 
   if (existing) {
+    const previousStatus = existing.status;
     existing.lastSeenAt = now;
+    existing.lastActiveAt = now;
+    // If user was idle, return them to online
+    if (existing.status === 'idle') {
+      existing.status = 'online';
+    }
+    const statusChanged = previousStatus !== existing.status;
+    return { info: existing, statusChanged };
   } else {
     // User pinged without prior connect (edge case), create entry
-    presenceStore.set(key, {
+    const info: PresenceInfo = {
       tenantId,
       userId,
       activeSocketCount: 1,
       lastSeenAt: now,
+      lastActiveAt: now,
       status: 'online',
-    });
+    };
+    presenceStore.set(key, info);
+    return { info, statusChanged: true };
   }
+}
+
+/**
+ * Set user idle/active state.
+ * Returns the updated info and whether status changed.
+ */
+export function setIdle(
+  tenantId: string,
+  userId: string,
+  isIdle: boolean
+): { info: PresenceInfo; statusChanged: boolean } {
+  const key = getKey(tenantId, userId);
+  const existing = presenceStore.get(key);
+  const now = new Date();
+
+  if (!existing || existing.activeSocketCount === 0) {
+    // Can't set idle for offline user
+    return { 
+      info: existing || {
+        tenantId,
+        userId,
+        activeSocketCount: 0,
+        lastSeenAt: now,
+        lastActiveAt: now,
+        status: 'offline' as const,
+      }, 
+      statusChanged: false 
+    };
+  }
+
+  const previousStatus = existing.status;
+  existing.lastSeenAt = now;
+  
+  if (isIdle) {
+    existing.status = 'idle';
+    log(`[presence] User ${userId} went idle`, 'presence');
+  } else {
+    existing.status = 'online';
+    existing.lastActiveAt = now;
+    log(`[presence] User ${userId} returned from idle`, 'presence');
+  }
+  
+  const statusChanged = previousStatus !== existing.status;
+  return { info: existing, statusChanged };
 }
 
 /**
@@ -177,13 +254,17 @@ export function recordPing(tenantId: string, userId: string): void {
  */
 export function toPresencePayload(info: PresenceInfo): {
   userId: string;
+  status: PresenceStatus;
   online: boolean;
   lastSeenAt: string;
+  lastActiveAt: string;
 } {
   return {
     userId: info.userId,
-    online: info.status === 'online',
+    status: info.status,
+    online: info.status === 'online' || info.status === 'idle', // Backwards compatibility
     lastSeenAt: info.lastSeenAt.toISOString(),
+    lastActiveAt: info.lastActiveAt.toISOString(),
   };
 }
 
