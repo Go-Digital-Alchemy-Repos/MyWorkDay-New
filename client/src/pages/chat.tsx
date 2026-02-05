@@ -1904,7 +1904,7 @@ export default function ChatPage() {
           selectedChannel={selectedChannel}
           selectedDm={selectedDm}
           currentUserId={user?.id}
-          channelMembers={channelMembersQuery.data || []}
+          channelMembers={channelMembers}
           isOpen={contextPanelOpen}
           onToggle={() => setContextPanelOpen(false)}
         />
