@@ -118,3 +118,20 @@ Verified detail drawers, modal/dialog overlays, close buttons, and tab component
 Zero hard-coded color utilities found across drawer, modal, or tab components.
 
 **Files changed:** 0
+
+### 2026-02-05 — Batch 5: Chat + Comments + Rich Text Areas
+
+**Result:** No migration needed.
+
+Verified chat timeline, message bubbles, timestamps, composer, comment containers, mention highlights, and rich text editor surfaces. All already use semantic tokens:
+- Chat timeline: `bg-background`
+- Message bubbles: `bg-muted text-foreground` (others), `bg-primary text-primary-foreground` (current user where applicable)
+- Timestamps/metadata: `text-muted-foreground`
+- Composer: `bg-card`, `border-border`, tokenized buttons
+- Comment containers: `bg-card` / `bg-muted`, author/timestamp via `text-muted-foreground`
+- Mention highlights: token-safe `text-primary` / `bg-primary/10`
+- Rich text editor: toolbar `bg-background` / `border-border`, editor surface `bg-background`, code blocks `bg-muted` with monospace font
+
+Zero hard-coded color utilities found across chat, comment, or rich text components.
+
+**Files changed:** 0
