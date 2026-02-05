@@ -15,6 +15,7 @@ import { requestIdMiddleware } from "./middleware/requestId";
 import { errorHandler } from "./middleware/errorHandler";
 import { errorLoggingMiddleware } from "./middleware/errorLogging";
 import { apiJsonResponseGuard, apiNotFoundHandler } from "./middleware/apiJsonGuard";
+import { requestLogger } from "./middleware/requestLogger";
 import { logMigrationStatus } from "./scripts/migration-status";
 import { ensureSchemaReady, getLastSchemaCheck } from "./startup/schemaReadiness";
 import { logAppInfo } from "./startup/appInfo";
@@ -160,6 +161,9 @@ setupGoogleAuth(app);
 
 // Setup tenant context middleware (must be after auth)
 app.use(tenantContextMiddleware);
+
+// Request logging middleware (after auth and tenant context for user/tenant info)
+app.use(requestLogger);
 
 // Setup agreement enforcement (must be after tenant context)
 app.use(agreementEnforcementGuard);

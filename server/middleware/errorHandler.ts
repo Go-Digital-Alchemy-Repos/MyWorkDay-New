@@ -74,6 +74,23 @@ function normalizePostgresError(err: any, isProduction: boolean): { code: string
   };
 }
 
+/**
+ * Get tenant ID from request context
+ */
+function getTenantId(req: Request): string | undefined {
+  return req.tenant?.effectiveTenantId 
+    || req.tenant?.tenantId 
+    || req.user?.tenantId 
+    || undefined;
+}
+
+/**
+ * Get user ID from request context
+ */
+function getUserId(req: Request): string | undefined {
+  return req.user?.id || undefined;
+}
+
 export function errorHandler(
   err: Error,
   req: Request,
@@ -84,12 +101,27 @@ export function errorHandler(
     const requestId = req.requestId || "unknown";
     const isProduction = process.env.NODE_ENV === "production";
     
-    // Log with appropriate detail level
-    if (!isProduction) {
-      console.error(`[Error] requestId=${requestId}`, err);
-    } else {
-      console.error(`[Error] requestId=${requestId} ${err.message}`);
-    }
+    // Determine status code for logging (before full error processing)
+    const logStatus = (err as AppError).statusCode || 500;
+    
+    // Enhanced error log with full context
+    const errorLogEntry = {
+      requestId,
+      method: req.method,
+      route: req.route?.path || req.path,
+      path: req.path,
+      status: logStatus,
+      tenantId: getTenantId(req),
+      userId: getUserId(req),
+      errorCode: (err as AppError).code || err.name || "UNKNOWN",
+      message: err.message,
+    };
+    
+    // Always include stack in server logs (not in response)
+    console.error("[error]", JSON.stringify({
+      ...errorLogEntry,
+      stack: err.stack,
+    }));
 
     let response: StandardErrorResponse;
     let statusCode: number;
