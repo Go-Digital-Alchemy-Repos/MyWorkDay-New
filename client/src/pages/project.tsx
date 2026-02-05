@@ -882,15 +882,15 @@ export default function ProjectPage() {
         />
       )}
       <Sheet open={aiPlannerOpen} onOpenChange={setAiPlannerOpen}>
-        <SheetContent className="w-[440px] sm:w-[540px]">
-          <SheetHeader>
+        <SheetContent className="w-[440px] sm:w-[540px] flex flex-col">
+          <SheetHeader className="flex-shrink-0">
             <SheetTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
               AI Project Planner
             </SheetTitle>
           </SheetHeader>
           {project && (
-            <div className="mt-4">
+            <div className="mt-4 flex-1 overflow-y-auto min-h-0">
               <AIProjectPlanner
                 projectName={project.name}
                 projectDescription={project.description || undefined}
