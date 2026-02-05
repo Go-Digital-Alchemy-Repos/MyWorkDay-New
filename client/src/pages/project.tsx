@@ -646,7 +646,7 @@ export default function ProjectPage() {
             <div className="min-w-0">
               <h1 className="text-base md:text-xl font-semibold truncate">{project.name}</h1>
               {project.description && (
-                <p className="text-xs text-muted-foreground truncate hidden md:block">{project.description}</p>
+                <p className="text-muted-foreground truncate hidden md:block text-[13px] ml-[10px] mr-[10px] mt-[10px] mb-[10px] pt-[10px] pb-[10px] pl-[10px] pr-[10px] text-left">{project.description}</p>
               )}
             </div>
           </div>
@@ -751,7 +751,6 @@ export default function ProjectPage() {
           </Button>
         </div>
       </div>
-
       <div className="flex-1 overflow-hidden">
         {view === "board" && (
           <DndContext
@@ -847,7 +846,6 @@ export default function ProjectPage() {
           />
         )}
       </div>
-
       <TaskDetailDrawer
         task={selectedTask}
         open={!!selectedTask}
@@ -860,7 +858,6 @@ export default function ProjectPage() {
         }}
         workspaceId={project?.workspaceId}
       />
-
       <TaskCreateDrawer
         open={createTaskOpen}
         onOpenChange={setCreateTaskOpen}
@@ -870,7 +867,6 @@ export default function ProjectPage() {
         tenantUsers={tenantUsers}
         isLoading={createTaskMutation.isPending}
       />
-
       {project && (
         <ProjectSettingsSheet
           project={project}
@@ -878,7 +874,6 @@ export default function ProjectPage() {
           onOpenChange={setSettingsOpen}
         />
       )}
-
       {project && (
         <ProjectMembersSheet
           project={project}
@@ -886,7 +881,6 @@ export default function ProjectPage() {
           onOpenChange={setMembersOpen}
         />
       )}
-
       <Sheet open={aiPlannerOpen} onOpenChange={setAiPlannerOpen}>
         <SheetContent className="w-[440px] sm:w-[540px]">
           <SheetHeader>
@@ -923,14 +917,12 @@ export default function ProjectPage() {
           )}
         </SheetContent>
       </Sheet>
-
       <StartTimerDrawer
         open={timerDrawerOpen}
         onOpenChange={setTimerDrawerOpen}
         initialProjectId={projectId}
         initialClientId={project?.clientId}
       />
-
       <Sheet open={activityOpen} onOpenChange={setActivityOpen}>
         <SheetContent className="w-[380px] sm:w-[440px]">
           <SheetHeader>
@@ -954,9 +946,7 @@ export default function ProjectPage() {
           )}
         </SheetContent>
       </Sheet>
-
       <SectionNameDialog />
-
       <Dialog open={showTimeTrackingPrompt} onOpenChange={setShowTimeTrackingPrompt}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -982,7 +972,6 @@ export default function ProjectPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       <Dialog open={showTimeEntryForm} onOpenChange={(open) => {
         if (!open) resetCompletionState();
         else setShowTimeEntryForm(open);
@@ -1056,7 +1045,6 @@ export default function ProjectPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       <AlertDialog open={deleteSectionDialogOpen} onOpenChange={setDeleteSectionDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
