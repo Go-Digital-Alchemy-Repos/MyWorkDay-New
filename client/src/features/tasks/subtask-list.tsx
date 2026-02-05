@@ -459,7 +459,7 @@ export function SubtaskList({
                     <Calendar
                       mode="single"
                       selected={subtask.dueDate ? new Date(subtask.dueDate) : undefined}
-                      onSelect={(date) => handleDueDateChange(subtask.id, date || null)}
+                      onSelect={(date) => handleDueDateChange(subtask.id, date ? date : null)}
                       initialFocus
                     />
                     {subtask.dueDate && (

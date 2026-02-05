@@ -323,7 +323,7 @@ export function SubtaskDetailDrawer({
         dueDate: localDueDate || null
       });
       toast({ title: "Subtask saved" });
-      onBack?.();
+      onOpenChange(false);
     }
   };
 
@@ -576,7 +576,10 @@ export function SubtaskDetailDrawer({
                     <CalendarComponent
                       mode="single"
                       selected={localDueDate || undefined}
-                      onSelect={handleDueDateChange}
+                      onSelect={(date) => {
+                        setLocalDueDate(date || null);
+                        setDueDatePopoverOpen(false);
+                      }}
                       initialFocus
                     />
                     {localDueDate && (
@@ -585,7 +588,10 @@ export function SubtaskDetailDrawer({
                           variant="ghost"
                           size="sm"
                           className="w-full"
-                          onClick={() => handleDueDateChange(undefined)}
+                          onClick={() => {
+                            setLocalDueDate(null);
+                            setDueDatePopoverOpen(false);
+                          }}
                         >
                           Clear due date
                         </Button>

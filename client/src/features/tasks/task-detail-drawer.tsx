@@ -580,6 +580,7 @@ export function TaskDetailDrawer({
       onUpdate?.(task.id, { title: title.trim() });
     }
     setEditingTitle(false);
+    onOpenChange(false);
   };
 
   const handleDescriptionChange = (value: string) => {
@@ -851,7 +852,7 @@ export function TaskDetailDrawer({
               >
                 <DatePickerWithChips
                   value={task.dueDate ? new Date(task.dueDate) : null}
-                  onChange={(date) => onUpdate?.(task.id, { dueDate: date || null })}
+                  onChange={(date) => onUpdate?.(task.id, { dueDate: date ? date.toISOString() : null })}
                   className="w-[180px] h-8"
                   data-testid="button-due-date"
                 />
