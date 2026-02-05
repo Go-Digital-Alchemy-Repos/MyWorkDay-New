@@ -14,7 +14,14 @@ export {
   type SkeletonVariant 
 } from "./LoadingSkeleton";
 export { DetailDrawer, type DetailDrawerTab } from "./DetailDrawer";
-export { DataToolbar } from "./DataToolbar";
+export { 
+  DataToolbar, 
+  FilterSelect, 
+  ActiveFilters,
+  type ViewMode,
+  type SortOption,
+  type FilterOption,
+} from "./DataToolbar";
 export { AvatarWithStatus } from "./AvatarWithStatus";
 export { PageTitle, SectionTitle, BodyText, MutedText, LabelText } from "./Typography";
 export { spacing, radius, shadows } from "./tokens";
