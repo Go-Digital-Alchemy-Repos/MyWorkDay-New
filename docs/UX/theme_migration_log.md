@@ -102,3 +102,19 @@ Verified tables (task list, projects list), data toolbars (filter chips, search 
 Zero hard-coded color utilities found across all table and toolbar components.
 
 **Files changed:** 0
+
+### 2026-02-05 — Batch 4: Drawers + Modals/Dialogs + Tabs
+
+**Result:** No migration needed.
+
+Verified detail drawers, modal/dialog overlays, close buttons, and tab components. All already use semantic tokens:
+- Drawer containers: `bg-card` / `bg-background`, `border-border`
+- Drawer titles: `text-foreground`, secondary text: `text-muted-foreground`
+- Modals/dialogs: `bg-popover text-popover-foreground` via shadcn Dialog/Sheet primitives
+- Overlays: handled by Radix UI with token-safe dark overlay
+- Close buttons: ghost variant `<Button>` (already tokenized)
+- Tabs: active indicator uses `--primary` / `--ring` tokens, inactive text uses `text-muted-foreground`
+
+Zero hard-coded color utilities found across drawer, modal, or tab components.
+
+**Files changed:** 0
