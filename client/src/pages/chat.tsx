@@ -165,6 +165,8 @@ export default function ChatPage() {
   const [selectedDm, setSelectedDm] = useState<ChatDmThread | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [quoteReply, setQuoteReply] = useState<{ authorName: string; body: string } | null>(null);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
   const [newChannelPrivate, setNewChannelPrivate] = useState(false);
@@ -727,6 +729,45 @@ export default function ChatPage() {
     }
   }, [selectedChannel?.id, selectedDm?.id]);
 
+  // Draft saving: Get conversation key for localStorage
+  const getConversationKey = () => {
+    if (selectedChannel) return `chat-draft:channel:${selectedChannel.id}`;
+    if (selectedDm) return `chat-draft:dm:${selectedDm.id}`;
+    return null;
+  };
+
+  // Load draft when conversation changes
+  useEffect(() => {
+    const key = getConversationKey();
+    if (key) {
+      const savedDraft = localStorage.getItem(key);
+      if (savedDraft) {
+        setMessageInput(savedDraft);
+      } else {
+        setMessageInput("");
+      }
+    }
+    // Clear send error when switching conversations
+    setSendError(null);
+    setQuoteReply(null);
+  }, [selectedChannel?.id, selectedDm?.id]);
+
+  // Save draft to localStorage (debounced)
+  useEffect(() => {
+    const key = getConversationKey();
+    if (!key) return;
+    
+    const timeoutId = setTimeout(() => {
+      if (messageInput.trim()) {
+        localStorage.setItem(key, messageInput);
+      } else {
+        localStorage.removeItem(key);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [messageInput, selectedChannel?.id, selectedDm?.id]);
+
   // Bi-directional URL sync - react to URL changes (back/forward nav) and restore from URL
   // Derive selection keys for proper dependency tracking
   const selectedChannelId = selectedChannel?.id ?? null;
@@ -1071,6 +1112,9 @@ export default function ChatPage() {
       throw new Error("No channel or DM selected");
     },
     onMutate: async ({ body, tempId }) => {
+      // Clear any previous send error
+      setSendError(null);
+      
       // Track pending message for reliable reconciliation
       pendingMessagesRef.current.set(tempId, { 
         body, 
@@ -1099,11 +1143,20 @@ export default function ChatPage() {
       
       setMessages(prev => [...prev, pendingMessage]);
       setMessageInput("");
+      setQuoteReply(null);
       setPendingAttachments([]);
+      
+      // Clear draft from localStorage on send
+      const key = getConversationKey();
+      if (key) localStorage.removeItem(key);
       
       return { tempId, body };
     },
     onError: (error, _variables, context) => {
+      // Set inline error for display
+      const errorMessage = error instanceof Error ? error.message : "Failed to send message";
+      setSendError(errorMessage);
+      
       // Mark the pending message as failed
       if (context?.tempId) {
         // Remove from pending ref since it failed
@@ -1626,6 +1679,46 @@ export default function ChatPage() {
                 <div className="mb-2 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
                   <Paperclip className="h-4 w-4" />
                   Drop files here to upload
+                </div>
+              )}
+              {/* Quote reply indicator */}
+              {quoteReply && (
+                <div className="mb-2 flex items-start gap-2 p-2 rounded-md bg-muted border-l-2 border-primary" data-testid="quote-reply-indicator">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-muted-foreground mb-0.5">
+                      Replying to {quoteReply.authorName}
+                    </div>
+                    <div className="text-sm text-muted-foreground truncate">
+                      {quoteReply.body.length > 100 ? quoteReply.body.substring(0, 100) + "..." : quoteReply.body}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    onClick={() => setQuoteReply(null)}
+                    data-testid="button-cancel-quote"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              {/* Inline send error */}
+              {sendError && (
+                <div className="mb-2 flex items-center gap-2 p-2 rounded-md bg-destructive/10 text-destructive text-sm" data-testid="send-error-indicator">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span className="flex-1">{sendError}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-destructive"
+                    onClick={() => setSendError(null)}
+                    data-testid="button-dismiss-error"
+                  >
+                    Dismiss
+                  </Button>
                 </div>
               )}
               {/* Pending attachments preview */}
