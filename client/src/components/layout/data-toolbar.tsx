@@ -135,7 +135,6 @@ export function DataToolbar({
                       <SelectValue placeholder={`All ${filter.label}`} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
                       {filter.options.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
