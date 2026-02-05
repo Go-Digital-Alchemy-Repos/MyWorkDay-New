@@ -643,10 +643,10 @@ export default function ProjectPage() {
             >
               {project.name.charAt(0).toUpperCase()}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="text-base md:text-xl font-semibold truncate">{project.name}</h1>
               {project.description && (
-                <p className="text-muted-foreground truncate hidden md:block text-[13px] ml-[10px] mr-[10px] mt-[10px] mb-[10px] pt-[10px] pb-[10px] pl-[10px] pr-[10px] text-left">{project.description}</p>
+                <p className="text-muted-foreground hidden md:block text-[13px] mt-1 leading-relaxed whitespace-pre-wrap">{project.description}</p>
               )}
             </div>
           </div>
