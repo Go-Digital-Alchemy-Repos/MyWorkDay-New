@@ -2,6 +2,7 @@ import { Router, Request } from "express";
 import { DatabaseStorage } from "../storage";
 import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { UserRole, TaskWithRelations } from "@shared/schema";
+import { handleRouteError } from "../lib/errors";
 
 const router = Router();
 const storage = new DatabaseStorage();
@@ -105,8 +106,7 @@ router.get("/projects", async (req, res) => {
 
     return res.json(filteredProjects);
   } catch (error) {
-    console.error("Error fetching projects for dashboard:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects", req);
   }
 });
 
@@ -208,8 +208,7 @@ router.get("/projects/analytics/summary", async (req, res) => {
       perProject,
     });
   } catch (error) {
-    console.error("Error fetching projects analytics summary:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects/analytics/summary", req);
   }
 });
 
@@ -339,8 +338,7 @@ router.get("/projects/:projectId/analytics", async (req, res) => {
       dueTodayTasksList,
     });
   } catch (error) {
-    console.error("Error fetching project analytics:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects/:projectId/analytics", req);
   }
 });
 
@@ -548,8 +546,7 @@ router.get("/projects/:projectId/forecast", async (req, res) => {
       dueForecast,
     });
   } catch (error) {
-    console.error("Error fetching project forecast:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects/:projectId/forecast", req);
   }
 });
 
@@ -622,8 +619,7 @@ router.get("/projects/forecast/summary", async (req, res) => {
 
     return res.json({ perProject });
   } catch (error) {
-    console.error("Error fetching forecast summary:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects/forecast/summary", req);
   }
 });
 

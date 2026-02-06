@@ -22,9 +22,19 @@ import superSystemStatusRouter from "./super/systemStatus.router";
 import superIntegrationsRouter from "./super/integrations.router";
 import superChatExportRouter from "./super/chatExport.router";
 import { searchRouter } from "./modules/search/search.router";
+import tasksRouter from "./tasks.router";
+import timeTrackingRouter from "./timeTracking.router";
+import clientsRouter from "./clients.router";
+import projectsRouter from "./projects.router";
+import usersRouter from "./users.router";
 
 const router = Router();
 
+router.use(usersRouter);
+router.use(projectsRouter);
+router.use(clientsRouter);
+router.use(timeTrackingRouter);
+router.use(tasksRouter);
 router.use(searchRouter);
 router.use(featuresRoutes);
 router.use("/timer", timerRoutes);

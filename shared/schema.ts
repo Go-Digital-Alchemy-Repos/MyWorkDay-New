@@ -908,7 +908,9 @@ export const sections = pgTable("sections", {
   name: text("name").notNull(),
   orderIndex: integer("order_index").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("sections_project_order_idx").on(table.projectId, table.orderIndex),
+]);
 
 // Tasks table
 // Note: projectId is nullable to support personal tasks (isPersonal=true)
@@ -1073,7 +1075,11 @@ export const activityLog = pgTable("activity_log", {
   action: text("action").notNull(),
   diffJson: jsonb("diff_json"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("activity_log_entity_idx").on(table.entityType, table.entityId),
+  index("activity_log_workspace_idx").on(table.workspaceId),
+  index("activity_log_created_idx").on(table.createdAt),
+]);
 
 // Notification type enum
 export const NotificationType = {

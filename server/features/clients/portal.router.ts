@@ -6,6 +6,7 @@ import { UserRole, ClientAccessLevel } from "@shared/schema";
 import type { Request, Response, NextFunction } from "express";
 import { randomBytes, createHash } from "crypto";
 import { hashPassword } from "../../auth";
+import { handleRouteError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -52,8 +53,7 @@ router.get("/:clientId/users", async (req, res) => {
     const clientUsers = await storage.getClientUsers(clientId);
     res.json(clientUsers);
   } catch (error) {
-    console.error("Error fetching client users:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /:clientId/users", req);
   }
 });
 
@@ -152,8 +152,7 @@ router.post("/:clientId/users/invite", async (req, res) => {
       token, // Include token for sending via email
     });
   } catch (error) {
-    console.error("Error inviting client user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /:clientId/users/invite", req);
   }
 });
 
@@ -179,8 +178,7 @@ router.patch("/:clientId/users/:userId", async (req, res) => {
     
     res.json(access);
   } catch (error) {
-    console.error("Error updating client user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "PATCH /:clientId/users/:userId", req);
   }
 });
 
@@ -201,8 +199,7 @@ router.delete("/:clientId/users/:userId", async (req, res) => {
     await storage.deleteClientUserAccess(clientId, userId);
     res.status(204).send();
   } catch (error) {
-    console.error("Error removing client user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "DELETE /:clientId/users/:userId", req);
   }
 });
 
@@ -246,8 +243,7 @@ router.get("/register/validate", async (req, res) => {
       clientName: client?.companyName || "",
     });
   } catch (error) {
-    console.error("Error validating invite:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /register/validate", req);
   }
 });
 
@@ -337,8 +333,7 @@ router.post("/register/complete", async (req, res) => {
     if (error?.message?.includes("unique") || error?.code === "23505") {
       return res.status(409).json({ error: "User with this email already exists" });
     }
-    console.error("Error completing registration:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /register/complete", req);
   }
 });
 

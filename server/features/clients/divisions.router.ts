@@ -4,6 +4,7 @@ import { storage } from "../../storage";
 import { getEffectiveTenantId } from "../../middleware/tenantContext";
 import { insertClientDivisionSchema } from "@shared/schema";
 import type { Request } from "express";
+import { handleRouteError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -53,8 +54,7 @@ router.get("/clients/:clientId/divisions", async (req, res) => {
     
     res.json(divisionsWithCounts);
   } catch (error) {
-    console.error("Error fetching divisions:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /clients/:clientId/divisions", req);
   }
 });
 
@@ -93,8 +93,7 @@ router.post("/clients/:clientId/divisions", async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    console.error("Error creating division:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /clients/:clientId/divisions", req);
   }
 });
 
@@ -132,8 +131,7 @@ router.patch("/divisions/:divisionId", async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    console.error("Error updating division:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "PATCH /divisions/:divisionId", req);
   }
 });
 
@@ -166,8 +164,7 @@ router.get("/divisions/:divisionId/members", async (req, res) => {
     const members = await storage.getDivisionMembers(divisionId);
     res.json({ members });
   } catch (error) {
-    console.error("Error fetching division members:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /divisions/:divisionId/members", req);
   }
 });
 
@@ -211,8 +208,7 @@ router.post("/divisions/:divisionId/members", async (req, res) => {
     
     res.json({ success: true, members });
   } catch (error) {
-    console.error("Error updating division members:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /divisions/:divisionId/members", req);
   }
 });
 
@@ -242,8 +238,7 @@ router.delete("/divisions/:divisionId/members/:userId", async (req, res) => {
     await storage.removeDivisionMember(divisionId, targetUserId);
     res.json({ success: true });
   } catch (error) {
-    console.error("Error removing division member:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "DELETE /divisions/:divisionId/members/:userId", req);
   }
 });
 
@@ -279,8 +274,7 @@ router.get("/divisions/:divisionId/projects", async (req, res) => {
     
     res.json(divisionProjects);
   } catch (error) {
-    console.error("Error fetching division projects:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /divisions/:divisionId/projects", req);
   }
 });
 
@@ -328,8 +322,7 @@ router.get("/divisions/:divisionId/tasks", async (req, res) => {
     
     res.json(allTasks);
   } catch (error) {
-    console.error("Error fetching division tasks:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /divisions/:divisionId/tasks", req);
   }
 });
 

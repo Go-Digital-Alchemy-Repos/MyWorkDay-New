@@ -2,6 +2,7 @@ import { Router, Request } from "express";
 import { DatabaseStorage } from "../storage";
 import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { UserRole, User, TaskWithRelations } from "@shared/schema";
+import { handleRouteError } from "../lib/errors";
 
 const router = Router();
 const storage = new DatabaseStorage();
@@ -121,8 +122,7 @@ router.get("/workload/tasks-by-employee", async (req, res) => {
 
     return res.json(sortedData);
   } catch (error) {
-    console.error("Error fetching workload by employee:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /workload/tasks-by-employee", req);
   }
 });
 
@@ -204,8 +204,7 @@ router.get("/workload/employee/:userId/tasks", async (req, res) => {
       totalCount: tasksWithProject.length,
     });
   } catch (error) {
-    console.error("Error fetching employee tasks:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /workload/employee/:userId/tasks", req);
   }
 });
 
@@ -252,8 +251,7 @@ router.get("/workload/unassigned", async (req, res) => {
       totalCount: unassignedTasks.length,
     });
   } catch (error) {
-    console.error("Error fetching unassigned tasks:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /workload/unassigned", req);
   }
 });
 
@@ -294,8 +292,7 @@ router.get("/workload/by-status", async (req, res) => {
       total: Object.values(statusCounts).reduce((sum, c) => sum + c, 0),
     });
   } catch (error) {
-    console.error("Error fetching status summary:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /workload/by-status", req);
   }
 });
 
@@ -338,8 +335,7 @@ router.get("/workload/by-priority", async (req, res) => {
       total: Object.values(priorityCounts).reduce((sum, c) => sum + c, 0),
     });
   } catch (error) {
-    console.error("Error fetching priority summary:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /workload/by-priority", req);
   }
 });
 
@@ -394,8 +390,7 @@ router.get("/workload/summary", async (req, res) => {
         : 0,
     });
   } catch (error) {
-    console.error("Error fetching workload summary:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /workload/summary", req);
   }
 });
 

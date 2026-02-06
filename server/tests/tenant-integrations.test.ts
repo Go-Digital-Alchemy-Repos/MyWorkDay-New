@@ -177,6 +177,7 @@ describe("Tenant Integrations", () => {
           region: "eu-west-1",
           keyPrefixTemplate: "t2/",
         },
+        secretConfig: { accessKeyId: "t2-key", secretAccessKey: "t2-secret" },
       });
 
       const tenant1List = await service.listIntegrations(testTenant1Id);
@@ -223,13 +224,27 @@ describe("Tenant Integrations", () => {
       expect(integration!.status).toBe(IntegrationStatus.CONFIGURED);
     });
 
-    it("S3 is configured without secret (uses IAM)", async () => {
+    it("S3 requires secret to be configured", async () => {
       await service.upsertIntegration(testTenant1Id, "s3", {
         publicConfig: {
           bucketName: "test-bucket",
           region: "us-east-1",
           keyPrefixTemplate: "test/",
         },
+      });
+
+      const integration = await service.getIntegration(testTenant1Id, "s3");
+      expect(integration!.status).toBe(IntegrationStatus.NOT_CONFIGURED);
+    });
+
+    it("S3 is configured with public config and secrets", async () => {
+      await service.upsertIntegration(testTenant1Id, "s3", {
+        publicConfig: {
+          bucketName: "test-bucket",
+          region: "us-east-1",
+          keyPrefixTemplate: "test/",
+        },
+        secretConfig: { accessKeyId: "test-key", secretAccessKey: "test-secret" },
       });
 
       const integration = await service.getIntegration(testTenant1Id, "s3");

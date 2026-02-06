@@ -31,7 +31,7 @@ describe("Global Integrations - Persistence and Secret Masking", () => {
     });
 
     const loginResponse = await request(app)
-      .post("/api/v1/auth/login")
+      .post("/api/auth/login")
       .send({ email: testSuperUserEmail, password: "testpass123" });
     
     authCookie = loginResponse.headers["set-cookie"]?.[0] || "";

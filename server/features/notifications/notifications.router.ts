@@ -3,6 +3,7 @@ import { z } from "zod";
 import { storage } from "../../storage";
 import { getEffectiveTenantId } from "../../middleware/tenantContext";
 import type { Request } from "express";
+import { handleRouteError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -25,8 +26,7 @@ router.get("/notifications", async (req, res) => {
     
     res.json(notifications);
   } catch (error) {
-    console.error("Error fetching notifications:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /notifications", req);
   }
 });
 
@@ -38,8 +38,7 @@ router.get("/notifications/unread-count", async (req, res) => {
     const count = await storage.getUnreadNotificationCount(userId, tenantId);
     res.json({ count });
   } catch (error) {
-    console.error("Error fetching unread count:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /notifications/unread-count", req);
   }
 });
 
@@ -57,8 +56,7 @@ router.patch("/notifications/:id/read", async (req, res) => {
     
     res.json(notification);
   } catch (error) {
-    console.error("Error marking notification read:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "PATCH /notifications/:id/read", req);
   }
 });
 
@@ -70,8 +68,7 @@ router.post("/notifications/mark-all-read", async (req, res) => {
     await storage.markAllNotificationsRead(userId, tenantId);
     res.json({ success: true });
   } catch (error) {
-    console.error("Error marking all notifications read:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /notifications/mark-all-read", req);
   }
 });
 
@@ -85,8 +82,7 @@ router.delete("/notifications/:id", async (req, res) => {
     await storage.deleteNotification(id, userId, tenantId);
     res.json({ success: true });
   } catch (error) {
-    console.error("Error deleting notification:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "DELETE /notifications/:id", req);
   }
 });
 
@@ -132,8 +128,6 @@ router.get("/notifications/preferences", async (req, res) => {
     
     res.json(prefs);
   } catch (error) {
-    console.error("Error fetching notification preferences:", error);
-    // Return defaults instead of 500 error
     const userId = getCurrentUserId(req);
     const tenantId = getEffectiveTenantId(req);
     res.json(getDefaultPreferences(userId, tenantId));
@@ -170,8 +164,7 @@ router.patch("/notifications/preferences", async (req, res) => {
     
     res.json(prefs);
   } catch (error) {
-    console.error("Error updating notification preferences:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "PATCH /notifications/preferences", req);
   }
 });
 

@@ -20,6 +20,7 @@ import {
 } from "../../realtime/events";
 import { UserRole } from "@shared/schema";
 import type { Request } from "express";
+import { handleRouteError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -56,8 +57,7 @@ router.get("/", async (req, res) => {
     
     return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
   } catch (error) {
-    console.error("Error fetching clients:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /", req);
   }
 });
 
@@ -78,8 +78,7 @@ router.get("/hierarchy/list", async (req, res) => {
     console.log(`[GET /api/v1/clients/hierarchy/list] Found ${clients.length} clients for tenantId=${tenantId}, requestId=${requestId}`);
     return res.json(clients);
   } catch (error) {
-    console.error("Error fetching clients hierarchy:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /hierarchy/list", req);
   }
 });
 
@@ -106,8 +105,7 @@ router.get("/:id", async (req, res) => {
     
     return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
   } catch (error) {
-    console.error("Error fetching client:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /:id", req);
   }
 });
 
@@ -147,8 +145,7 @@ router.post("/", async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    console.error("Error creating client:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /", req);
   }
 });
 
@@ -173,8 +170,7 @@ router.patch("/:id", async (req, res) => {
 
     res.json(client);
   } catch (error) {
-    console.error("Error updating client:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "PATCH /:id", req);
   }
 });
 
@@ -209,8 +205,7 @@ router.delete("/:id", async (req, res) => {
 
     res.status(204).send();
   } catch (error) {
-    console.error("Error deleting client:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "DELETE /:id", req);
   }
 });
 
@@ -223,8 +218,7 @@ router.get("/:clientId/contacts", async (req, res) => {
     const contacts = await storage.getContactsByClient(req.params.clientId);
     res.json(contacts);
   } catch (error) {
-    console.error("Error fetching contacts:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /:clientId/contacts", req);
   }
 });
 
@@ -261,8 +255,7 @@ router.post("/:clientId/contacts", async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    console.error("Error creating contact:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /:clientId/contacts", req);
   }
 });
 
@@ -290,8 +283,7 @@ router.patch("/:clientId/contacts/:contactId", async (req, res) => {
 
     res.json(contact);
   } catch (error) {
-    console.error("Error updating contact:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "PATCH /:clientId/contacts/:contactId", req);
   }
 });
 
@@ -312,8 +304,7 @@ router.delete("/:clientId/contacts/:contactId", async (req, res) => {
 
     res.status(204).send();
   } catch (error) {
-    console.error("Error deleting contact:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "DELETE /:clientId/contacts/:contactId", req);
   }
 });
 
@@ -326,8 +317,7 @@ router.get("/:clientId/invites", async (req, res) => {
     const invites = await storage.getInvitesByClient(req.params.clientId);
     res.json(invites);
   } catch (error) {
-    console.error("Error fetching invites:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /:clientId/invites", req);
   }
 });
 
@@ -369,8 +359,7 @@ router.post("/:clientId/invites", async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    console.error("Error creating invite:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /:clientId/invites", req);
   }
 });
 
@@ -391,8 +380,7 @@ router.delete("/:clientId/invites/:inviteId", async (req, res) => {
 
     res.status(204).send();
   } catch (error) {
-    console.error("Error revoking invite:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "DELETE /:clientId/invites/:inviteId", req);
   }
 });
 

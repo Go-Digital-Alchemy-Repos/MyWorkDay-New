@@ -135,22 +135,14 @@ describe("Bootstrap Register Endpoint", () => {
 });
 
 describe("Seed Script Safety Guards", () => {
-  it("should check SEED_SUPER_ADMIN_ALLOWED requirement", async () => {
-    const originalValue = process.env.SEED_SUPER_ADMIN_ALLOWED;
-    delete process.env.SEED_SUPER_ADMIN_ALLOWED;
-    
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
-    });
-    const mockError = vi.spyOn(console, "error").mockImplementation(() => {});
-    
-    try {
-      await import("../scripts/seed_super_admin.ts?t=" + Date.now());
-    } catch (e) {
-    }
-    
-    process.env.SEED_SUPER_ADMIN_ALLOWED = originalValue;
-    mockExit.mockRestore();
-    mockError.mockRestore();
+  it("seed script file exists and contains safety guard", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const scriptPath = path.resolve(__dirname, "../scripts/seed_super_admin.ts");
+    const content = fs.readFileSync(scriptPath, "utf-8");
+    expect(content).toContain("SEED_SUPER_ADMIN_ALLOWED");
+    expect(content).toContain('process.exit(1)');
+    expect(content).toContain("SEED_SUPER_ADMIN_EMAIL");
+    expect(content).toContain("SEED_SUPER_ADMIN_PASSWORD");
   });
 });

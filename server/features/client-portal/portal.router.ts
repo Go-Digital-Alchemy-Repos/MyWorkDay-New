@@ -3,6 +3,7 @@ import { storage } from "../../storage";
 import { UserRole } from "@shared/schema";
 import type { Request, Response, NextFunction } from "express";
 import { isClientUser, getClientUserAccessibleClients } from "../../middleware/clientAccess";
+import { handleRouteError } from "../../lib/errors";
 
 const router = Router();
 
@@ -114,8 +115,7 @@ router.get("/dashboard", async (req, res) => {
       upcomingDeadlines,
     });
   } catch (error) {
-    console.error("Error fetching client dashboard:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /dashboard", req);
   }
 });
 
@@ -154,8 +154,7 @@ router.get("/projects", async (req, res) => {
     
     res.json(allProjects);
   } catch (error) {
-    console.error("Error fetching client projects:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects", req);
   }
 });
 
@@ -211,8 +210,7 @@ router.get("/projects/:projectId", async (req, res) => {
       completedCount: tasks.filter(t => t.status === "completed").length,
     });
   } catch (error) {
-    console.error("Error fetching client project:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /projects/:projectId", req);
   }
 });
 
@@ -270,8 +268,7 @@ router.get("/tasks", async (req, res) => {
     
     res.json(allTasks);
   } catch (error) {
-    console.error("Error fetching client tasks:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /tasks", req);
   }
 });
 
@@ -330,8 +327,7 @@ router.get("/tasks/:taskId", async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("Error fetching client task:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /tasks/:taskId", req);
   }
 });
 
@@ -386,8 +382,7 @@ router.post("/tasks/:taskId/comments", async (req, res) => {
       } : null,
     });
   } catch (error) {
-    console.error("Error adding client comment:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "POST /tasks/:taskId/comments", req);
   }
 });
 
@@ -418,8 +413,7 @@ router.get("/profile", async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("Error fetching client profile:", error);
-    res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(res, error, "GET /profile", req);
   }
 });
 

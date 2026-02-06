@@ -47,6 +47,8 @@ MyWorkDay is an Asana-inspired project management application designed to stream
 - **Database Migrations & Schema Readiness**: Uses Drizzle ORM migrations with a startup schema readiness check.
 - **Rate Limiting**: Configurable rate limiting for various endpoints, enabled by default in production.
 - **Tenant Data Integrity**: Storage layer includes `assertInsertHasTenantId` guards to prevent creating rows without a `tenantId`. A backfill script and Super Admin API endpoint are available for orphaned rows.
+- **Modular Route Architecture**: API routes are split into domain-specific router files under `server/routes/`: `tasks.router.ts`, `timeTracking.router.ts`, `clients.router.ts`, `projects.router.ts`, `users.router.ts`, mounted via `server/routes/index.ts`. The main `server/routes.ts` handles workspaces, teams, sections, tags, comments, activity, attachments, notifications, and remaining routes. All route handlers use `handleRouteError()` for standardized error responses.
+- **DB Performance Indexes**: Composite and single-column indexes on `sections` (project+order), `activityLog` (entity, workspace, created_at), plus existing indexes on tasks, time_entries, comments, and client-related tables.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
