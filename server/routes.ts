@@ -28,6 +28,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { captureError } from "./middleware/errorLogging";
 import { AppError, handleRouteError, sendError, validateBody } from "./lib/errors";
+import { config } from "./config";
 import subRoutes from "./routes/index";
 import webhookRoutes from "./routes/webhooks";
 import { extractMentionsFromTipTapJson, getPlainTextFromTipTapJson } from "./utils/mentionUtils";
@@ -795,6 +796,22 @@ export async function registerRoutes(
       });
     } catch (error) {
       return handleRouteError(res, error, "GET /api/attachments/config", req);
+    }
+  });
+
+  app.get("/api/crm/flags", async (_req, res) => {
+    try {
+      res.json({
+        client360: config.crm.client360Enabled,
+        contacts: config.crm.contactsEnabled,
+        timeline: config.crm.timelineEnabled,
+        portal: config.crm.portalEnabled,
+        files: config.crm.filesEnabled,
+        approvals: config.crm.approvalsEnabled,
+        clientMessaging: config.crm.clientMessagingEnabled,
+      });
+    } catch (error) {
+      return handleRouteError(res, error, "GET /api/crm/flags", _req);
     }
   });
 

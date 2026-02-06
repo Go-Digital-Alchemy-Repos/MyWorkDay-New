@@ -164,6 +164,17 @@ export const config = {
     isConfigured: !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY),
   },
   
+  // CRM & Client Portal Feature Flags (all default OFF)
+  crm: {
+    client360Enabled: optionalEnvBool("CRM_CLIENT_360_ENABLED", false),
+    contactsEnabled: optionalEnvBool("CRM_CONTACTS_ENABLED", false),
+    timelineEnabled: optionalEnvBool("CRM_TIMELINE_ENABLED", false),
+    portalEnabled: optionalEnvBool("CRM_PORTAL_ENABLED", false),
+    filesEnabled: optionalEnvBool("CRM_FILES_ENABLED", false),
+    approvalsEnabled: optionalEnvBool("CRM_APPROVALS_ENABLED", false),
+    clientMessagingEnabled: optionalEnvBool("CRM_CLIENT_MESSAGING_ENABLED", false),
+  },
+
   // Git info for versioning
   git: {
     commitSha: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "unknown",

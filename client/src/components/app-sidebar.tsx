@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useAnyCrmEnabled } from "@/hooks/use-crm-flags";
 import {
   Home,
   FolderKanban,
@@ -21,6 +22,7 @@ import {
   Activity,
   Wrench,
   MessageCircle,
+  ContactRound,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -62,6 +64,7 @@ export function AppSidebar() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isSuperUser = user?.role === "super_user";
+  const crmEnabled = useAnyCrmEnabled();
 
   const { data: workspace } = useQuery<Workspace>({
     queryKey: ["/api/workspaces/current"],
@@ -283,6 +286,19 @@ export function AppSidebar() {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                {crmEnabled && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location.startsWith("/crm")}
+                    >
+                      <Link href="/clients" data-testid="link-crm">
+                        <ContactRound className="h-4 w-4" />
+                        <span>Clients (CRM)</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

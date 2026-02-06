@@ -141,6 +141,24 @@ These flags enable destructive operations. **Never enable in production without 
 
 ---
 
+## CRM & Client Portal Feature Flags (Optional)
+
+All flags default to `false`. Set to `true` to enable the corresponding CRM feature.
+
+| Variable | Required | Secret | Description | Default |
+|----------|----------|--------|-------------|---------|
+| `CRM_CLIENT_360_ENABLED` | No | No | Enable Customer 360 client profile, follow-ups, pipeline, profitability | `false` |
+| `CRM_CONTACTS_ENABLED` | No | No | Enable contacts management per client | `false` |
+| `CRM_TIMELINE_ENABLED` | No | No | Enable unified activity timeline on client pages | `false` |
+| `CRM_PORTAL_ENABLED` | No | No | Enable enhanced client portal dashboard and features | `false` |
+| `CRM_FILES_ENABLED` | No | No | Enable files & deliverables library | `false` |
+| `CRM_APPROVALS_ENABLED` | No | No | Enable review & approve workflows | `false` |
+| `CRM_CLIENT_MESSAGING_ENABLED` | No | No | Enable secure messaging between team and client portal users | `false` |
+
+> See `docs/CRM/CRM_PORTAL_ROADMAP.md` for full feature descriptions and implementation phases.
+
+---
+
 ## Environment Variable Sources
 
 ### Replit

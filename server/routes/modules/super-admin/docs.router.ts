@@ -40,6 +40,7 @@ const CATEGORY_CONFIG: Record<string, { displayName: string; icon: string; order
   "provisioning": { displayName: "Provisioning", icon: "user-plus", order: 28 },
   "security": { displayName: "Security (Legacy)", icon: "shield", order: 29 },
   "storage": { displayName: "Storage", icon: "hard-drive", order: 30 },
+  "CRM": { displayName: "CRM / Client Portal", icon: "user-plus", order: 31 },
   "_root": { displayName: "General", icon: "file-text", order: 100 },
 };
 

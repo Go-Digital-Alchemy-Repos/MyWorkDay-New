@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useCrmFlags } from "@/hooks/use-crm-flags";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -7,6 +8,8 @@ import {
   Settings,
   MessageCircle,
   Building2,
+  FileBox,
+  ClipboardCheck,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -48,6 +51,7 @@ const mainNavItems = [
 export function ClientPortalSidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
+  const crmFlags = useCrmFlags();
 
   const { data: dashboardData } = useQuery<DashboardData>({
     queryKey: ["/api/client-portal/dashboard"],
@@ -98,6 +102,32 @@ export function ClientPortalSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {crmFlags.portal && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActiveRoute("/portal/files")}
+                  >
+                    <Link href="/portal/files" data-testid="nav-portal-files">
+                      <FileBox className="h-4 w-4" />
+                      <span>Files</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {crmFlags.approvals && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActiveRoute("/portal/approvals")}
+                  >
+                    <Link href="/portal/approvals" data-testid="nav-portal-approvals">
+                      <ClipboardCheck className="h-4 w-4" />
+                      <span>Approvals</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
