@@ -11,6 +11,9 @@ import {
   ArrowRight,
   Calendar,
   TrendingUp,
+  FileText,
+  MessageSquare,
+  ClipboardCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow, format, isToday, isTomorrow, isPast } from "date-fns";
@@ -232,6 +235,42 @@ export default function ClientPortalDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {stats.totalProjects === 0 && stats.totalTasks === 0 && (
+        <div className="mb-6 animate-tab-in">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Getting Started</CardTitle>
+              <CardDescription>Here's what you can do in your portal</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Link href="/portal/projects">
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-md hover-elevate text-center cursor-pointer" data-testid="guide-card-projects">
+                    <FolderKanban className="h-6 w-6 text-muted-foreground" />
+                    <span className="text-sm font-medium">View Projects</span>
+                    <span className="text-xs text-muted-foreground">Track progress on your active projects</span>
+                  </div>
+                </Link>
+                <Link href="/portal/approvals">
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-md hover-elevate text-center cursor-pointer" data-testid="guide-card-approvals">
+                    <ClipboardCheck className="h-6 w-6 text-muted-foreground" />
+                    <span className="text-sm font-medium">Approvals</span>
+                    <span className="text-xs text-muted-foreground">Review and approve deliverables</span>
+                  </div>
+                </Link>
+                <Link href="/portal/messages">
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-md hover-elevate text-center cursor-pointer" data-testid="guide-card-messages">
+                    <MessageSquare className="h-6 w-6 text-muted-foreground" />
+                    <span className="text-sm font-medium">Messages</span>
+                    <span className="text-xs text-muted-foreground">Communicate with your team</span>
+                  </div>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>

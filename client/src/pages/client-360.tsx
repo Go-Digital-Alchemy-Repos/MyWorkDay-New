@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -55,6 +55,7 @@ import {
   EmptyState,
   LoadingState,
 } from "@/components/layout";
+import { DataToolbar } from "@/components/layout/data-toolbar";
 import {
   ArrowLeft,
   Building2,
@@ -82,6 +83,8 @@ import {
   User,
   Target,
   Briefcase,
+  UserPlus,
+  ExternalLink,
 } from "lucide-react";
 import { RichTextEditor, RichTextViewer } from "@/components/ui/rich-text-editor";
 import { RequestApprovalDialog } from "@/components/request-approval-dialog";
@@ -302,6 +305,14 @@ function OverviewTab({ clientId, summary, isLoading, onNavigateTab }: { clientId
                 Request Approval
               </Button>
             )}
+            {crmFlags.portal && (
+              <Link href={`/clients/${clientId}`}>
+                <Button variant="outline" size="sm" data-testid="button-quick-invite-client">
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Invite to Portal
+                </Button>
+              </Link>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -348,11 +359,22 @@ function ContactsTab({ clientId }: { clientId: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<CrmContact | null>(null);
   const [deleteContactId, setDeleteContactId] = useState<string | null>(null);
+  const [contactSearch, setContactSearch] = useState("");
 
   const { data: contacts = [], isLoading } = useQuery<CrmContact[]>({
     queryKey: [`/api/crm/clients/${clientId}/contacts`],
     enabled: !!clientId,
   });
+
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch) return contacts;
+    const q = contactSearch.toLowerCase();
+    return contacts.filter((c) =>
+      [c.firstName, c.lastName, c.email, c.phone, c.title]
+        .filter(Boolean)
+        .some((f) => f!.toLowerCase().includes(q))
+    );
+  }, [contacts, contactSearch]);
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactFormSchema),
@@ -472,13 +494,17 @@ function ContactsTab({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <h3 className="text-base font-medium">Contacts ({contacts.length})</h3>
-        <Button size="sm" onClick={openCreateDrawer} data-testid="button-add-contact-360">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Contact
-        </Button>
-      </div>
+      <DataToolbar
+        searchValue={contactSearch}
+        onSearchChange={setContactSearch}
+        searchPlaceholder="Search contacts..."
+        actions={
+          <Button size="sm" onClick={openCreateDrawer} data-testid="button-add-contact-360">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Contact
+          </Button>
+        }
+      />
 
       {contacts.length === 0 ? (
         <EmptyState
@@ -493,9 +519,16 @@ function ContactsTab({ clientId }: { clientId: string }) {
           }
           size="sm"
         />
+      ) : filteredContacts.length === 0 ? (
+        <EmptyState
+          icon={<Users className="h-10 w-10" />}
+          title="No matching contacts"
+          description="Try a different search term."
+          size="sm"
+        />
       ) : (
         <div className="space-y-2">
-          {contacts.map((contact) => (
+          {filteredContacts.map((contact) => (
             <Card key={contact.id} data-testid={`card-contact-${contact.id}`}>
               <CardContent className="py-4 px-4">
                 <div className="flex items-start justify-between gap-4">
@@ -1039,6 +1072,8 @@ interface ClientFileItem {
 function FilesTab({ clientId }: { clientId: string }) {
   const { toast } = useToast();
   const [visibilityFilter, setVisibilityFilter] = useState<string>("");
+  const [fileSearch, setFileSearch] = useState("");
+  const [fileFilterValues, setFileFilterValues] = useState<Record<string, string>>({});
 
   const url = visibilityFilter
     ? `/api/crm/clients/${clientId}/files?visibility=${visibilityFilter}`
@@ -1048,6 +1083,20 @@ function FilesTab({ clientId }: { clientId: string }) {
     queryKey: [url],
     enabled: !!clientId,
   });
+
+  const filteredFiles = useMemo(() => {
+    if (!files) return [];
+    let result = files;
+    const vis = fileFilterValues.visibility;
+    if (vis && vis !== "all") {
+      result = result.filter((f) => f.visibility === vis);
+    }
+    if (fileSearch) {
+      const q = fileSearch.toLowerCase();
+      result = result.filter((f) => f.filename.toLowerCase().includes(q));
+    }
+    return result;
+  }, [files, fileSearch, fileFilterValues]);
 
   const toggleVisibilityMutation = useMutation({
     mutationFn: async ({ fileId, visibility }: { fileId: string; visibility: string }) => {
@@ -1094,34 +1143,29 @@ function FilesTab({ clientId }: { clientId: string }) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  const fileFilters = [
+    {
+      key: "visibility",
+      label: "Visibility",
+      options: [
+        { value: "all", label: "All Files" },
+        { value: "internal", label: "Internal Only" },
+        { value: "client", label: "Client Visible" },
+      ],
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button
-          size="sm"
-          variant={visibilityFilter === "" ? "default" : "outline"}
-          onClick={() => setVisibilityFilter("")}
-          data-testid="filter-files-all"
-        >
-          All Files
-        </Button>
-        <Button
-          size="sm"
-          variant={visibilityFilter === "internal" ? "default" : "outline"}
-          onClick={() => setVisibilityFilter("internal")}
-          data-testid="filter-files-internal"
-        >
-          Internal Only
-        </Button>
-        <Button
-          size="sm"
-          variant={visibilityFilter === "client" ? "default" : "outline"}
-          onClick={() => setVisibilityFilter("client")}
-          data-testid="filter-files-client"
-        >
-          Client Visible
-        </Button>
-      </div>
+      <DataToolbar
+        searchValue={fileSearch}
+        onSearchChange={setFileSearch}
+        searchPlaceholder="Search files..."
+        filters={fileFilters}
+        filterValues={fileFilterValues}
+        onFilterChange={(key, value) => setFileFilterValues((prev) => ({ ...prev, [key]: value }))}
+        onClearFilters={() => setFileFilterValues({})}
+      />
 
       {(!files || files.length === 0) ? (
         <EmptyState
@@ -1130,9 +1174,16 @@ function FilesTab({ clientId }: { clientId: string }) {
           description="No files have been uploaded for this client yet."
           size="sm"
         />
+      ) : filteredFiles.length === 0 ? (
+        <EmptyState
+          icon={<FileText className="h-10 w-10" />}
+          title="No matching files"
+          description="Try adjusting your search or filters."
+          size="sm"
+        />
       ) : (
         <div className="space-y-2">
-          {files.map((file) => (
+          {filteredFiles.map((file) => (
             <Card key={file.id} data-testid={`file-item-${file.id}`}>
               <CardContent className="p-3">
                 <div className="flex items-center gap-3">
@@ -1221,6 +1272,7 @@ function MessagesTab({ clientId }: { clientId: string }) {
   const [newSubject, setNewSubject] = useState("");
   const [newMessage, setNewMessage] = useState("");
   const [replyText, setReplyText] = useState("");
+  const [convoSearch, setConvoSearch] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: conversations = [], isLoading } = useQuery<any[]>({
@@ -1230,6 +1282,15 @@ function MessagesTab({ clientId }: { clientId: string }) {
       return res.json();
     },
   });
+
+  const filteredConversations = useMemo(() => {
+    if (!convoSearch) return conversations;
+    const q = convoSearch.toLowerCase();
+    return conversations.filter((c: any) =>
+      c.subject?.toLowerCase().includes(q) ||
+      c.lastMessage?.bodyText?.toLowerCase().includes(q)
+    );
+  }, [conversations, convoSearch]);
 
   const { data: threadData } = useQuery<any>({
     queryKey: ["/api/crm/conversations", selectedConvoId, "messages"],
@@ -1366,15 +1427,17 @@ function MessagesTab({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-medium text-sm text-muted-foreground">
-          {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
-        </h3>
-        <Button size="sm" onClick={() => setShowNewConvo(true)} data-testid="button-new-conversation">
-          <Plus className="h-4 w-4 mr-1" />
-          New Conversation
-        </Button>
-      </div>
+      <DataToolbar
+        searchValue={convoSearch}
+        onSearchChange={setConvoSearch}
+        searchPlaceholder="Search conversations..."
+        actions={
+          <Button size="sm" onClick={() => setShowNewConvo(true)} data-testid="button-new-conversation">
+            <Plus className="h-4 w-4 mr-1" />
+            New Conversation
+          </Button>
+        }
+      />
 
       {showNewConvo && (
         <Card>
@@ -1417,9 +1480,16 @@ function MessagesTab({ clientId }: { clientId: string }) {
           description="Start a conversation with this client."
           size="md"
         />
+      ) : filteredConversations.length === 0 && !showNewConvo ? (
+        <EmptyState
+          icon={<MessageSquare className="h-10 w-10" />}
+          title="No matching conversations"
+          description="Try a different search term."
+          size="sm"
+        />
       ) : (
         <div className="space-y-2">
-          {conversations.map((c: any) => (
+          {filteredConversations.map((c: any) => (
             <Card
               key={c.id}
               className="hover-elevate cursor-pointer"
@@ -1454,6 +1524,9 @@ function MessagesTab({ clientId }: { clientId: string }) {
 
 function ApprovalsTab({ clientId }: { clientId: string }) {
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
+  const [approvalFilterValues, setApprovalFilterValues] = useState<Record<string, string>>({});
+  const [approvalSearch, setApprovalSearch] = useState("");
+
   const { data: approvals = [], isLoading } = useQuery<ApprovalItem[]>({
     queryKey: ["/api/crm/clients", clientId, "approvals"],
     queryFn: async () => {
@@ -1461,6 +1534,21 @@ function ApprovalsTab({ clientId }: { clientId: string }) {
       return res.json();
     },
   });
+
+  const filteredApprovals = useMemo(() => {
+    let result = approvals;
+    const st = approvalFilterValues.status;
+    if (st && st !== "all") {
+      result = result.filter((a) => a.status === st);
+    }
+    if (approvalSearch) {
+      const q = approvalSearch.toLowerCase();
+      result = result.filter((a) =>
+        a.title.toLowerCase().includes(q) || a.requesterName.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [approvals, approvalFilterValues, approvalSearch]);
 
   if (isLoading) {
     return (
@@ -1478,15 +1566,36 @@ function ApprovalsTab({ clientId }: { clientId: string }) {
     }
   };
 
+  const approvalFilters = [
+    {
+      key: "status",
+      label: "Status",
+      options: [
+        { value: "all", label: "All Statuses" },
+        { value: "pending", label: "Pending" },
+        { value: "approved", label: "Approved" },
+        { value: "changes_requested", label: "Changes Requested" },
+      ],
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="font-medium text-sm text-muted-foreground">{approvals.length} approval request{approvals.length !== 1 ? "s" : ""}</h3>
-        <Button size="sm" onClick={() => setShowApprovalDialog(true)} data-testid="button-new-approval">
-          <Plus className="h-4 w-4 mr-1" />
-          New Request
-        </Button>
-      </div>
+      <DataToolbar
+        searchValue={approvalSearch}
+        onSearchChange={setApprovalSearch}
+        searchPlaceholder="Search approvals..."
+        filters={approvalFilters}
+        filterValues={approvalFilterValues}
+        onFilterChange={(key, value) => setApprovalFilterValues((prev) => ({ ...prev, [key]: value }))}
+        onClearFilters={() => setApprovalFilterValues({})}
+        actions={
+          <Button size="sm" onClick={() => setShowApprovalDialog(true)} data-testid="button-new-approval">
+            <Plus className="h-4 w-4 mr-1" />
+            New Request
+          </Button>
+        }
+      />
 
       {approvals.length === 0 ? (
         <EmptyState
@@ -1495,9 +1604,16 @@ function ApprovalsTab({ clientId }: { clientId: string }) {
           description="Send approval requests to this client for review."
           size="md"
         />
+      ) : filteredApprovals.length === 0 ? (
+        <EmptyState
+          icon={<ClipboardCheck className="h-10 w-10" />}
+          title="No matching approvals"
+          description="Try adjusting your search or filters."
+          size="sm"
+        />
       ) : (
         <div className="space-y-2">
-          {approvals.map((a) => (
+          {filteredApprovals.map((a) => (
             <Card key={a.id} data-testid={`approval-item-${a.id}`}>
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
@@ -1681,11 +1797,11 @@ export default function Client360Page() {
               </TabsList>
             </div>
 
-            <TabsContent value="overview" className="p-6">
+            <TabsContent value="overview" className="p-6 animate-tab-in">
               <OverviewTab clientId={clientId || ""} summary={summary} isLoading={isLoading} onNavigateTab={setActiveTab} />
             </TabsContent>
 
-            <TabsContent value="projects" className="p-6">
+            <TabsContent value="projects" className="p-6 animate-tab-in">
               <PlaceholderTab
                 icon={<FolderKanban className="h-10 w-10" />}
                 title="Projects"
@@ -1693,34 +1809,34 @@ export default function Client360Page() {
               />
             </TabsContent>
 
-            <TabsContent value="contacts" className="p-6">
+            <TabsContent value="contacts" className="p-6 animate-tab-in">
               <ContactsTab clientId={clientId || ""} />
             </TabsContent>
 
-            <TabsContent value="activity" className="p-6">
+            <TabsContent value="activity" className="p-6 animate-tab-in">
               <ActivityTab clientId={clientId || ""} />
             </TabsContent>
 
-            <TabsContent value="files" className="p-6">
+            <TabsContent value="files" className="p-6 animate-tab-in">
               <FilesTab clientId={clientId || ""} />
             </TabsContent>
 
-            <TabsContent value="notes" className="p-6">
+            <TabsContent value="notes" className="p-6 animate-tab-in">
               <NotesTab clientId={clientId || ""} />
             </TabsContent>
 
-            <TabsContent value="reports" className="p-6">
+            <TabsContent value="reports" className="p-6 animate-tab-in">
               <ClientReportsTab clientId={clientId || ""} />
             </TabsContent>
 
             {crmFlags.approvals && (
-              <TabsContent value="approvals" className="p-6">
+              <TabsContent value="approvals" className="p-6 animate-tab-in">
                 <ApprovalsTab clientId={clientId || ""} />
               </TabsContent>
             )}
 
             {crmFlags.clientMessaging && (
-              <TabsContent value="messages" className="p-6">
+              <TabsContent value="messages" className="p-6 animate-tab-in">
                 <MessagesTab clientId={clientId || ""} />
               </TabsContent>
             )}
