@@ -32,7 +32,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireSuperUser } from "../middleware/tenantContext";
-import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantNoteVersions, tenantAuditEvents, NoteCategory, clients, clientContacts, clientDivisions, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents, workspaceMembers, teamMembers, projectMembers, divisionMembers, activityLog, comments, passwordResetTokens, chatReads, chatMessages, chatChannelMembers, chatChannels, notifications, notificationPreferences, activeTimers, clientUserAccess, clientInvites, tenantIntegrations, appSettings, errorLogs, emailOutbox, sections, taskAssignees, taskWatchers, personalTaskSections, subtasks, tags, taskTags, taskAttachments, commentMentions, chatDmThreads, chatDmMembers, chatAttachments, chatMentions, tenancyWarnings, hiddenProjects, subtaskAssignees, clientNotes, clientNoteVersions, clientNoteAttachments, clientDocuments, chatExportJobs } from "@shared/schema";
+import { insertTenantSchema, TenantStatus, UserRole, tenants, workspaces, invitations, tenantSettings, tenantNotes, tenantNoteVersions, tenantAuditEvents, NoteCategory, clients, clientContacts, clientDivisions, projects, tasks, users, teams, systemSettings, tenantAgreements, tenantAgreementAcceptances, timeEntries, updateSystemSettingsSchema, platformInvitations, platformAuditEvents, workspaceMembers, teamMembers, projectMembers, divisionMembers, activityLog, comments, passwordResetTokens, chatReads, chatMessages, chatChannelMembers, chatChannels, notifications, notificationPreferences, activeTimers, clientUserAccess, clientInvites, tenantIntegrations, appSettings, errorLogs, emailOutbox, sections, taskAssignees, taskWatchers, personalTaskSections, subtasks, tags, taskTags, taskAttachments, commentMentions, chatDmThreads, chatDmMembers, chatAttachments, chatMentions, tenancyWarnings, hiddenProjects, subtaskAssignees, clientNotes, clientNoteVersions, clientNoteAttachments, clientDocuments, chatExportJobs, userUiPreferences } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
@@ -2280,6 +2280,7 @@ router.delete("/users/:userId", requireSuperUser, async (req, res) => {
       await tx.delete(activeTimers).where(eq(activeTimers.userId, userId));
       await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
       await tx.delete(timeEntries).where(eq(timeEntries.userId, userId));
+      await tx.delete(userUiPreferences).where(eq(userUiPreferences.userId, userId));
 
       // 3. Delete chat-related rows (notNull FK - must delete)
       await tx.delete(chatMentions).where(eq(chatMentions.mentionedUserId, userId));
@@ -2639,6 +2640,9 @@ router.delete("/tenants/:tenantId/users/:userId", requireSuperUser, async (req, 
     
     // 7. Delete time entries
     await db.delete(timeEntries).where(eq(timeEntries.userId, userId));
+    
+    // 7b. Delete UI preferences
+    await db.delete(userUiPreferences).where(eq(userUiPreferences.userId, userId));
     
     // 8. Delete activity logs referencing this user
     await db.delete(activityLog).where(eq(activityLog.actorUserId, userId));
@@ -6503,6 +6507,7 @@ router.delete("/admins/:id", requireSuperUser, async (req, res) => {
       await tx.delete(activeTimers).where(eq(activeTimers.userId, id));
       await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, id));
       await tx.delete(timeEntries).where(eq(timeEntries.userId, id));
+      await tx.delete(userUiPreferences).where(eq(userUiPreferences.userId, id));
 
       // 3. Delete chat-related rows (notNull FK - must delete)
       await tx.delete(chatMentions).where(eq(chatMentions.mentionedUserId, id));
