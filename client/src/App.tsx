@@ -25,6 +25,8 @@ import ProjectPage from "@/pages/project";
 import ClientsPage from "@/pages/clients";
 import ClientDetailPage from "@/pages/client-detail";
 import Client360Page from "@/pages/client-360";
+import CrmPipelinePage from "@/pages/crm-pipeline";
+import CrmFollowupsPage from "@/pages/crm-followups";
 import LoginPage from "@/pages/login";
 import SettingsPage from "@/pages/settings";
 import SuperAdminPage from "@/pages/super-admin";
@@ -290,6 +292,12 @@ function TenantRouter() {
       </Route>
       <Route path="/clients/:id">
         {() => <TenantRouteGuard component={ClientDetailPage} />}
+      </Route>
+      <Route path="/crm/pipeline">
+        {() => <TenantRouteGuard component={CrmPipelinePage} />}
+      </Route>
+      <Route path="/crm/followups">
+        {() => <TenantRouteGuard component={CrmFollowupsPage} />}
       </Route>
       <Route path="/time-tracking">
         {() => <Redirect to={`/my-time${window.location.search}`} />}

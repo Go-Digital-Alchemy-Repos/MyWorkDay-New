@@ -887,6 +887,302 @@ function NotesTab({ clientId }: { clientId: string }) {
   );
 }
 
+interface ActivityEvent {
+  id: string;
+  type: string;
+  entityId: string;
+  summary: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  createdAt: string;
+  metadata: Record<string, unknown>;
+}
+
+const activityTypeLabels: Record<string, { label: string; color: string }> = {
+  project: { label: "Project", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  task: { label: "Task", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+  time_entry: { label: "Time", color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" },
+  comment: { label: "Comment", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
+  file: { label: "File", color: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200" },
+};
+
+function ActivityTab({ clientId }: { clientId: string }) {
+  const [typeFilter, setTypeFilter] = useState<string>("");
+
+  const url = typeFilter
+    ? `/api/crm/clients/${clientId}/activity?type=${typeFilter}`
+    : `/api/crm/clients/${clientId}/activity`;
+
+  const { data: events, isLoading } = useQuery<ActivityEvent[]>({
+    queryKey: [url],
+    enabled: !!clientId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex gap-4">
+            <Skeleton className="h-10 w-10 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const types = ["project", "task", "time_entry", "comment", "file"];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap" data-testid="activity-type-filters">
+        <Button
+          size="sm"
+          variant={typeFilter === "" ? "default" : "outline"}
+          onClick={() => setTypeFilter("")}
+          data-testid="filter-activity-all"
+        >
+          All
+        </Button>
+        {types.map((t) => (
+          <Button
+            key={t}
+            size="sm"
+            variant={typeFilter === t ? "default" : "outline"}
+            onClick={() => setTypeFilter(t)}
+            data-testid={`filter-activity-${t}`}
+          >
+            {activityTypeLabels[t]?.label || t}
+          </Button>
+        ))}
+      </div>
+
+      {(!events || events.length === 0) ? (
+        <EmptyState
+          icon={<Activity className="h-10 w-10" />}
+          title="No Activity"
+          description="No activity events found for this client."
+          size="sm"
+        />
+      ) : (
+        <div className="relative">
+          <div className="absolute left-5 top-0 bottom-0 w-px bg-border" />
+          <div className="space-y-0">
+            {events.map((event) => {
+              const typeInfo = activityTypeLabels[event.type] || { label: event.type, color: "bg-muted text-muted-foreground" };
+              return (
+                <div
+                  key={event.id}
+                  className="relative flex items-start gap-4 py-3 pl-10"
+                  data-testid={`activity-event-${event.id}`}
+                >
+                  <div className="absolute left-3 top-4 h-4 w-4 rounded-full border-2 border-background bg-muted" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="secondary" className={`text-xs ${typeInfo.color}`}>
+                        {typeInfo.label}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-1">{event.summary}</p>
+                    {event.actorName && (
+                      <p className="text-xs text-muted-foreground mt-0.5">by {event.actorName}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ClientFileItem {
+  id: string;
+  filename: string;
+  mimeType: string | null;
+  size: number | null;
+  url: string | null;
+  visibility: string;
+  linkedEntityType: string | null;
+  linkedEntityId: string | null;
+  uploadedByUserId: string;
+  uploaderName: string | null;
+  createdAt: string;
+}
+
+function FilesTab({ clientId }: { clientId: string }) {
+  const { toast } = useToast();
+  const [visibilityFilter, setVisibilityFilter] = useState<string>("");
+
+  const url = visibilityFilter
+    ? `/api/crm/clients/${clientId}/files?visibility=${visibilityFilter}`
+    : `/api/crm/clients/${clientId}/files`;
+
+  const { data: files, isLoading } = useQuery<ClientFileItem[]>({
+    queryKey: [url],
+    enabled: !!clientId,
+  });
+
+  const toggleVisibilityMutation = useMutation({
+    mutationFn: async ({ fileId, visibility }: { fileId: string; visibility: string }) => {
+      await apiRequest("PATCH", `/api/crm/files/${fileId}`, { visibility });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [url] });
+      toast({ title: "File visibility updated" });
+    },
+    onError: (error: Error) => {
+      const { title, description } = formatErrorForToast(error);
+      toast({ title, description, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      await apiRequest("DELETE", `/api/crm/files/${fileId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [url] });
+      toast({ title: "File deleted" });
+    },
+    onError: (error: Error) => {
+      const { title, description } = formatErrorForToast(error);
+      toast({ title, description, variant: "destructive" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  function formatFileSize(bytes: number | null): string {
+    if (!bytes) return "Unknown";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          size="sm"
+          variant={visibilityFilter === "" ? "default" : "outline"}
+          onClick={() => setVisibilityFilter("")}
+          data-testid="filter-files-all"
+        >
+          All Files
+        </Button>
+        <Button
+          size="sm"
+          variant={visibilityFilter === "internal" ? "default" : "outline"}
+          onClick={() => setVisibilityFilter("internal")}
+          data-testid="filter-files-internal"
+        >
+          Internal Only
+        </Button>
+        <Button
+          size="sm"
+          variant={visibilityFilter === "client" ? "default" : "outline"}
+          onClick={() => setVisibilityFilter("client")}
+          data-testid="filter-files-client"
+        >
+          Client Visible
+        </Button>
+      </div>
+
+      {(!files || files.length === 0) ? (
+        <EmptyState
+          icon={<FileText className="h-10 w-10" />}
+          title="No Files"
+          description="No files have been uploaded for this client yet."
+          size="sm"
+        />
+      ) : (
+        <div className="space-y-2">
+          {files.map((file) => (
+            <Card key={file.id} data-testid={`file-item-${file.id}`}>
+              <CardContent className="p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center h-10 w-10 rounded-md bg-muted">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{file.filename}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>{formatFileSize(file.size)}</span>
+                      <span>by {file.uploaderName || "Unknown"}</span>
+                      <span>{formatDistanceToNow(new Date(file.createdAt), { addSuffix: true })}</span>
+                    </div>
+                  </div>
+                  <Badge
+                    variant={file.visibility === "client" ? "default" : "secondary"}
+                    data-testid={`file-visibility-${file.id}`}
+                  >
+                    {file.visibility === "client" ? "Client" : "Internal"}
+                  </Badge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon" variant="ghost" data-testid={`file-actions-${file.id}`}>
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          toggleVisibilityMutation.mutate({
+                            fileId: file.id,
+                            visibility: file.visibility === "client" ? "internal" : "client",
+                          })
+                        }
+                        data-testid={`toggle-visibility-${file.id}`}
+                      >
+                        {file.visibility === "client" ? "Make Internal" : "Make Client Visible"}
+                      </DropdownMenuItem>
+                      {file.url && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            navigator.clipboard.writeText(file.url!);
+                            toast({ title: "Link copied" });
+                          }}
+                          data-testid={`copy-link-${file.id}`}
+                        >
+                          Copy Link
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        onClick={() => deleteMutation.mutate(file.id)}
+                        className="text-destructive"
+                        data-testid={`delete-file-${file.id}`}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlaceholderTab({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
     <EmptyState
@@ -1037,19 +1333,11 @@ export default function Client360Page() {
             </TabsContent>
 
             <TabsContent value="activity" className="p-6">
-              <PlaceholderTab
-                icon={<Activity className="h-10 w-10" />}
-                title="Activity Timeline"
-                description="Track all client-related activity in one place. Coming soon."
-              />
+              <ActivityTab clientId={clientId || ""} />
             </TabsContent>
 
             <TabsContent value="files" className="p-6">
-              <PlaceholderTab
-                icon={<FileText className="h-10 w-10" />}
-                title="Files"
-                description="Manage documents and files for this client. Coming soon."
-              />
+              <FilesTab clientId={clientId || ""} />
             </TabsContent>
 
             <TabsContent value="notes" className="p-6">

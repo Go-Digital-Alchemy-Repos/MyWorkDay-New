@@ -23,6 +23,8 @@ import {
   Wrench,
   MessageCircle,
   ContactRound,
+  Columns3,
+  CalendarClock,
 } from "lucide-react";
 import dasanaLogo from "@assets/Symbol_1767994625714.png";
 import {
@@ -287,17 +289,41 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 {crmEnabled && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.startsWith("/crm")}
-                    >
-                      <Link href="/clients" data-testid="link-crm">
-                        <ContactRound className="h-4 w-4" />
-                        <span>Clients (CRM)</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  <>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={location === "/clients" || location.startsWith("/clients/")}
+                      >
+                        <Link href="/clients" data-testid="link-crm-clients">
+                          <ContactRound className="h-4 w-4" />
+                          <span>Clients</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={location === "/crm/pipeline"}
+                      >
+                        <Link href="/crm/pipeline" data-testid="link-crm-pipeline">
+                          <Columns3 className="h-4 w-4" />
+                          <span>Pipeline</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={location === "/crm/followups"}
+                      >
+                        <Link href="/crm/followups" data-testid="link-crm-followups">
+                          <CalendarClock className="h-4 w-4" />
+                          <span>Follow-ups</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </>
                 )}
               </SidebarMenu>
             </SidebarGroupContent>

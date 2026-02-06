@@ -51,6 +51,10 @@ integrations = ["javascript_database:1.0.0"]
 [userenv.development]
 APP_ENCRYPTION_KEY = "7daNCify1MZK5HwLNw+ajASnFnSStKbgOgVmkJIWRFY="
 CRM_CLIENT_360_ENABLED = "true"
+CRM_PORTAL_ENABLED = "true"
+CRM_FILES_ENABLED = "true"
+CRM_CONTACTS_ENABLED = "true"
+CRM_TIMELINE_ENABLED = "true"
 
 [userenv.production]
 FAST_STARTUP="true"

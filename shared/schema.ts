@@ -624,6 +624,52 @@ export const clientInvites = pgTable("client_invites", {
 ]);
 
 // =============================================================================
+// CLIENT FILES TABLE
+// =============================================================================
+
+export const ClientFileVisibility = {
+  INTERNAL: "internal",
+  CLIENT: "client",
+} as const;
+
+export const clientFiles = pgTable("client_files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id, { onDelete: "cascade" }).notNull(),
+  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id).notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type"),
+  size: integer("size"),
+  storageKey: text("storage_key").notNull(),
+  url: text("url"),
+  visibility: text("visibility").default(ClientFileVisibility.INTERNAL).notNull(),
+  linkedEntityType: text("linked_entity_type"),
+  linkedEntityId: varchar("linked_entity_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("client_files_tenant_idx").on(table.tenantId),
+  index("client_files_client_idx").on(table.clientId),
+  index("client_files_visibility_idx").on(table.clientId, table.visibility),
+]);
+
+// =============================================================================
+// USER CLIENT ACCESS TABLE (Portal permissions)
+// =============================================================================
+
+export const userClientAccess = pgTable("user_client_access", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  clientId: varchar("client_id").references(() => clients.id, { onDelete: "cascade" }).notNull(),
+  permissions: jsonb("permissions"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("user_client_access_user_idx").on(table.userId),
+  index("user_client_access_client_idx").on(table.clientId),
+  uniqueIndex("user_client_access_unique_idx").on(table.userId, table.clientId),
+]);
+
+// =============================================================================
 // CLIENT DIVISIONS TABLES
 // =============================================================================
 
@@ -2847,3 +2893,29 @@ export const createNoteCategorySchema = z.object({
   name: z.string().min(1).max(100),
   color: z.string().optional(),
 });
+
+// Client Files Insert/Update Schemas
+export const insertClientFileSchema = createInsertSchema(clientFiles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const updateClientFileSchema = z.object({
+  filename: z.string().min(1).optional(),
+  visibility: z.enum(["internal", "client"]).optional(),
+});
+
+// User Client Access Insert Schema
+export const insertUserClientAccessSchema = createInsertSchema(userClientAccess).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Client Files Types
+export type ClientFile = typeof clientFiles.$inferSelect;
+export type InsertClientFile = z.infer<typeof insertClientFileSchema>;
+export type UpdateClientFile = z.infer<typeof updateClientFileSchema>;
+
+// User Client Access Types
+export type UserClientAccess = typeof userClientAccess.$inferSelect;
+export type InsertUserClientAccess = z.infer<typeof insertUserClientAccessSchema>;

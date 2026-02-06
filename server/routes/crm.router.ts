@@ -11,14 +11,20 @@ import {
   clientCrm,
   clientNotes,
   clientNoteVersions,
+  clientFiles,
+  userClientAccess,
   users,
   projects,
   tasks,
   timeEntries,
+  activityLog,
+  comments,
   updateClientCrmSchema,
   updateClientContactSchema,
+  updateClientFileSchema,
   UserRole,
   CrmClientStatus,
+  ClientFileVisibility,
 } from "@shared/schema";
 import { getCurrentUserId } from "./helpers";
 
@@ -524,6 +530,531 @@ router.post("/crm/bulk-update", requireAdmin, async (req: Request, res: Response
     res.json({ success: true, updatedCount });
   } catch (error) {
     return handleRouteError(res, error, "POST /api/crm/bulk-update", req);
+  }
+});
+
+// =============================================================================
+// ACTIVITY TIMELINE
+// =============================================================================
+
+router.get("/crm/clients/:clientId/activity", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    const { clientId } = req.params;
+    const client = await verifyClientTenancy(clientId, tenantId);
+    if (!client) return sendError(res, AppError.notFound("Client"), req);
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const typeFilter = req.query.type as string | undefined;
+
+    const clientProjectIds = db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.clientId, clientId), eq(projects.tenantId, tenantId)));
+
+    const events: Array<{
+      id: string;
+      type: string;
+      entityId: string;
+      summary: string;
+      actorUserId: string | null;
+      actorName: string | null;
+      createdAt: Date;
+      metadata: unknown;
+    }> = [];
+
+    if (!typeFilter || typeFilter === "project") {
+      const projectEvents = await db
+        .select({
+          id: projects.id,
+          name: projects.name,
+          status: projects.status,
+          createdAt: projects.createdAt,
+        })
+        .from(projects)
+        .where(and(eq(projects.clientId, clientId), eq(projects.tenantId, tenantId)))
+        .orderBy(desc(projects.createdAt))
+        .limit(limit);
+
+      for (const p of projectEvents) {
+        events.push({
+          id: `project-${p.id}`,
+          type: "project",
+          entityId: p.id,
+          summary: `Project "${p.name}" created (${p.status})`,
+          actorUserId: null,
+          actorName: null,
+          createdAt: p.createdAt,
+          metadata: { projectName: p.name, status: p.status },
+        });
+      }
+    }
+
+    if (!typeFilter || typeFilter === "task") {
+      const taskEvents = await db
+        .select({
+          id: tasks.id,
+          title: tasks.title,
+          status: tasks.status,
+          createdAt: tasks.createdAt,
+          projectId: tasks.projectId,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.tenantId, tenantId),
+            sql`${tasks.projectId} IN (${clientProjectIds})`
+          )
+        )
+        .orderBy(desc(tasks.createdAt))
+        .limit(limit);
+
+      for (const t of taskEvents) {
+        events.push({
+          id: `task-${t.id}`,
+          type: "task",
+          entityId: t.id,
+          summary: `Task "${t.title}" ${t.status === "completed" ? "completed" : "created"}`,
+          actorUserId: null,
+          actorName: null,
+          createdAt: t.createdAt,
+          metadata: { taskTitle: t.title, status: t.status, projectId: t.projectId },
+        });
+      }
+    }
+
+    if (!typeFilter || typeFilter === "time_entry") {
+      const timeEvents = await db
+        .select({
+          id: timeEntries.id,
+          description: timeEntries.description,
+          durationSeconds: timeEntries.durationSeconds,
+          userId: timeEntries.userId,
+          userName: users.name,
+          createdAt: timeEntries.createdAt,
+          projectId: timeEntries.projectId,
+        })
+        .from(timeEntries)
+        .leftJoin(users, eq(users.id, timeEntries.userId))
+        .where(
+          and(
+            eq(timeEntries.tenantId, tenantId),
+            sql`${timeEntries.projectId} IN (${clientProjectIds})`
+          )
+        )
+        .orderBy(desc(timeEntries.createdAt))
+        .limit(limit);
+
+      for (const te of timeEvents) {
+        const hours = ((te.durationSeconds || 0) / 3600).toFixed(1);
+        events.push({
+          id: `time-${te.id}`,
+          type: "time_entry",
+          entityId: te.id,
+          summary: `${te.userName || "Someone"} logged ${hours}h${te.description ? `: ${te.description}` : ""}`,
+          actorUserId: te.userId,
+          actorName: te.userName,
+          createdAt: te.createdAt,
+          metadata: { hours, projectId: te.projectId },
+        });
+      }
+    }
+
+    if (!typeFilter || typeFilter === "comment") {
+      const commentEvents = await db
+        .select({
+          id: comments.id,
+          body: comments.body,
+          userId: comments.userId,
+          userName: users.name,
+          createdAt: comments.createdAt,
+          taskId: comments.taskId,
+        })
+        .from(comments)
+        .leftJoin(users, eq(users.id, comments.userId))
+        .where(
+          and(
+            eq(comments.tenantId, tenantId),
+            sql`${comments.taskId} IN (SELECT id FROM tasks WHERE tenant_id = ${tenantId} AND project_id IN (${clientProjectIds}))`
+          )
+        )
+        .orderBy(desc(comments.createdAt))
+        .limit(limit);
+
+      for (const c of commentEvents) {
+        const preview = typeof c.body === "string"
+          ? c.body.slice(0, 80) + (c.body.length > 80 ? "..." : "")
+          : "commented";
+        events.push({
+          id: `comment-${c.id}`,
+          type: "comment",
+          entityId: c.id,
+          summary: `${c.userName || "Someone"} ${preview}`,
+          actorUserId: c.userId,
+          actorName: c.userName,
+          createdAt: c.createdAt,
+          metadata: { taskId: c.taskId },
+        });
+      }
+    }
+
+    if (!typeFilter || typeFilter === "file") {
+      const fileEvents = await db
+        .select({
+          id: clientFiles.id,
+          filename: clientFiles.filename,
+          uploadedByUserId: clientFiles.uploadedByUserId,
+          uploaderName: users.name,
+          createdAt: clientFiles.createdAt,
+        })
+        .from(clientFiles)
+        .leftJoin(users, eq(users.id, clientFiles.uploadedByUserId))
+        .where(and(eq(clientFiles.clientId, clientId), eq(clientFiles.tenantId, tenantId)))
+        .orderBy(desc(clientFiles.createdAt))
+        .limit(limit);
+
+      for (const f of fileEvents) {
+        events.push({
+          id: `file-${f.id}`,
+          type: "file",
+          entityId: f.id,
+          summary: `${f.uploaderName || "Someone"} uploaded "${f.filename}"`,
+          actorUserId: f.uploadedByUserId,
+          actorName: f.uploaderName,
+          createdAt: f.createdAt,
+          metadata: { filename: f.filename },
+        });
+      }
+    }
+
+    events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json(events.slice(0, limit));
+  } catch (error) {
+    return handleRouteError(res, error, "GET /api/crm/clients/:clientId/activity", req);
+  }
+});
+
+// =============================================================================
+// CLIENT FILES
+// =============================================================================
+
+router.get("/crm/clients/:clientId/files", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    const { clientId } = req.params;
+    const client = await verifyClientTenancy(clientId, tenantId);
+    if (!client) return sendError(res, AppError.notFound("Client"), req);
+
+    const isClient = req.user?.role === UserRole.CLIENT;
+    const visibilityConditions = isClient
+      ? and(eq(clientFiles.clientId, clientId), eq(clientFiles.tenantId, tenantId), eq(clientFiles.visibility, ClientFileVisibility.CLIENT))
+      : and(eq(clientFiles.clientId, clientId), eq(clientFiles.tenantId, tenantId));
+
+    const typeFilter = req.query.type as string | undefined;
+    const visibilityFilter = req.query.visibility as string | undefined;
+
+    let conditions = visibilityConditions;
+    if (typeFilter) {
+      conditions = and(conditions, eq(clientFiles.mimeType, typeFilter))!;
+    }
+    if (visibilityFilter && !isClient) {
+      conditions = and(conditions, eq(clientFiles.visibility, visibilityFilter))!;
+    }
+
+    const files = await db
+      .select({
+        id: clientFiles.id,
+        filename: clientFiles.filename,
+        mimeType: clientFiles.mimeType,
+        size: clientFiles.size,
+        url: clientFiles.url,
+        visibility: clientFiles.visibility,
+        linkedEntityType: clientFiles.linkedEntityType,
+        linkedEntityId: clientFiles.linkedEntityId,
+        uploadedByUserId: clientFiles.uploadedByUserId,
+        uploaderName: users.name,
+        createdAt: clientFiles.createdAt,
+      })
+      .from(clientFiles)
+      .leftJoin(users, eq(users.id, clientFiles.uploadedByUserId))
+      .where(conditions)
+      .orderBy(desc(clientFiles.createdAt));
+
+    res.json(files);
+  } catch (error) {
+    return handleRouteError(res, error, "GET /api/crm/clients/:clientId/files", req);
+  }
+});
+
+router.post("/crm/clients/:clientId/files", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    if (req.user?.role === UserRole.CLIENT) {
+      return sendError(res, AppError.forbidden("Client users cannot upload files"), req);
+    }
+
+    const { clientId } = req.params;
+    const client = await verifyClientTenancy(clientId, tenantId);
+    if (!client) return sendError(res, AppError.notFound("Client"), req);
+
+    const userId = getCurrentUserId(req);
+
+    const fileSchema = z.object({
+      filename: z.string().min(1),
+      mimeType: z.string().optional(),
+      size: z.number().optional(),
+      storageKey: z.string().min(1),
+      url: z.string().optional(),
+      visibility: z.enum(["internal", "client"]).optional(),
+      linkedEntityType: z.string().optional(),
+      linkedEntityId: z.string().optional(),
+    });
+
+    const data = validateBody(req.body, fileSchema, res);
+    if (!data) return;
+
+    const [file] = await db.insert(clientFiles).values({
+      tenantId,
+      clientId,
+      uploadedByUserId: userId,
+      filename: data.filename,
+      mimeType: data.mimeType ?? null,
+      size: data.size ?? null,
+      storageKey: data.storageKey,
+      url: data.url ?? null,
+      visibility: data.visibility ?? ClientFileVisibility.INTERNAL,
+      linkedEntityType: data.linkedEntityType ?? null,
+      linkedEntityId: data.linkedEntityId ?? null,
+    }).returning();
+
+    res.status(201).json(file);
+  } catch (error) {
+    return handleRouteError(res, error, "POST /api/crm/clients/:clientId/files", req);
+  }
+});
+
+router.patch("/crm/files/:id", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    if (req.user?.role === UserRole.CLIENT) {
+      return sendError(res, AppError.forbidden("Client users cannot modify files"), req);
+    }
+
+    const { id } = req.params;
+
+    const [existing] = await db.select()
+      .from(clientFiles)
+      .where(and(eq(clientFiles.id, id), eq(clientFiles.tenantId, tenantId)))
+      .limit(1);
+    if (!existing) return sendError(res, AppError.notFound("File"), req);
+
+    const data = validateBody(req.body, updateClientFileSchema, res);
+    if (!data) return;
+
+    const [updated] = await db.update(clientFiles)
+      .set(data)
+      .where(eq(clientFiles.id, id))
+      .returning();
+
+    res.json(updated);
+  } catch (error) {
+    return handleRouteError(res, error, "PATCH /api/crm/files/:id", req);
+  }
+});
+
+router.delete("/crm/files/:id", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    if (req.user?.role === UserRole.CLIENT) {
+      return sendError(res, AppError.forbidden("Client users cannot delete files"), req);
+    }
+
+    const { id } = req.params;
+
+    const [existing] = await db.select()
+      .from(clientFiles)
+      .where(and(eq(clientFiles.id, id), eq(clientFiles.tenantId, tenantId)))
+      .limit(1);
+    if (!existing) return sendError(res, AppError.notFound("File"), req);
+
+    await db.delete(clientFiles).where(eq(clientFiles.id, id));
+
+    res.json({ success: true });
+  } catch (error) {
+    return handleRouteError(res, error, "DELETE /api/crm/files/:id", req);
+  }
+});
+
+// =============================================================================
+// CLIENT PORTAL / USER CLIENT ACCESS
+// =============================================================================
+
+router.get("/crm/clients/:clientId/access", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    const { clientId } = req.params;
+    const client = await verifyClientTenancy(clientId, tenantId);
+    if (!client) return sendError(res, AppError.notFound("Client"), req);
+
+    const accessList = await db
+      .select({
+        id: userClientAccess.id,
+        userId: userClientAccess.userId,
+        userName: users.name,
+        userEmail: users.email,
+        permissions: userClientAccess.permissions,
+        createdAt: userClientAccess.createdAt,
+      })
+      .from(userClientAccess)
+      .leftJoin(users, eq(users.id, userClientAccess.userId))
+      .where(and(eq(userClientAccess.clientId, clientId), eq(userClientAccess.tenantId, tenantId)));
+
+    res.json(accessList);
+  } catch (error) {
+    return handleRouteError(res, error, "GET /api/crm/clients/:clientId/access", req);
+  }
+});
+
+router.post("/crm/clients/:clientId/access", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    const { clientId } = req.params;
+    const client = await verifyClientTenancy(clientId, tenantId);
+    if (!client) return sendError(res, AppError.notFound("Client"), req);
+
+    const accessSchema = z.object({
+      userId: z.string().uuid(),
+      permissions: z.record(z.unknown()).optional(),
+    });
+
+    const data = validateBody(req.body, accessSchema, res);
+    if (!data) return;
+
+    const [existingAccess] = await db.select()
+      .from(userClientAccess)
+      .where(and(
+        eq(userClientAccess.userId, data.userId),
+        eq(userClientAccess.clientId, clientId),
+        eq(userClientAccess.tenantId, tenantId)
+      ))
+      .limit(1);
+
+    if (existingAccess) {
+      return sendError(res, AppError.conflict("User already has access to this client"), req);
+    }
+
+    const [access] = await db.insert(userClientAccess).values({
+      tenantId,
+      userId: data.userId,
+      clientId,
+      permissions: data.permissions ?? null,
+    }).returning();
+
+    res.status(201).json(access);
+  } catch (error) {
+    return handleRouteError(res, error, "POST /api/crm/clients/:clientId/access", req);
+  }
+});
+
+router.delete("/crm/access/:id", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    const { id } = req.params;
+
+    const [existing] = await db.select()
+      .from(userClientAccess)
+      .where(and(eq(userClientAccess.id, id), eq(userClientAccess.tenantId, tenantId)))
+      .limit(1);
+    if (!existing) return sendError(res, AppError.notFound("Access record"), req);
+
+    await db.delete(userClientAccess).where(eq(userClientAccess.id, id));
+
+    res.json({ success: true });
+  } catch (error) {
+    return handleRouteError(res, error, "DELETE /api/crm/access/:id", req);
+  }
+});
+
+router.get("/crm/portal/dashboard", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = getEffectiveTenantId(req);
+    if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
+
+    const userId = getCurrentUserId(req);
+
+    const accessRecords = await db.select({ clientId: userClientAccess.clientId })
+      .from(userClientAccess)
+      .where(and(eq(userClientAccess.userId, userId), eq(userClientAccess.tenantId, tenantId)));
+
+    const clientIds = accessRecords.map(a => a.clientId);
+
+    if (clientIds.length === 0) {
+      return res.json({ clients: [], projects: [], files: [], activity: [] });
+    }
+
+    const myClients = await db.select({
+      id: clients.id,
+      companyName: clients.companyName,
+      displayName: clients.displayName,
+    })
+      .from(clients)
+      .where(and(eq(clients.tenantId, tenantId), inArray(clients.id, clientIds)));
+
+    const myProjects = await db.select({
+      id: projects.id,
+      name: projects.name,
+      status: projects.status,
+      clientId: projects.clientId,
+    })
+      .from(projects)
+      .where(and(eq(projects.tenantId, tenantId), inArray(projects.clientId, clientIds)))
+      .orderBy(desc(projects.createdAt))
+      .limit(20);
+
+    const sharedFiles = await db.select({
+      id: clientFiles.id,
+      filename: clientFiles.filename,
+      mimeType: clientFiles.mimeType,
+      size: clientFiles.size,
+      url: clientFiles.url,
+      clientId: clientFiles.clientId,
+      createdAt: clientFiles.createdAt,
+    })
+      .from(clientFiles)
+      .where(
+        and(
+          eq(clientFiles.tenantId, tenantId),
+          inArray(clientFiles.clientId, clientIds),
+          eq(clientFiles.visibility, ClientFileVisibility.CLIENT)
+        )
+      )
+      .orderBy(desc(clientFiles.createdAt))
+      .limit(20);
+
+    res.json({
+      clients: myClients,
+      projects: myProjects,
+      files: sharedFiles,
+    });
+  } catch (error) {
+    return handleRouteError(res, error, "GET /api/crm/portal/dashboard", req);
   }
 });
 
