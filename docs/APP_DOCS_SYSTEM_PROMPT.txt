@@ -1,0 +1,116 @@
+Build an **App Docs** system — an in-app documentation browser and coverage tracker accessible from an admin area. The system reads Markdown files from a `docs/` directory on the server filesystem, organizes them into categories, renders them in a searchable sidebar+viewer UI, and includes an API route scanner that can auto-generate API reference documentation from Express route files.
+
+## Architecture Overview
+
+The system has **4 layers**:
+
+### 1. File System — `docs/` directory (the source of truth)
+
+All documentation lives as `.md` files organized in numbered category folders:
+
+```
+docs/
+  01-GETTING-STARTED/
+    README.md
+    ENVIRONMENT_VARIABLES.md
+  02-ARCHITECTURE/
+    README.md
+  03-FEATURES/
+    CHAT.md
+    TIME_TRACKING.md
+  04-API/
+    README.md
+  05-FRONTEND/
+  06-BACKEND/
+  07-SECURITY/
+  08-DATABASE/
+  09-TESTING/
+  10-DEPLOYMENT/
+  11-DEVELOPMENT/
+  12-OPERATIONS/
+  13-INTEGRATIONS/
+  14-TROUBLESHOOTING/
+  15-REFERENCE/
+  16-CHANGELOG/
+  17-API-REGISTRY/       <-- auto-generated API docs land here
+  18-FUNCTIONAL-DOCS/    <-- required functional docs tracked for coverage
+```
+
+Folders use a `NN-CATEGORY-NAME` naming convention for sort order. Uncategorized `.md` files at the `docs/` root are grouped under a `_root` / "General" category. Additional ad-hoc folders (e.g. `docs/CRM/`, `docs/UX/`) are also supported and get auto-detected with a fallback display name derived from the folder name.
+
+### 2. Backend API — `server/routes/docs.router.ts`
+
+An Express router (protected by admin/super-user middleware) exposes 4 endpoints:
+
+**`GET /api/admin/docs`** — List all docs
+- Recursively scans the `docs/` directory
+- For each `.md` file, extracts: `id` (path with `/` replaced by `__`, no extension), `filename`, `title` (from first `# Heading`), `category` (parent folder), `relativePath`, `sizeBytes`, `modifiedAt`
+- Groups docs into categories using a `CATEGORY_CONFIG` map that defines `displayName`, `icon` (lucide icon name string), and `order` (number) for each folder
+- Unknown folders get a fallback config with the folder name prettified as the display name
+- Returns `{ categories: [{ id, displayName, icon, order, docs: [...] }] }` sorted by `order`, docs sorted alphabetically by title
+
+**`GET /api/admin/docs/:docPath`** — Read a single doc
+- The `:docPath` param uses `__` as path separator (e.g. `03-FEATURES__CHAT` maps to `docs/03-FEATURES/CHAT.md`)
+- Validates against path traversal (`..` and resolved path must be inside docs dir)
+- Returns `{ id, filename, title, content, relativePath, sizeBytes, modifiedAt }`
+
+**`POST /api/admin/docs/sync`** — Auto-generate API reference docs
+- Uses a **Route Scanner** utility that regex-parses Express `.ts` route files from `server/routes/` and `server/features/` directories
+- Extracts `router.get|post|patch|put|delete("/path", ...)` patterns including multi-line and `router.route("/path").get(...)` chaining
+- Groups routes by domain using a configurable `DOMAIN_MAP` (filename → domain + displayName) and `BASE_PATH_MAP` (filename → mount prefix)
+- For each domain, generates or updates a Markdown file in `docs/17-API-REGISTRY/` containing:
+  - A stub template (for new files) with Module Info table, Auth/Authorization table, a manual notes section (preserved during sync), and an auto-generated endpoints table
+  - Auto-generated sections are wrapped in HTML comment markers: `<!-- === AUTO-GENERATED SECTION (do not edit below this line) === -->` and `<!-- === END AUTO-GENERATED SECTION === -->`
+  - On re-sync, the auto section is replaced while everything outside it (manual notes) is preserved
+- Returns `{ success, summary: { created, updated, skipped, errors }, details }`
+
+**`GET /api/admin/docs/coverage`** — Documentation coverage report
+- Checks which API domains have docs, whether those docs include auth notes (not "TBD") and code examples (`json` or `typescript` code blocks)
+- Checks a list of **required functional docs** (configurable array of `{ id, name }`) against `docs/18-FUNCTIONAL-DOCS/`, tracking existence, emptiness (< 100 words), and word count
+- Returns coverage percentages for both API and functional docs
+
+### 3. Route Scanner Utility — `server/utils/routeScanner.ts`
+
+A standalone utility with these exports:
+- `scanAllRoutes()` — Scans route directories recursively, returns `Map<string, DomainRoutes>` with `{ domain, displayName, files, routes: [{ method, path, file, domain, line }] }`
+- `generateAutoSection(domainRoutes)` — Produces the auto-generated Markdown section with endpoints table
+- `mergeContent(existingContent, autoSection)` — Replaces auto section between markers or appends if not found
+- `createStubDocument(domainRoutes)` — Generates a complete new doc template
+
+The scanner uses two regex patterns:
+1. `router.(get|post|patch|put|delete)\s*\([...]{0,100}?["'/path"']` — standard route definitions
+2. `router.route\s*\(\s*["'/path"']\s*\)[...]{0,50}?\.(method)\s*\(` — chained `.route().method()` pattern
+
+### 4. Frontend — Two Pages
+
+**Page 1: Doc Browser** (`/admin/docs`)
+- **Left panel** (fixed width ~320px): Categorized sidebar with collapsible sections, search input, doc count badges, category icons (mapped from icon name strings to Lucide components), and action buttons ("Sync API Docs", "Refresh List")
+- **Right panel**: Either a welcome/empty state with quick-link cards, or the selected doc rendered through a custom `MarkdownRenderer` component with metadata bar (file size, modified date, relative path)
+- **MarkdownRenderer**: A lightweight line-by-line Markdown-to-JSX renderer handling: headings (h1-h4), bullet/numbered lists, blockquotes, horizontal rules, code blocks (fenced with ```), inline code, bold, links (open in new tab), and basic table rows. No external Markdown library needed.
+- **InlineContent**: Sub-component for inline formatting (code, bold, links) using regex matching with priority ordering
+- State: `selectedDoc` (string | null), `searchQuery`, `expandedCategories` (Set)
+- Uses React Query for data fetching with mutation for sync
+
+**Page 2: Coverage Dashboard** (`/admin/docs-coverage`)
+- Summary cards with progress bars for API coverage % and Functional coverage %
+- "Missing or Incomplete" section highlighting: missing API docs (no file), incomplete API docs (no auth notes or examples), missing/empty functional docs
+- Two-column detail grid: API Domains list (with status icons and endpoint counts) and Functional Docs list (with word counts)
+- "Sync API Docs" and "Refresh" actions
+
+## Key Design Decisions
+
+1. **No database** — Docs are plain `.md` files on disk, scanned on each request. Simple, no migrations, easy to edit outside the app.
+2. **ID encoding** — File paths become IDs by replacing `/` with `__` and dropping `.md`. This makes them URL-safe for the single-doc endpoint.
+3. **Manual + Auto merge** — API registry docs preserve hand-written notes between syncs using HTML comment markers as section boundaries.
+4. **Category config** — A static object maps folder names to display metadata. Unknown folders get a computed fallback. This keeps the sidebar consistent without requiring a database.
+5. **Coverage tracking** — A defined list of "required" functional docs drives the coverage dashboard, making it easy to track documentation completeness as the app grows.
+6. **Custom Markdown renderer** — Avoids heavy dependencies; handles the subset of Markdown actually used in project docs.
+
+## To Implement
+
+Adapt the following to your project's tech stack:
+- Replace `requireSuperUser` middleware with your auth guard
+- Adjust `ROUTES_DIR` / `FEATURES_DIR` paths and the `DOMAIN_MAP` / `BASE_PATH_MAP` to match your route file structure
+- Update the `CATEGORY_CONFIG` to match your doc folder organization
+- Update the `requiredFunctionalDocs` array in the coverage endpoint to match your project's documentation requirements
+- Register the two frontend pages in your router and add navigation links in your admin sidebar
