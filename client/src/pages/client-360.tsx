@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -284,7 +284,7 @@ function OverviewTab({ clientId, summary, isLoading, onNavigateTab }: { clientId
               Add Note
             </Button>
             {crmFlags.clientMessaging && (
-              <Button variant="outline" size="sm" data-testid="button-quick-message-client">
+              <Button variant="outline" size="sm" onClick={() => onNavigateTab("messages")} data-testid="button-quick-message-client">
                 <MessageSquare className="h-4 w-4 mr-2" />
                 Message Client
               </Button>
@@ -1213,6 +1213,244 @@ interface ApprovalItem {
   requesterName: string;
 }
 
+function MessagesTab({ clientId }: { clientId: string }) {
+  const { toast } = useToast();
+  const [selectedConvoId, setSelectedConvoId] = useState<string | null>(null);
+  const [showNewConvo, setShowNewConvo] = useState(false);
+  const [newSubject, setNewSubject] = useState("");
+  const [newMessage, setNewMessage] = useState("");
+  const [replyText, setReplyText] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const { data: conversations = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/crm/clients", clientId, "conversations"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/crm/clients/${clientId}/conversations`);
+      return res.json();
+    },
+  });
+
+  const { data: threadData } = useQuery<any>({
+    queryKey: ["/api/crm/conversations", selectedConvoId, "messages"],
+    queryFn: async () => {
+      const res = await fetch(`/api/crm/conversations/${selectedConvoId}/messages`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load messages");
+      return res.json();
+    },
+    enabled: !!selectedConvoId,
+    refetchInterval: selectedConvoId ? 10000 : false,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { subject: string; initialMessage: string }) => {
+      const res = await apiRequest("POST", `/api/crm/clients/${clientId}/conversations`, data);
+      return res.json();
+    },
+    onSuccess: (convo: any) => {
+      setShowNewConvo(false);
+      setNewSubject("");
+      setNewMessage("");
+      setSelectedConvoId(convo.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/clients", clientId, "conversations"] });
+      toast({ title: "Conversation started" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const replyMutation = useMutation({
+    mutationFn: async (bodyText: string) => {
+      const res = await apiRequest("POST", `/api/crm/conversations/${selectedConvoId}/messages`, { bodyText });
+      return res.json();
+    },
+    onSuccess: () => {
+      setReplyText("");
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/conversations", selectedConvoId, "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/clients", clientId, "conversations"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [threadData?.messages]);
+
+  const handleSendReply = () => {
+    const trimmed = replyText.trim();
+    if (!trimmed) return;
+    replyMutation.mutate(trimmed);
+  };
+
+  const handleCreateConvo = () => {
+    if (!newSubject.trim() || !newMessage.trim()) return;
+    createMutation.mutate({ subject: newSubject.trim(), initialMessage: newMessage.trim() });
+  };
+
+  if (selectedConvoId && threadData) {
+    const messages = threadData.messages || [];
+    const convo = threadData.conversation;
+    const isClosed = !!convo?.closedAt;
+
+    return (
+      <div className="flex flex-col h-[500px]">
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedConvoId(null)} data-testid="button-back-convo-list">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-medium truncate">{convo?.subject}</h3>
+            <p className="text-xs text-muted-foreground">
+              {messages.length} message{messages.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          {isClosed && <Badge variant="secondary">Closed</Badge>}
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-1" data-testid="internal-messages-list">
+          {messages.map((msg: any) => (
+            <div key={msg.id} className="flex gap-2" data-testid={`int-message-${msg.id}`}>
+              <Avatar className="h-7 w-7 shrink-0">
+                <AvatarFallback className={`text-xs ${msg.authorRole !== "client" ? "bg-primary/10" : "bg-muted"}`}>
+                  {msg.authorName ? msg.authorName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) : "?"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-medium">{msg.authorName || "Unknown"}</span>
+                  {msg.authorRole === "client" && <Badge variant="outline" className="text-xs">Client</Badge>}
+                  <span className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                  </span>
+                </div>
+                <p className="text-sm mt-0.5 whitespace-pre-wrap">{msg.bodyText}</p>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {!isClosed && (
+          <div className="flex gap-2 items-end border-t pt-3">
+            <Input
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
+              placeholder="Type a message..."
+              data-testid="input-internal-reply"
+            />
+            <Button
+              onClick={handleSendReply}
+              disabled={!replyText.trim() || replyMutation.isPending}
+              size="icon"
+              data-testid="button-send-internal-reply"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h3 className="font-medium text-sm text-muted-foreground">
+          {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
+        </h3>
+        <Button size="sm" onClick={() => setShowNewConvo(true)} data-testid="button-new-conversation">
+          <Plus className="h-4 w-4 mr-1" />
+          New Conversation
+        </Button>
+      </div>
+
+      {showNewConvo && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <Input
+              value={newSubject}
+              onChange={(e) => setNewSubject(e.target.value)}
+              placeholder="Subject"
+              data-testid="input-new-convo-subject"
+            />
+            <Textarea
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Write your message..."
+              className="resize-none min-h-[80px]"
+              data-testid="input-new-convo-message"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setShowNewConvo(false)} data-testid="button-cancel-new-convo">
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleCreateConvo}
+                disabled={!newSubject.trim() || !newMessage.trim() || createMutation.isPending}
+                data-testid="button-send-new-convo"
+              >
+                <Send className="h-4 w-4 mr-1" />
+                Send
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {conversations.length === 0 && !showNewConvo ? (
+        <EmptyState
+          icon={<MessageSquare className="h-10 w-10" />}
+          title="No Conversations"
+          description="Start a conversation with this client."
+          size="md"
+        />
+      ) : (
+        <div className="space-y-2">
+          {conversations.map((c: any) => (
+            <Card
+              key={c.id}
+              className="hover-elevate cursor-pointer"
+              onClick={() => setSelectedConvoId(c.id)}
+              data-testid={`convo-item-${c.id}`}
+            >
+              <CardContent className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-medium text-sm">{c.subject}</span>
+                    {c.lastMessage && (
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {c.lastMessage.authorName}: {c.lastMessage.bodyText}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(c.updatedAt), { addSuffix: true })}
+                    </span>
+                    <Badge variant="outline" className="text-xs">{c.messageCount}</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApprovalsTab({ clientId }: { clientId: string }) {
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const { data: approvals = [], isLoading } = useQuery<ApprovalItem[]>({
@@ -1433,6 +1671,12 @@ export default function Client360Page() {
                     Approvals
                   </TabsTrigger>
                 )}
+                {crmFlags.clientMessaging && (
+                  <TabsTrigger value="messages" data-testid="tab-360-messages">
+                    <MessageSquare className="h-4 w-4 mr-1.5" />
+                    Messages
+                  </TabsTrigger>
+                )}
               </TabsList>
             </div>
 
@@ -1475,6 +1719,12 @@ export default function Client360Page() {
             {crmFlags.approvals && (
               <TabsContent value="approvals" className="p-6">
                 <ApprovalsTab clientId={clientId || ""} />
+              </TabsContent>
+            )}
+
+            {crmFlags.clientMessaging && (
+              <TabsContent value="messages" className="p-6">
+                <MessagesTab clientId={clientId || ""} />
               </TabsContent>
             )}
           </Tabs>

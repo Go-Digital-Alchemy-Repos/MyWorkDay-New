@@ -65,3 +65,4 @@ NODE_ENV = "production"
 
 [userenv.shared]
 CRM_APPROVALS_ENABLED = "true"
+CRM_CLIENT_MESSAGING_ENABLED = "true"

@@ -2962,3 +2962,54 @@ export const updateApprovalStatusSchema = z.object({
 export type ApprovalRequest = typeof approvalRequests.$inferSelect;
 export type InsertApprovalRequest = z.infer<typeof insertApprovalRequestSchema>;
 export type UpdateApprovalStatus = z.infer<typeof updateApprovalStatusSchema>;
+
+// ============================================================
+// Client Messaging (client-safe communication)
+// ============================================================
+export const clientConversations = pgTable("client_conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  projectId: varchar("project_id").references(() => projects.id),
+  subject: text("subject").notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id).notNull(),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("client_conversations_tenant_idx").on(table.tenantId),
+  index("client_conversations_client_idx").on(table.clientId),
+  index("client_conversations_project_idx").on(table.projectId),
+]);
+
+export const insertClientConversationSchema = createInsertSchema(clientConversations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  closedAt: true,
+});
+
+export type ClientConversation = typeof clientConversations.$inferSelect;
+export type InsertClientConversation = z.infer<typeof insertClientConversationSchema>;
+
+export const clientMessages = pgTable("client_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").references(() => tenants.id).notNull(),
+  conversationId: varchar("conversation_id").references(() => clientConversations.id, { onDelete: "cascade" }).notNull(),
+  authorUserId: varchar("author_user_id").references(() => users.id).notNull(),
+  bodyText: text("body_text").notNull(),
+  bodyRich: text("body_rich"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("client_messages_tenant_idx").on(table.tenantId),
+  index("client_messages_conversation_idx").on(table.conversationId),
+  index("client_messages_created_idx").on(table.createdAt),
+]);
+
+export const insertClientMessageSchema = createInsertSchema(clientMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ClientMessage = typeof clientMessages.$inferSelect;
+export type InsertClientMessage = z.infer<typeof insertClientMessageSchema>;

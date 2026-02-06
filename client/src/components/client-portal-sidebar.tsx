@@ -128,6 +128,19 @@ export function ClientPortalSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
+              {crmFlags.clientMessaging && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActiveRoute("/portal/messages")}
+                  >
+                    <Link href="/portal/messages" data-testid="nav-portal-messages">
+                      <MessageCircle className="h-4 w-4" />
+                      <span>Messages</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
