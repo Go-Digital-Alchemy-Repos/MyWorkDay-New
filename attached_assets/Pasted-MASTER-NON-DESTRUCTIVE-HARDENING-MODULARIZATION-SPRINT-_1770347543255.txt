@@ -1,0 +1,224 @@
+MASTER NON-DESTRUCTIVE HARDENING + MODULARIZATION SPRINT
+
+This is a phased improvement pass across the server codebase.
+Follow phases sequentially and STOP after each phase to verify stability.
+
+GLOBAL RULES
+- Do NOT change endpoint paths or API response shapes.
+- Do NOT modify database schema except additive migrations.
+- Do NOT refactor UI.
+- Prefer moving code without changing logic.
+- Preserve RBAC and tenant isolation behavior.
+- After each phase:
+  - typecheck
+  - build
+  - run tests
+  - update docs
+  - STOP before continuing
+
+========================================================
+PHASE 0 — INVENTORY (DOCS ONLY)
+========================================================
+
+Read:
+docs/AUDIT_FINDINGS.md
+docs/KNOWN_ISSUES.md
+docs/PERFORMANCE_NOTES.md
+docs/SECURITY_RATE_LIMITS.md
+
+Create:
+/docs/REFACTOR/ROADMAP_BASELINE.md
+
+Include:
+- route inventory (method + path)
+- duplicated middleware/helper locations
+- storage responsibilities in server/storage.ts
+- error response variations
+- POST/PATCH routes missing validation
+- current rate limiting scope
+- FK cleanup issues
+- port-binding tests
+- tenancy inconsistencies
+
+STOP.
+
+========================================================
+PHASE 1 — SECURITY & TENANCY HARDENING
+========================================================
+
+1) SESSION_SECRET validation
+- Fail fast when NODE_ENV=production and SESSION_SECRET missing.
+- Dev behavior unchanged.
+- Add config validation test if possible.
+- Update configuration docs.
+
+2) Tenant scoping audit + enforcement
+- Create canonical tenant middleware:
+  server/middleware/tenant.ts
+- Centralize getEffectiveTenantId.
+- Replace legacy non-scoped storage usage where safe.
+- Produce /docs/SECURITY/TENANCY_AUDIT.md.
+- Add strict-mode isolation tests.
+
+3) Rate limiting improvements
+- Clarify auth-only limiter documentation.
+- Expand limiter to:
+  - auth flows
+  - invite/create user
+  - admin mutations
+  - chat send
+- Add optional Redis-backed store with dev fallback.
+- Update docs.
+
+Verify server boots and tests pass.
+STOP.
+
+========================================================
+PHASE 2 — API CONSISTENCY & VALIDATION
+========================================================
+
+1) Standardize API error responses using AppError middleware.
+
+Required shape:
+{
+  error: string,
+  code?: string,
+  details?: object
+}
+
+Do NOT change success payloads.
+Add tests confirming error shape.
+
+2) Validation coverage pass
+- Ensure every POST/PATCH uses validateBody() with Zod.
+- Add schemas where missing.
+- Add validation tests for key entities.
+
+STOP.
+
+========================================================
+PHASE 3 — TEST RELIABILITY & COVERAGE
+========================================================
+
+1) Fix FK cleanup order using shared cleanup helper or fixtures.
+
+2) Introduce test app factory:
+- server/app.ts exports createApp()
+- server/index.ts only binds port
+- update tests to import createApp()
+
+3) Add integration tests for:
+- clients CRUD
+- projects CRUD
+- tasks/subtasks CRUD
+- time entries CRUD
+
+Verify tests stable.
+STOP.
+
+========================================================
+PHASE 4 — MAINTAINABILITY & MODULARITY
+========================================================
+
+1) Middleware consolidation
+Create:
+server/middleware/requireAuth.ts
+server/middleware/tenant.ts
+Replace duplicate implementations.
+
+2) Route modularization
+Split:
+server/routes.ts
+server/routes/superAdmin.ts
+
+Into domain routers:
+server/routes/*.routes.ts
+server/routes/superAdmin/*.routes.ts
+
+Keep endpoints identical.
+Create:
+docs/REFACTOR/ROUTES_AFTER_SPLIT.md
+
+3) Storage modularization
+Split server/storage.ts into:
+server/storage/base.ts
+server/storage/taskStorage.ts
+server/storage/clientStorage.ts
+server/storage/projectStorage.ts
+server/storage/timeEntryStorage.ts
+server/storage/chatStorage.ts
+server/storage/commentStorage.ts
+server/storage/userStorage.ts
+
+Re-export composed storage object.
+
+Verify CRUD flows still work.
+STOP.
+
+========================================================
+PHASE 5 — PERFORMANCE & DATA LAYER
+========================================================
+
+1) Implement recommended DB indexes from docs/PERFORMANCE_NOTES.md.
+Add migrations only.
+Create:
+docs/PERFORMANCE/INDEX_CHANGES.md
+
+2) Batch-loading optimization
+Pick one:
+- time entries
+- activity logs
+- comments/attachments
+
+Implement batch fetch helpers.
+Do not change API contracts.
+
+STOP.
+
+========================================================
+PHASE 6 — OBSERVABILITY
+========================================================
+
+Create:
+/docs/OBSERVABILITY/ACTIVITY_LOG_POLICY.md
+
+Ensure activity logging exists for:
+- client CRUD
+- project CRUD
+- task/subtask CRUD
+- time entry CRUD
+- admin actions
+
+Add minimal tests verifying logs.
+
+STOP.
+
+========================================================
+PHASE 7 — DEVELOPER EXPERIENCE
+========================================================
+
+Fix TypeScript request augmentation.
+
+Create:
+server/types.d.ts
+
+Extend Express.Request with:
+- effectiveTenantId
+- user
+- requestId
+
+Remove any-casts.
+Verify typecheck clean.
+
+STOP.
+
+========================================================
+FINAL OUTPUT
+========================================================
+
+Provide:
+- files created/modified
+- migrations added
+- tests added
+- phases completed
+- remaining technical debt
