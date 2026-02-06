@@ -24,6 +24,7 @@ import ProjectsDashboard from "@/pages/projects-dashboard";
 import ProjectPage from "@/pages/project";
 import ClientsPage from "@/pages/clients";
 import ClientDetailPage from "@/pages/client-detail";
+import Client360Page from "@/pages/client-360";
 import LoginPage from "@/pages/login";
 import SettingsPage from "@/pages/settings";
 import SuperAdminPage from "@/pages/super-admin";
@@ -283,6 +284,9 @@ function TenantRouter() {
       </Route>
       <Route path="/clients">
         {() => <TenantRouteGuard component={ClientsPage} />}
+      </Route>
+      <Route path="/clients/:id/360">
+        {() => <TenantRouteGuard component={Client360Page} />}
       </Route>
       <Route path="/clients/:id">
         {() => <TenantRouteGuard component={ClientDetailPage} />}

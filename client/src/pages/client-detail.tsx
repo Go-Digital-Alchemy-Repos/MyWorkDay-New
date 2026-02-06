@@ -79,6 +79,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useCrmFlags } from "@/hooks/use-crm-flags";
 import { StartTimerDrawer } from "@/features/timer";
 import { DivisionDrawer } from "@/features/clients";
 import { ClientPortalUsersTab } from "@/components/client-portal-users-tab";
@@ -266,6 +267,7 @@ export default function ClientDetailPage() {
   const [deleteClientOpen, setDeleteClientOpen] = useState(false);
 
   const { user } = useAuth();
+  const crmFlags = useCrmFlags();
   const canDeleteClient = user?.role === "super_user" || user?.role === "tenant_admin" || user?.role === "admin";
 
   const { data: client, isLoading } = useQuery<ClientWithContacts>({
@@ -574,6 +576,14 @@ export default function ClientDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {crmFlags.client360 && (
+            <Link href={`/clients/${clientId}/360`}>
+              <Button variant="outline" data-testid="button-open-360-view">
+                <Layers className="h-4 w-4 mr-2" />
+                360 View
+              </Button>
+            </Link>
+          )}
           <Button 
             variant="default" 
             onClick={() => setTimerDrawerOpen(true)}
