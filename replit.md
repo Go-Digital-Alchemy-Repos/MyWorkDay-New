@@ -51,8 +51,21 @@ MyWorkDay is an Asana-inspired project management application aimed at streamlin
 - **DB Performance Indexes**: Composite and single-column indexes are strategically applied for performance.
 - **React Query Performance**: Tuned defaults, per-data-type stale times, optimistic updates with rollback, and array-based query keys for efficient cache management.
 - **List Virtualization**: `VirtualizedList` component and React Virtuoso for efficient rendering of large lists. Chat timeline uses Virtuoso directly with `firstItemIndex` prepend pattern, `followOutput` for stick-to-bottom, and `atBottomStateChange` for new-messages pill.
-- **Error Boundaries**: Comprehensive error boundaries for React render errors with recovery UI.
+- **Error Boundaries**: Comprehensive error boundaries for React render errors with recovery UI. Frontend errors (uncaught exceptions, unhandled promise rejections, React render errors) are automatically reported to `POST /api/v1/system/errors/frontend` and stored in the `error_logs` table for backend correlation.
 - **Motion System**: Framer Motion-based animation primitives for enhanced user experience.
+- **Graceful Shutdown**: SIGTERM/SIGINT handlers close HTTP server, Socket.IO, and database pool in order with a 10-second timeout before forced exit. Ensures clean resource release during deployments and restarts.
+
+### Observability & Operations
+- **Request IDs**: Every request gets a UUID via `X-Request-Id` header (middleware: `server/middleware/requestId.ts`). Propagated through logs, error responses, and error_logs table for end-to-end correlation.
+- **Structured Request Logging**: `server/middleware/requestLogger.ts` logs JSON entries with requestId, method, path, status, durationMs, tenantId, userId. Log level varies by status code (error for 500+, warn for 4xx).
+- **Error Logging to DB**: `server/middleware/errorLogging.ts` captures 500+ errors and key 4xx (403, 404, 429) to `error_logs` table with automatic secret redaction. Frontend errors also stored via dedicated endpoint.
+- **Health Endpoints**: `/health` (always 200 for load balancers), `/healthz` (liveness), `/ready` (readiness with DB + schema checks, returns 503 if not ready), `/api/v1/system/health/db` (database connectivity, latency, pool stats, migration count).
+- **Env Var Validation**: `server/config.ts` validates critical environment variables (DATABASE_URL, SESSION_SECRET) at startup. Production mode fails fast with `process.exit(1)` if critical vars are missing.
+
+### Security Hardening
+- **Tenancy Enforcement**: `server/middleware/tenancyEnforcement.ts` with three modes: `off` (development), `soft` (log warnings), `strict` (block cross-tenant access). Validates ownership on read, insert, update, and delete operations.
+- **Rate Limiting**: Applied to auth endpoints (login, bootstrap, invite, forgot-password), file uploads, internal chat sends, and CRM client messaging. Configurable via environment variables. Uses in-memory store with email-based and IP-based limits. Middleware: `server/middleware/rateLimit.ts`.
+- **Secret Redaction**: All error logs automatically redact passwords, API keys, tokens, and database URLs before storage.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.

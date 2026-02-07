@@ -5,6 +5,7 @@ import { eq, and, desc, sql, count, ilike, lte, gte, inArray, isNotNull } from "
 import { AppError, handleRouteError, sendError, validateBody } from "../lib/errors";
 import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { requireAuth, requireAdmin } from "../auth";
+import { clientMessageRateLimiter } from "../middleware/rateLimit";
 import {
   clients,
   clientContacts,
@@ -1441,7 +1442,7 @@ router.get("/crm/clients/:clientId/conversations", requireAuth, async (req: Requ
 });
 
 // POST create a new conversation (admin/employee only)
-router.post("/crm/clients/:clientId/conversations", requireAuth, async (req: Request, res: Response) => {
+router.post("/crm/clients/:clientId/conversations", requireAuth, clientMessageRateLimiter, async (req: Request, res: Response) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) return sendError(res, AppError.tenantRequired(), req);
@@ -1537,7 +1538,7 @@ router.get("/crm/conversations/:conversationId/messages", requireAuth, async (re
 });
 
 // POST a message to a conversation (both internal users and clients)
-router.post("/crm/conversations/:conversationId/messages", requireAuth, async (req: Request, res: Response) => {
+router.post("/crm/conversations/:conversationId/messages", requireAuth, clientMessageRateLimiter, async (req: Request, res: Response) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) return sendError(res, AppError.tenantRequired(), req);

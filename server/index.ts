@@ -20,6 +20,7 @@ import { logMigrationStatus } from "./scripts/migration-status";
 import { ensureSchemaReady, getLastSchemaCheck } from "./startup/schemaReadiness";
 import { logAppInfo } from "./startup/appInfo";
 import { logNullTenantIdWarnings } from "./startup/tenantIdHealthCheck";
+import { storage } from "./storage";
 
 export const app = express();
 const httpServer = createServer(app);
@@ -237,6 +238,48 @@ app.get("/api/v1/system/features", async (_req, res) => {
       timestamp: new Date().toISOString(),
       error: error?.message || "Feature check failed",
     });
+  }
+});
+
+// Frontend error capture endpoint - accepts client-side error reports
+// No auth required (errors may occur before/during auth)
+app.post("/api/v1/system/errors/frontend", async (req, res) => {
+  try {
+    const { message, name, stack, url, userAgent, source, componentStack } = req.body || {};
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ ok: false, error: "message is required" });
+    }
+
+    const sanitizedMessage = (message || "").slice(0, 500);
+    const sanitizedStack = (stack || "").slice(0, 4000);
+    const userId = req.user?.id || null;
+    const tenantId = req.user?.tenantId || null;
+
+    const errorLog = {
+      requestId: req.requestId || "frontend",
+      tenantId,
+      userId,
+      method: "FRONTEND",
+      path: (url || "").slice(0, 500),
+      status: 0,
+      errorName: (name || "Error").slice(0, 100),
+      message: sanitizedMessage,
+      stack: sanitizedStack,
+      meta: {
+        source: source || "unknown",
+        userAgent: (userAgent || "").slice(0, 300),
+        ...(componentStack ? { componentStack: componentStack.slice(0, 2000) } : {}),
+      },
+      environment: process.env.NODE_ENV || "development",
+      resolved: false,
+    };
+
+    await storage.createErrorLog(errorLog);
+    console.warn(`[frontend-error] ${sanitizedMessage} (${source || "unknown"}) url=${url}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[frontend-error] Failed to capture:", err);
+    res.status(500).json({ ok: false });
   }
 });
 
@@ -528,3 +571,59 @@ httpServer.listen(port, host, () => {
   console.error("[boot] Unhandled startup error:", err);
   startupError = err instanceof Error ? err : new Error(String(err));
 });
+
+// ============================================================================
+// Graceful Shutdown
+// ============================================================================
+
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`[shutdown] ${signal} received — starting graceful shutdown...`);
+
+  const forceTimer = setTimeout(() => {
+    console.error("[shutdown] Timed out after 10 s — forcing exit");
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forceTimer.unref();
+
+  try {
+    console.log("[shutdown] 1/3  Closing HTTP server (stop accepting connections)...");
+    await new Promise<void>((resolve, reject) => {
+      httpServer.close((err) => (err ? reject(err) : resolve()));
+    });
+    console.log("[shutdown] 1/3  HTTP server closed");
+
+    console.log("[shutdown] 2/3  Closing Socket.IO...");
+    try {
+      const { getIO } = await import("./realtime/socket");
+      const io = getIO();
+      await new Promise<void>((resolve) => io.close(() => resolve()));
+      console.log("[shutdown] 2/3  Socket.IO closed");
+    } catch {
+      console.log("[shutdown] 2/3  Socket.IO was not initialised — skipped");
+    }
+
+    console.log("[shutdown] 3/3  Draining database pool...");
+    try {
+      const { pool } = await import("./db");
+      await pool.end();
+      console.log("[shutdown] 3/3  Database pool drained");
+    } catch {
+      console.log("[shutdown] 3/3  Database pool was not initialised — skipped");
+    }
+
+    console.log("[shutdown] Graceful shutdown complete");
+    process.exit(0);
+  } catch (err) {
+    console.error("[shutdown] Error during shutdown:", err);
+    process.exit(1);
+  }
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

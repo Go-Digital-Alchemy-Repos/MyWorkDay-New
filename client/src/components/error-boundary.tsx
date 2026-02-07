@@ -2,6 +2,42 @@ import { Component, type ReactNode } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+function reportErrorToBackend(error: Error, context: Record<string, unknown> = {}) {
+  try {
+    const payload = {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.slice(0, 4000),
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      timestamp: new Date().toISOString(),
+      ...context,
+    };
+    fetch("/api/v1/system/errors/frontend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  } catch {
+    // Never let error reporting break the app
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (event) => {
+    if (event.error) {
+      reportErrorToBackend(event.error, { source: "window.onerror" });
+    }
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const error = event.reason instanceof Error
+      ? event.reason
+      : new Error(String(event.reason));
+    reportErrorToBackend(error, { source: "unhandledrejection" });
+  });
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
@@ -25,6 +61,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("[ErrorBoundary]", error, errorInfo);
+    reportErrorToBackend(error, {
+      source: "ErrorBoundary",
+      componentStack: errorInfo.componentStack?.slice(0, 2000),
+    });
     this.props.onError?.(error, errorInfo);
   }
 
