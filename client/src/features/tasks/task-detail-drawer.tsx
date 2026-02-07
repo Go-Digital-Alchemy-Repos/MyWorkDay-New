@@ -138,23 +138,46 @@ export function TaskDetailDrawer({
       const response = await apiRequest("POST", `/api/tasks/${task?.id}/comments`, { body });
       return response.json() as Promise<Comment & { user?: User }>;
     },
-    onSuccess: (newComment) => {
-      // Optimistically add the new comment to the cache
-      if (task?.id && newComment) {
-        queryClient.setQueryData<(Comment & { user?: User })[]>(
-          [`/api/tasks/${task.id}/comments`],
-          (old = []) => [...old, newComment]
-        );
-      }
-      // Also invalidate to ensure consistency
-      invalidateCommentQueries();
+    onMutate: async (body: string) => {
+      if (!task?.id || !currentUser) return undefined;
+      const commentsKey = [`/api/tasks/${task.id}/comments`];
+      await queryClient.cancelQueries({ queryKey: commentsKey });
+      const previousComments = queryClient.getQueryData<(Comment & { user?: User })[]>(commentsKey);
+      const optimisticComment = {
+        id: `temp-${Date.now()}`,
+        body,
+        taskId: task.id,
+        userId: currentUser.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        resolved: false,
+        resolvedAt: null,
+        resolvedByUserId: null,
+        tenantId: currentUser.tenantId || "",
+        user: {
+          id: currentUser.id,
+          email: currentUser.email,
+          firstName: currentUser.firstName,
+          lastName: currentUser.lastName,
+          name: `${currentUser.firstName || ""} ${currentUser.lastName || ""}`.trim() || currentUser.email,
+          avatarUrl: currentUser.avatarUrl,
+        },
+      } as any;
+      queryClient.setQueryData<(Comment & { user?: User })[]>(commentsKey, (old = []) => [...old, optimisticComment]);
+      return { previousComments, commentsKey };
     },
-    onError: (error: any) => {
+    onError: (error: any, _body, context: any) => {
+      if (context?.previousComments !== undefined && context?.commentsKey) {
+        queryClient.setQueryData(context.commentsKey, context.previousComments);
+      }
       toast({
         title: "Failed to add comment",
         description: error?.message || "Please try again",
         variant: "destructive",
       });
+    },
+    onSettled: () => {
+      invalidateCommentQueries();
     },
   });
 
@@ -443,7 +466,32 @@ export function TaskDetailDrawer({
     mutationFn: async (status: string) => {
       return apiRequest("PATCH", `/api/tasks/${task!.id}`, { status });
     },
-    onSuccess: () => {
+    onMutate: async (newStatus: string) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/tasks/my"] });
+      const previousMyTasks = queryClient.getQueryData(["/api/tasks/my"]);
+      queryClient.setQueryData<any[]>(["/api/tasks/my"], (old) =>
+        old?.map((t: any) => (t.id === task?.id ? { ...t, status: newStatus } : t))
+      );
+      if (task?.projectId) {
+        const projectTasksKey = ["/api/projects", task.projectId, "tasks"];
+        await queryClient.cancelQueries({ queryKey: projectTasksKey });
+        const previousProjectTasks = queryClient.getQueryData(projectTasksKey);
+        queryClient.setQueryData<any[]>(projectTasksKey, (old) =>
+          old?.map((t: any) => (t.id === task?.id ? { ...t, status: newStatus } : t))
+        );
+        return { previousMyTasks, previousProjectTasks, projectTasksKey };
+      }
+      return { previousMyTasks };
+    },
+    onError: (_err, _status, context: any) => {
+      if (context?.previousMyTasks) {
+        queryClient.setQueryData(["/api/tasks/my"], context.previousMyTasks);
+      }
+      if (context?.previousProjectTasks && context?.projectTasksKey) {
+        queryClient.setQueryData(context.projectTasksKey, context.previousProjectTasks);
+      }
+    },
+    onSettled: () => {
       invalidateTaskQueries();
     },
   });

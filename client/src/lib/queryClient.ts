@@ -290,14 +290,29 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      retry: (failureCount, error) => {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 404)) {
+          return false;
+        }
+        return failureCount < 2;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 8000),
     },
     mutations: {
       retry: false,
     },
   },
 });
+
+export const STALE_TIMES = {
+  realtime: 10_000,
+  fast: 30_000,
+  standard: 60_000,
+  slow: 5 * 60_000,
+  static: Infinity,
+} as const;
 
 /**
  * Tenant-scoped query key prefixes.

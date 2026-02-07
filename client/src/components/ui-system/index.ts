@@ -63,6 +63,8 @@ export {
   MotionScale,
   MotionCheck,
   MotionPresence,
+  MotionPage,
+  MotionDrawerContent,
   useReducedMotion,
   fadeVariants,
   slideUpVariants,
@@ -74,4 +76,6 @@ export {
   checkVariants,
   pulseVariants,
   sendVariants,
+  drawerSlideVariants,
+  pageTransitionVariants,
 } from "./motion";

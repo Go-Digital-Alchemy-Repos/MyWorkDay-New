@@ -231,5 +231,56 @@ export function useReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+export const drawerSlideVariants: Variants = {
+  hidden: { opacity: 0, x: 24 },
+  visible: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: 24 },
+};
+
+export const pageTransitionVariants: Variants = {
+  hidden: { opacity: 0, y: 6 },
+  visible: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -6 },
+};
+
+interface MotionPageProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+export function MotionPage({ children, className }: MotionPageProps) {
+  return (
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={pageTransitionVariants}
+      transition={defaultTransition}
+      className={cn("h-full", className)}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+interface MotionDrawerContentProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+export function MotionDrawerContent({ children, className }: MotionDrawerContentProps) {
+  return (
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      variants={drawerSlideVariants}
+      transition={defaultTransition}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 export const Motion = motion;
 export { AnimatePresence };

@@ -74,11 +74,32 @@ export function useCreateTask(options?: {
       const response = await apiRequest("POST", "/api/tasks", data);
       return response.json();
     },
-    onSuccess: (task) => {
-      invalidateAllTaskCaches(queryClient, task.projectId);
-      options?.onSuccess?.(task);
+    onMutate: async (data) => {
+      const myTasksKey = ["/api/tasks/my"];
+      await queryClient.cancelQueries({ queryKey: myTasksKey });
+      const previousMyTasks = queryClient.getQueryData(myTasksKey);
+      const optimisticTask = {
+        id: `temp-${Date.now()}`,
+        title: data.title,
+        description: data.description || null,
+        status: data.status || "todo",
+        priority: data.priority || "medium",
+        projectId: data.projectId,
+        sectionId: data.sectionId || null,
+        dueDate: data.dueDate || null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        assignees: [],
+        tags: [],
+        subtasks: [],
+      };
+      queryClient.setQueryData<any[]>(myTasksKey, (old = []) => [optimisticTask, ...old]);
+      return { previousMyTasks };
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _data, context: any) => {
+      if (context?.previousMyTasks) {
+        queryClient.setQueryData(["/api/tasks/my"], context.previousMyTasks);
+      }
       const { title, description } = formatErrorForToast(error);
       toast({
         title,
@@ -86,6 +107,12 @@ export function useCreateTask(options?: {
         variant: "destructive",
       });
       options?.onError?.(error);
+    },
+    onSettled: (_data, _error, variables) => {
+      invalidateAllTaskCaches(queryClient, variables.projectId);
+    },
+    onSuccess: (task) => {
+      options?.onSuccess?.(task);
     },
   });
 }

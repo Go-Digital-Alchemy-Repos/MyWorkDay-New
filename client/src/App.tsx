@@ -17,6 +17,7 @@ import { useAppMode } from "@/hooks/useAppMode";
 import { useToast } from "@/hooks/use-toast";
 import { setLastAttemptedTenantUrl, isTenantRoute } from "@/lib/tenant-url-storage";
 import { CommandPalette } from "@/components/command-palette";
+import { ErrorBoundary } from "@/components/error-boundary";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import MyTasks from "@/pages/my-tasks";
@@ -374,7 +375,9 @@ function SuperLayout() {
             </div>
           </header>
           <main className="flex-1 overflow-hidden">
-            <SuperAdminRouter />
+            <ErrorBoundary>
+              <SuperAdminRouter />
+            </ErrorBoundary>
           </main>
         </div>
       </div>
@@ -489,7 +492,9 @@ function TenantLayout() {
                   </div>
                 </header>
                 <main className={`flex-1 overflow-hidden ${isMobile ? "pb-16" : ""}`}>
-                  <TenantRouter />
+                  <ErrorBoundary>
+                    <TenantRouter />
+                  </ErrorBoundary>
                 </main>
               </div>
             </div>
@@ -526,7 +531,9 @@ function ClientPortalLayout() {
             </div>
           </header>
           <main className={`flex-1 overflow-hidden ${isMobile ? "pb-16" : ""}`}>
-            <ClientPortalRouter />
+            <ErrorBoundary>
+              <ClientPortalRouter />
+            </ErrorBoundary>
           </main>
         </div>
       </div>

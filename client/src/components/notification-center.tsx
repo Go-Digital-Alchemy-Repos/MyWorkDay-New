@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, Check, CheckCheck, Settings, Clock, MessageSquare, Users, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import type { ServerToClientEvents } from "@shared/events";
 import { useTaskDrawerOptional } from "@/lib/task-drawer-context";
+import { VirtualizedList } from "@/components/ui/virtualized-list";
 
 interface Notification {
   id: string;
@@ -275,28 +276,31 @@ const defaultPreferences: NotificationPreferences = {
                 </Button>
               </div>
             )}
-            <ScrollArea className="h-80">
+            <div className="h-80">
               {notificationsLoading ? (
                 <div className="p-4 text-center text-muted-foreground text-sm">
                   Loading notifications...
                 </div>
-              ) : notifications.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  <Bell className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                  <p className="text-sm">No notifications yet</p>
-                </div>
               ) : (
-                <div className="divide-y">
-                  {notifications.map((notification) => {
+                <VirtualizedList
+                  data={notifications as Notification[]}
+                  style={{ height: "100%" }}
+                  overscan={100}
+                  emptyContent={
+                    <div className="p-8 text-center text-muted-foreground">
+                      <Bell className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">No notifications yet</p>
+                    </div>
+                  }
+                  itemContent={(_index, notification) => {
                     const Icon = getNotificationIcon(notification.type);
                     const taskId = getTaskIdFromPayload(notification.payloadJson);
                     const isTaskType = isTaskNotification(notification.type);
-                    
+
                     return (
                       <div
-                        key={notification.id}
                         className={cn(
-                          "px-4 py-3 hover-elevate cursor-pointer relative",
+                          "px-4 py-3 hover-elevate cursor-pointer relative border-b",
                           !notification.readAt && "bg-primary/5"
                         )}
                         onClick={() => {
@@ -342,10 +346,10 @@ const defaultPreferences: NotificationPreferences = {
                         )}
                       </div>
                     );
-                  })}
-                </div>
+                  }}
+                />
               )}
-            </ScrollArea>
+            </div>
           </TabsContent>
 
           <TabsContent value="settings" className="m-0">
