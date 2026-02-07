@@ -30,9 +30,10 @@ MyWorkDay is an Asana-inspired project management application aimed at streamlin
 - **Project Management**: Includes workspaces, teams, clients, projects, tasks, activity logs, and time tracking. Projects support client assignment, team membership, and a division model for access control.
 - **Client Management**: Client detail pages feature Notes (rich text, categorization, version tracking) and Documents (Cloudflare R2 uploads, categories, metadata). CRM features include client pipeline tracking, contacts, and an external client portal.
 - **Task Management**: Tasks support subtasks, tags, comments with rich text, @mentions, and notifications. Project templates allow reusable project structures.
+- **Collaboration System**: Reusable `CommentThread` component (supports task/project/client entity types with readOnly mode), generic `ActivityFeed` component (virtualized, with type and date range filters, backed by `/api/activity-log/:entityType/:entityId` or custom endpoints), and `CommandPalette` (Cmd+K global search with debounced `/api/search` endpoint).
 - **Workload Management**: Features workload forecast and reports for task distribution and budget utilization.
 - **Time Tracking**: Stopwatch-based time tracking with persistence and a dedicated dashboard.
-- **Notifications**: Customizable real-time notification system.
+- **Notifications**: Customizable real-time notification system with NotificationCenter popover (virtualized list, unread badge, per-type preferences, Socket.IO real-time updates). Backend: `POST /api/notifications/mark-all-read`, `PATCH /api/notifications/:id/read`.
 - **Rich Text Editor**: Unified TipTap-based rich text editor for various features.
 - **Client Portal**: External client access to projects/tasks with restricted permissions and token-based invitation.
 - **CRM Feature Flags**: Environment-driven feature flags (`CRM_CLIENT_360_ENABLED`, `CRM_CONTACTS_ENABLED`, `CRM_TIMELINE_ENABLED`, `CRM_PORTAL_ENABLED`, `CRM_FILES_ENABLED`, `CRM_APPROVALS_ENABLED`, `CRM_CLIENT_MESSAGING_ENABLED`) control CRM module visibility and functionality.

@@ -143,7 +143,7 @@ const defaultPreferences: NotificationPreferences = {
 
   const markAllReadMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", "/api/notifications/read-all");
+      await apiRequest("POST", "/api/notifications/mark-all-read");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });

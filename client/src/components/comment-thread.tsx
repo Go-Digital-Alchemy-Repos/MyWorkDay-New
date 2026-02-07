@@ -38,7 +38,9 @@ interface CommentWithUser extends Comment {
 
 interface CommentThreadProps {
   comments: CommentWithUser[];
-  taskId: string;
+  taskId?: string;
+  entityType?: "task" | "project" | "client";
+  entityId?: string;
   currentUserId?: string;
   users?: User[];
   onAdd?: (body: string) => void;
@@ -46,6 +48,9 @@ interface CommentThreadProps {
   onDelete?: (id: string) => void;
   onResolve?: (id: string) => void;
   onUnresolve?: (id: string) => void;
+  title?: string;
+  placeholder?: string;
+  readOnly?: boolean;
 }
 
 function getInitials(name: string): string {
@@ -96,6 +101,8 @@ function renderMentions(body: string): JSX.Element {
 export function CommentThread({
   comments,
   taskId,
+  entityType = "task",
+  entityId,
   currentUserId,
   users,
   onAdd,
@@ -103,6 +110,9 @@ export function CommentThread({
   onDelete,
   onResolve,
   onUnresolve,
+  title = "Comments",
+  placeholder = "Write a comment... Type @ to mention someone",
+  readOnly = false,
 }: CommentThreadProps) {
   const [body, setBody] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -146,7 +156,7 @@ export function CommentThread({
 
   return (
     <div className="space-y-4" data-testid="comment-thread">
-      <h4 className="text-sm font-medium">Comments</h4>
+      <h4 className="text-sm font-medium">{title}</h4>
 
       {comments.length > 0 && (
         <div className="space-y-4">
@@ -281,22 +291,24 @@ export function CommentThread({
         </p>
       )}
 
-      <div className="flex gap-3 pt-2">
-        <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback className="bg-primary/10 text-primary text-xs">U</AvatarFallback>
-        </Avatar>
-        <div className="flex-1">
-          <CommentEditor
-            ref={commentEditorRef}
-            value={body}
-            onChange={setBody}
-            onSubmit={handleSubmit}
-            placeholder="Write a comment... Type @ to mention someone"
-            users={mentionUsers}
-            data-testid="textarea-comment"
-          />
+      {!readOnly && (
+        <div className="flex gap-3 pt-2">
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className="bg-primary/10 text-primary text-xs">U</AvatarFallback>
+          </Avatar>
+          <div className="flex-1">
+            <CommentEditor
+              ref={commentEditorRef}
+              value={body}
+              onChange={setBody}
+              onSubmit={handleSubmit}
+              placeholder={placeholder}
+              users={mentionUsers}
+              data-testid="textarea-comment"
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
