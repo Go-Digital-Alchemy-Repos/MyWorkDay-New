@@ -13,16 +13,17 @@ import { UserRole } from "@shared/schema";
 import { tenantIntegrationService } from "../services/tenantIntegrations";
 import { getStorageStatus } from "../storage/getStorageProvider";
 import { isEncryptionAvailable } from "../lib/encryption";
+import { AppError, handleRouteError } from "../lib/errors";
 
 const router = Router();
 
 function requireSuperUser(req: Request, res: Response, next: () => void) {
   if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
-    return res.status(401).json({ error: { code: "AUTH_REQUIRED", message: "Authentication required" } });
+    throw AppError.unauthorized("Authentication required");
   }
   const user = req.user as any;
   if (user.role !== UserRole.SUPER_USER) {
-    return res.status(403).json({ error: { code: "FORBIDDEN", message: "Super admin access required" } });
+    throw AppError.forbidden("Super admin access required");
   }
   next();
 }
@@ -39,7 +40,7 @@ const r2UpdateSchema = z.object({
   bucketName: z.string().optional(),
   accountId: z.string().optional(),
   keyPrefixTemplate: z.string().optional(),
-  publicUrl: z.string().optional(), // Public access URL for R2 bucket (r2.dev URL or custom domain)
+  publicUrl: z.string().optional(),
   accessKeyId: z.string().optional(),
   secretAccessKey: z.string().optional(),
 });
@@ -63,8 +64,6 @@ router.get("/integrations", requireSuperUser, async (req: Request, res: Response
     const integrations = await tenantIntegrationService.listIntegrations(null);
     res.json({ integrations });
   } catch (error) {
-    console.error("[system-integrations] Error listing integrations:", error);
-    // Return empty integrations list instead of 500
     res.json({ integrations: [] });
   }
 });
@@ -93,8 +92,6 @@ router.get("/integrations/s3", requireSuperUser, async (req: Request, res: Respo
       isSystemDefault: true,
     });
   } catch (error) {
-    console.error("[system-integrations] Error getting S3 integration:", error);
-    // Return not_configured instead of 500
     res.json({
       provider: "s3",
       status: "not_configured",
@@ -113,9 +110,7 @@ router.get("/integrations/s3", requireSuperUser, async (req: Request, res: Respo
 router.put("/integrations/s3", requireSuperUser, async (req: Request, res: Response) => {
   try {
     if (process.env.NODE_ENV === "production" && !isEncryptionAvailable()) {
-      return res.status(400).json({
-        error: { code: "ENCRYPTION_REQUIRED", message: "Encryption key not configured. Cannot save secrets." },
-      });
+      throw AppError.badRequest("Encryption key not configured. Cannot save secrets.");
     }
 
     const data = s3UpdateSchema.parse(req.body);
@@ -137,11 +132,10 @@ router.put("/integrations/s3", requireSuperUser, async (req: Request, res: Respo
       isSystemDefault: true,
     });
   } catch (error) {
-    console.error("[system-integrations] Error updating S3 integration:", error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid request data" } });
+      return handleRouteError(res, AppError.badRequest("Invalid request data"), "systemIntegrations.updateS3", req);
     }
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to update S3 integration" } });
+    handleRouteError(res, error, "systemIntegrations.updateS3", req);
   }
 });
 
@@ -169,14 +163,13 @@ router.delete("/integrations/s3/secret/:secretName", requireSuperUser, async (re
     const validSecrets = ["accessKeyId", "secretAccessKey"];
     
     if (!validSecrets.includes(secretName)) {
-      return res.status(400).json({ error: { code: "INVALID_SECRET", message: "Invalid secret name" } });
+      throw AppError.badRequest("Invalid secret name");
     }
     
     await tenantIntegrationService.clearSecret(null, "s3", secretName);
     res.json({ success: true });
   } catch (error) {
-    console.error("[system-integrations] Error clearing S3 secret:", error);
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to clear S3 secret" } });
+    handleRouteError(res, error, "systemIntegrations.clearS3Secret", req);
   }
 });
 
@@ -208,8 +201,6 @@ router.get("/integrations/r2", requireSuperUser, async (req: Request, res: Respo
       isSystemDefault: true,
     });
   } catch (error) {
-    console.error("[system-integrations] Error getting R2 integration:", error);
-    // Return not_configured instead of 500
     res.json({
       provider: "r2",
       status: "not_configured",
@@ -228,9 +219,7 @@ router.get("/integrations/r2", requireSuperUser, async (req: Request, res: Respo
 router.put("/integrations/r2", requireSuperUser, async (req: Request, res: Response) => {
   try {
     if (process.env.NODE_ENV === "production" && !isEncryptionAvailable()) {
-      return res.status(400).json({
-        error: { code: "ENCRYPTION_REQUIRED", message: "Encryption key not configured. Cannot save secrets." },
-      });
+      throw AppError.badRequest("Encryption key not configured. Cannot save secrets.");
     }
 
     const data = r2UpdateSchema.parse(req.body);
@@ -246,7 +235,7 @@ router.put("/integrations/r2", requireSuperUser, async (req: Request, res: Respo
         accountId: data.accountId,
         endpoint,
         keyPrefixTemplate: data.keyPrefixTemplate,
-        publicUrl: data.publicUrl, // Public access URL for viewing uploaded files
+        publicUrl: data.publicUrl,
       },
       secretConfig: {
         accessKeyId: data.accessKeyId,
@@ -259,11 +248,10 @@ router.put("/integrations/r2", requireSuperUser, async (req: Request, res: Respo
       isSystemDefault: true,
     });
   } catch (error) {
-    console.error("[system-integrations] Error updating R2 integration:", error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid request data" } });
+      return handleRouteError(res, AppError.badRequest("Invalid request data"), "systemIntegrations.updateR2", req);
     }
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to update R2 integration" } });
+    handleRouteError(res, error, "systemIntegrations.updateR2", req);
   }
 });
 
@@ -293,8 +281,6 @@ router.get("/storage/status", requireSuperUser, async (req: Request, res: Respon
       encryptionConfigured: isEncryptionAvailable(),
     });
   } catch (error) {
-    console.error("[system-integrations] Error checking storage status:", error);
-    // Return safe defaults instead of 500
     res.json({
       configured: false,
       provider: null,
@@ -350,8 +336,6 @@ router.get("/integrations/sso/google", requireSuperUser, async (req: Request, re
       lastTestedAt: integration.lastTestedAt,
     });
   } catch (error) {
-    console.error("[system-integrations] Error getting Google SSO config:", error);
-    // Return not_configured instead of 500
     res.json({
       provider: "sso_google",
       status: "not_configured",
@@ -373,29 +357,17 @@ router.put("/integrations/sso/google", requireSuperUser, async (req: Request, re
   try {
     const data = ssoGoogleUpdateSchema.parse(req.body);
     
-    // Check if trying to save secret without encryption
     if (data.clientSecret && !isEncryptionAvailable()) {
-      return res.status(400).json({
-        error: { 
-          code: "ENCRYPTION_NOT_CONFIGURED", 
-          message: "Cannot save secrets. APP_ENCRYPTION_KEY environment variable is not configured." 
-        },
-      });
+      throw AppError.badRequest("Cannot save secrets. APP_ENCRYPTION_KEY environment variable is not configured.");
     }
 
-    // Validate: cannot enable without required fields
     if (data.enabled === true) {
       const existing = await tenantIntegrationService.getIntegration(null, "sso_google");
       const hasClientId = data.clientId || (existing?.publicConfig as any)?.clientId;
       const hasSecret = data.clientSecret || existing?.secretConfigured;
       
       if (!hasClientId || !hasSecret) {
-        return res.status(400).json({
-          error: { 
-            code: "SSO_CONFIG_INCOMPLETE", 
-            message: "Cannot enable Google SSO without Client ID and Client Secret" 
-          },
-        });
+        throw AppError.badRequest("Cannot enable Google SSO without Client ID and Client Secret");
       }
     }
 
@@ -420,11 +392,10 @@ router.put("/integrations/sso/google", requireSuperUser, async (req: Request, re
       lastTestedAt: result.lastTestedAt,
     });
   } catch (error) {
-    console.error("[system-integrations] Error updating Google SSO config:", error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid request data" } });
+      return handleRouteError(res, AppError.badRequest("Invalid request data"), "systemIntegrations.updateSSOGoogle", req);
     }
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to update Google SSO configuration" } });
+    handleRouteError(res, error, "systemIntegrations.updateSSOGoogle", req);
   }
 });
 
@@ -460,8 +431,6 @@ router.get("/integrations/sso/status", requireSuperUser, async (req: Request, re
       encryptionConfigured: isEncryptionAvailable(),
     });
   } catch (error) {
-    console.error("[system-integrations] Error getting SSO status:", error);
-    // Return safe defaults instead of 500
     res.json({
       google: { configured: false, enabled: false },
       encryptionConfigured: isEncryptionAvailable(),
@@ -508,7 +477,6 @@ router.get("/integrations/openai", requireSuperUser, async (req: Request, res: R
       isSystemDefault: true,
     });
   } catch (error) {
-    console.error("[system-integrations] Error getting OpenAI integration:", error);
     res.json({
       provider: "openai",
       status: "not_configured",
@@ -527,9 +495,7 @@ router.get("/integrations/openai", requireSuperUser, async (req: Request, res: R
 router.put("/integrations/openai", requireSuperUser, async (req: Request, res: Response) => {
   try {
     if (process.env.NODE_ENV === "production" && !isEncryptionAvailable()) {
-      return res.status(400).json({
-        error: { code: "ENCRYPTION_REQUIRED", message: "Encryption key not configured. Cannot save secrets." },
-      });
+      throw AppError.badRequest("Encryption key not configured. Cannot save secrets.");
     }
 
     const data = openaiUpdateSchema.parse(req.body);
@@ -551,11 +517,10 @@ router.put("/integrations/openai", requireSuperUser, async (req: Request, res: R
       isSystemDefault: true,
     });
   } catch (error) {
-    console.error("[system-integrations] Error updating OpenAI integration:", error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid request data" } });
+      return handleRouteError(res, AppError.badRequest("Invalid request data"), "systemIntegrations.updateOpenAI", req);
     }
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to update OpenAI integration" } });
+    handleRouteError(res, error, "systemIntegrations.updateOpenAI", req);
   }
 });
 

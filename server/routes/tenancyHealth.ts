@@ -11,6 +11,7 @@ import {
   tenantAuditEvents, TenantStatus
 } from "@shared/schema";
 import { sql, eq, isNull, and } from "drizzle-orm";
+import { AppError, handleRouteError } from "../lib/errors";
 
 const router = Router();
 
@@ -170,17 +171,13 @@ router.get("/v1/super/tenancy/health", requireAuth, requireSuperUser, async (req
       persistenceEnabled: tenancyHealthTracker.isPersistenceEnabled(),
     });
   } catch (error) {
-    console.error("[TenancyHealth] Error getting health:", error);
-    res.status(500).json({ error: "Failed to get tenancy health" });
+    handleRouteError(res, error, "tenancyHealth.getHealth", req);
   }
 });
 
 router.get("/v1/super/tenancy/warnings", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
   if (!tenancyHealthTracker.isPersistenceEnabled()) {
-    return res.status(501).json({
-      error: "Warning persistence not enabled",
-      message: "Set TENANCY_WARN_PERSIST=true to enable warning storage",
-    });
+    throw new AppError(501, "NOT_IMPLEMENTED", "Warning persistence not enabled. Set TENANCY_WARN_PERSIST=true to enable warning storage");
   }
 
   try {
@@ -200,18 +197,14 @@ router.get("/v1/super/tenancy/warnings", requireAuth, requireSuperUser, async (r
 
     res.json(result);
   } catch (error) {
-    console.error("[TenancyHealth] Error getting warnings:", error);
-    res.status(500).json({ error: "Failed to get warnings" });
+    handleRouteError(res, error, "tenancyHealth.getWarnings", req);
   }
 });
 
 router.post("/v1/super/tenancy/backfill", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
   const confirmHeader = req.headers["x-confirm-backfill"];
   if (confirmHeader !== "YES") {
-    return res.status(400).json({
-      error: "Backfill requires confirmation",
-      message: "Include header 'X-Confirm-Backfill: YES' to proceed",
-    });
+    throw AppError.badRequest("Backfill requires confirmation. Include header 'X-Confirm-Backfill: YES' to proceed");
   }
 
   const { dryRun } = req.body;
@@ -224,10 +217,7 @@ router.post("/v1/super/tenancy/backfill", requireAuth, requireSuperUser, async (
       .limit(1);
 
     if (!defaultTenant.length) {
-      return res.status(404).json({
-        error: "Default tenant not found",
-        message: "Create a tenant with slug 'default' first",
-      });
+      throw AppError.notFound("Default tenant not found. Create a tenant with slug 'default' first");
     }
 
     const defaultTenantId = defaultTenant[0].id;
@@ -291,24 +281,23 @@ router.post("/v1/super/tenancy/backfill", requireAuth, requireSuperUser, async (
       remainingNulls,
     });
   } catch (error) {
-    console.error("[TenancyBackfill] Error during backfill:", error);
-    res.status(500).json({ error: "Failed to perform backfill" });
+    handleRouteError(res, error, "tenancyHealth.backfill", req);
   }
 });
 
 router.get("/v1/tenant/tenancy/health", requireAuth, async (req: Request, res: Response) => {
   const user = req.user as any;
   if (!user) {
-    return res.status(401).json({ error: "Unauthorized" });
+    throw AppError.unauthorized("Unauthorized");
   }
 
   if (user.role !== "admin" && user.role !== "super_user") {
-    return res.status(403).json({ error: "Forbidden - admin access required" });
+    throw AppError.forbidden("Forbidden - admin access required");
   }
 
   const effectiveTenantId = user.tenantId;
   if (!effectiveTenantId) {
-    return res.status(400).json({ error: "No tenant context" });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -342,8 +331,7 @@ router.get("/v1/tenant/tenancy/health", requireAuth, async (req: Request, res: R
       persistenceEnabled: tenancyHealthTracker.isPersistenceEnabled(),
     });
   } catch (error) {
-    console.error("[TenancyHealth] Error getting tenant health:", error);
-    res.status(500).json({ error: "Failed to get tenant health" });
+    handleRouteError(res, error, "tenancyHealth.getTenantHealth", req);
   }
 });
 
@@ -479,8 +467,7 @@ router.get("/v1/super/health/orphans", requireAuth, requireSuperUser, async (req
       } : { exists: false },
     });
   } catch (error) {
-    console.error("[OrphanDetection] Error:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to detect orphans" } });
+    handleRouteError(res, error, "tenancyHealth.detectOrphans", req);
   }
 });
 
@@ -489,12 +476,7 @@ router.post("/v1/super/health/orphans/fix", requireAuth, requireSuperUser, async
   const user = req.user as any;
   
   if (!dryRun && confirmText !== "FIX_ORPHANS") {
-    return res.status(400).json({
-      error: {
-        code: "confirmation_required",
-        message: "To execute orphan fix, set dryRun=false and confirmText='FIX_ORPHANS'",
-      },
-    });
+    throw AppError.badRequest("To execute orphan fix, set dryRun=false and confirmText='FIX_ORPHANS'");
   }
   
   try {
@@ -640,8 +622,7 @@ router.post("/v1/super/health/orphans/fix", requireAuth, requireSuperUser, async
       results,
     });
   } catch (error) {
-    console.error("[OrphanFix] Error:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to fix orphans" } });
+    handleRouteError(res, error, "tenancyHealth.fixOrphans", req);
   }
 });
 
@@ -715,8 +696,7 @@ router.get("/v1/super/tenancy/constraints", requireAuth, requireSuperUser, async
       blockedTables: blocked.map(t => ({ name: t.name, nullCount: t.nullCount })),
     });
   } catch (error) {
-    console.error("[TenancyConstraints] Error:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to check constraints" } });
+    handleRouteError(res, error, "tenancyHealth.checkConstraints", req);
   }
 });
 
@@ -730,24 +710,14 @@ router.post("/v1/super/tenancy/constraints/apply", requireAuth, requireSuperUser
 
   const confirmHeader = req.headers["x-confirm-constraints"];
   if (!dryRun && confirmHeader !== "YES") {
-    return res.status(400).json({
-      error: {
-        code: "confirmation_required",
-        message: "To apply constraints, set dryRun=false and include header 'X-Confirm-Constraints: YES'",
-      },
-    });
+    throw AppError.badRequest("To apply constraints, set dryRun=false and include header 'X-Confirm-Constraints: YES'");
   }
 
   let requestedTables: string[];
   if (tables && Array.isArray(tables)) {
     const invalidTables = tables.filter((t: string) => !isValidTenantOwnedTable(t));
     if (invalidTables.length > 0) {
-      return res.status(400).json({
-        error: {
-          code: "invalid_tables",
-          message: `Invalid table names: ${invalidTables.join(", ")}. Only tables from the allowlist are permitted.`,
-        },
-      });
+      throw AppError.badRequest(`Invalid table names: ${invalidTables.join(", ")}. Only tables from the allowlist are permitted.`);
     }
     requestedTables = tables;
   } else {
@@ -825,14 +795,7 @@ router.post("/v1/super/tenancy/constraints/apply", requireAuth, requireSuperUser
     const blockedTables = results.filter(r => r.action === "blocked_has_nulls");
 
     if (blockedTables.length > 0) {
-      return res.status(400).json({
-        error: {
-          code: "blocked_tables",
-          message: "Some tables have NULL tenant_id values and cannot be migrated",
-        },
-        blockedTables: blockedTables.map(t => ({ table: t.table, error: t.error })),
-        results,
-      });
+      throw AppError.badRequest("Some tables have NULL tenant_id values and cannot be migrated");
     }
 
     if (!dryRun && tablesToMigrate.length > 0) {
@@ -876,11 +839,7 @@ router.post("/v1/super/tenancy/constraints/apply", requireAuth, requireSuperUser
       },
     });
   } catch (error) {
-    console.error("[TenancyConstraints] Error:", error);
-    res.status(500).json({ 
-      error: { code: "internal_error", message: "Failed to apply constraints" },
-      results,
-    });
+    handleRouteError(res, error, "tenancyHealth.applyConstraints", req);
   }
 });
 
@@ -893,9 +852,7 @@ router.post("/v1/super/tenancy/remediate", requireAuth, requireSuperUser, async 
   const user = req.user as any;
 
   if (mode !== "dry-run" && mode !== "apply") {
-    return res.status(400).json({
-      error: { code: "invalid_mode", message: "Mode must be 'dry-run' or 'apply'" },
-    });
+    throw AppError.badRequest("Mode must be 'dry-run' or 'apply'");
   }
 
   const applyMode = mode === "apply";
@@ -903,12 +860,7 @@ router.post("/v1/super/tenancy/remediate", requireAuth, requireSuperUser, async 
   if (applyMode) {
     const confirmHeader = req.headers["x-confirm-remediate"];
     if (confirmHeader !== "YES") {
-      return res.status(400).json({
-        error: {
-          code: "confirmation_required",
-          message: "To apply remediation, include header 'X-Confirm-Remediate: YES'",
-        },
-      });
+      throw AppError.badRequest("To apply remediation, include header 'X-Confirm-Remediate: YES'");
     }
   }
 
@@ -1086,15 +1038,12 @@ router.post("/v1/super/tenancy/remediate", requireAuth, requireSuperUser, async 
       },
     });
   } catch (error) {
-    console.error("[TenancyRemediate] Error:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Remediation failed" } });
+    handleRouteError(res, error, "tenancyHealth.remediate", req);
   }
 });
 
-// Mark existing migrations as applied (fixes "relation already exists" errors)
 router.get("/v1/super/migrations/status", requireAuth, requireSuperUser, async (req: Request, res: Response) => {
   try {
-    // Read the migration journal
     const fs = await import('fs');
     const path = await import('path');
     const journalPath = path.join(process.cwd(), 'migrations', 'meta', '_journal.json');
@@ -1111,13 +1060,11 @@ router.get("/v1/super/migrations/status", requireAuth, requireSuperUser, async (
     const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8'));
     const journalMigrations = journal.entries || [];
     
-    // Check which migrations are recorded in the database
     let appliedHashes: string[] = [];
     try {
       const result = await db.execute(sql`SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY id`);
       appliedHashes = (result.rows as any[]).map(r => r.hash);
     } catch (e) {
-      // Table doesn't exist yet
     }
     
     const appliedSet = new Set(appliedHashes);
@@ -1136,8 +1083,7 @@ router.get("/v1/super/migrations/status", requireAuth, requireSuperUser, async (
       pendingMigrations: pendingMigrations.map((m: any) => m.tag),
     });
   } catch (error) {
-    console.error("[Migrations] Status error:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to get migration status" } });
+    handleRouteError(res, error, "tenancyHealth.migrationStatus", req);
   }
 });
 
@@ -1148,13 +1094,12 @@ router.post("/v1/super/migrations/mark-applied", requireAuth, requireSuperUser, 
     const journalPath = path.join(process.cwd(), 'migrations', 'meta', '_journal.json');
     
     if (!fs.existsSync(journalPath)) {
-      return res.status(400).json({ error: { code: "no_journal", message: "No migration journal found" } });
+      throw AppError.badRequest("No migration journal found");
     }
     
     const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8'));
     const entries = journal.entries || [];
     
-    // Create the migrations table if it doesn't exist
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
         id SERIAL PRIMARY KEY,
@@ -1163,16 +1108,13 @@ router.post("/v1/super/migrations/mark-applied", requireAuth, requireSuperUser, 
       );
     `));
     
-    // Get existing migrations
     let existingHashes: Set<string> = new Set();
     try {
       const existing = await db.execute(sql`SELECT hash FROM "__drizzle_migrations"`);
       existingHashes = new Set((existing.rows as any[]).map(r => r.hash));
     } catch (e) {
-      // Empty table
     }
     
-    // Insert missing migration records
     let inserted = 0;
     let skipped = 0;
     
@@ -1203,8 +1145,7 @@ router.post("/v1/super/migrations/mark-applied", requireAuth, requireSuperUser, 
         : "All migrations were already marked as applied."
     });
   } catch (error) {
-    console.error("[Migrations] Mark applied error:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to mark migrations as applied" } });
+    handleRouteError(res, error, "tenancyHealth.markMigrationsApplied", req);
   }
 });
 

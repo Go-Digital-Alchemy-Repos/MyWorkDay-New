@@ -6,6 +6,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { getEffectiveTenantId } from "../../middleware/tenantContext";
 import { UserRole } from "@shared/schema";
 import type { Request } from "express";
+import { handleRouteError, AppError } from "../../lib/errors";
 
 const router = Router();
 
@@ -37,13 +38,13 @@ const updateTemplateSchema = createTemplateSchema.partial();
 router.get("/", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
     
     if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
+      throw AppError.tenantRequired();
     }
 
     const templates = await db.select()
@@ -53,21 +54,20 @@ router.get("/", async (req, res) => {
 
     res.json(templates);
   } catch (error) {
-    console.error("Error fetching templates:", error);
-    res.status(500).json({ error: "Failed to fetch templates" });
+    return handleRouteError(res, error, "GET /", req);
   }
 });
 
 router.get("/:id", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
     
     if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
+      throw AppError.tenantRequired();
     }
 
     const [template] = await db.select()
@@ -79,26 +79,25 @@ router.get("/:id", async (req, res) => {
       .limit(1);
 
     if (!template) {
-      return res.status(404).json({ error: "Template not found" });
+      throw AppError.notFound("Template");
     }
 
     res.json(template);
   } catch (error) {
-    console.error("Error fetching template:", error);
-    res.status(500).json({ error: "Failed to fetch template" });
+    return handleRouteError(res, error, "GET /:id", req);
   }
 });
 
 router.post("/", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
     
     if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
+      throw AppError.tenantRequired();
     }
 
     const data = createTemplateSchema.parse(req.body);
@@ -118,23 +117,22 @@ router.post("/", async (req, res) => {
     res.status(201).json(template);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
-    console.error("Error creating template:", error);
-    res.status(500).json({ error: "Failed to create template" });
+    return handleRouteError(res, error, "POST /", req);
   }
 });
 
 router.patch("/:id", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
     
     if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
+      throw AppError.tenantRequired();
     }
 
     const [existing] = await db.select()
@@ -146,7 +144,7 @@ router.patch("/:id", async (req, res) => {
       .limit(1);
 
     if (!existing) {
-      return res.status(404).json({ error: "Template not found" });
+      throw AppError.notFound("Template");
     }
 
     const data = updateTemplateSchema.parse(req.body);
@@ -162,23 +160,22 @@ router.patch("/:id", async (req, res) => {
     res.json(template);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
-    console.error("Error updating template:", error);
-    res.status(500).json({ error: "Failed to update template" });
+    return handleRouteError(res, error, "PATCH /:id", req);
   }
 });
 
 router.delete("/:id", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
     
     if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
+      throw AppError.tenantRequired();
     }
 
     const [existing] = await db.select()
@@ -190,7 +187,7 @@ router.delete("/:id", async (req, res) => {
       .limit(1);
 
     if (!existing) {
-      return res.status(404).json({ error: "Template not found" });
+      throw AppError.notFound("Template");
     }
 
     await db.delete(schema.projectTemplates)
@@ -198,8 +195,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (error) {
-    console.error("Error deleting template:", error);
-    res.status(500).json({ error: "Failed to delete template" });
+    return handleRouteError(res, error, "DELETE /:id", req);
   }
 });
 

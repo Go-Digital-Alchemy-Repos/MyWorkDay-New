@@ -3,17 +3,14 @@ import { storage } from "../../storage";
 import { UserRole } from "@shared/schema";
 import type { Request, Response, NextFunction } from "express";
 import { isClientUser, getClientUserAccessibleClients } from "../../middleware/clientAccess";
-import { handleRouteError } from "../../lib/errors";
+import { handleRouteError, AppError } from "../../lib/errors";
 
 const router = Router();
 
 // Middleware to ensure only client users can access these routes
 function requireClientRole(req: Request, res: Response, next: NextFunction) {
   if (!req.user || req.user.role !== UserRole.CLIENT) {
-    return res.status(403).json({ 
-      error: "Access denied",
-      message: "This endpoint is only accessible to client portal users"
-    });
+    throw AppError.forbidden("This endpoint is only accessible to client portal users");
   }
   next();
 }
@@ -166,13 +163,13 @@ router.get("/projects/:projectId", async (req, res) => {
     
     const project = await storage.getProject(projectId);
     if (!project || !project.clientId) {
-      return res.status(404).json({ error: "Project not found" });
+      throw AppError.notFound("Project");
     }
     
     // Verify client user has access to this project's client
     const access = await storage.getClientUserAccessByUserAndClient(userId, project.clientId);
     if (!access) {
-      return res.status(403).json({ error: "Access denied" });
+      throw AppError.forbidden("Access denied");
     }
     
     const client = await storage.getClient(project.clientId);
@@ -280,18 +277,18 @@ router.get("/tasks/:taskId", async (req, res) => {
     
     const task = await storage.getTaskWithRelations(taskId);
     if (!task || !task.projectId) {
-      return res.status(404).json({ error: "Task not found" });
+      throw AppError.notFound("Task");
     }
     
     const project = await storage.getProject(task.projectId);
     if (!project || !project.clientId) {
-      return res.status(404).json({ error: "Task not found" });
+      throw AppError.notFound("Task");
     }
     
     // Verify client user has access to this task's client
     const access = await storage.getClientUserAccessByUserAndClient(userId, project.clientId);
     if (!access) {
-      return res.status(403).json({ error: "Access denied" });
+      throw AppError.forbidden("Access denied");
     }
     
     // Get comments for this task
@@ -340,27 +337,27 @@ router.post("/tasks/:taskId/comments", async (req, res) => {
     const commentBody = req.body.body || req.body.content;
     
     if (!commentBody || typeof commentBody !== "string" || commentBody.trim().length === 0) {
-      return res.status(400).json({ error: "Comment body is required" });
+      throw AppError.badRequest("Comment body is required");
     }
     
     const task = await storage.getTask(taskId);
     if (!task || !task.projectId) {
-      return res.status(404).json({ error: "Task not found" });
+      throw AppError.notFound("Task");
     }
     
     const project = await storage.getProject(task.projectId);
     if (!project || !project.clientId) {
-      return res.status(404).json({ error: "Task not found" });
+      throw AppError.notFound("Task");
     }
     
     // Verify client user has collaborator access
     const access = await storage.getClientUserAccessByUserAndClient(userId, project.clientId);
     if (!access) {
-      return res.status(403).json({ error: "Access denied" });
+      throw AppError.forbidden("Access denied");
     }
     
     if (access.accessLevel !== "collaborator") {
-      return res.status(403).json({ error: "Collaborator access required to add comments" });
+      throw AppError.forbidden("Collaborator access required to add comments");
     }
     
     const comment = await storage.createComment({
@@ -393,7 +390,7 @@ router.get("/profile", async (req, res) => {
     const user = await storage.getUser(userId);
     
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      throw AppError.notFound("User");
     }
     
     const clientsAccess = await storage.getClientsForUser(userId);

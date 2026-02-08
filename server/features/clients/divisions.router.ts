@@ -4,7 +4,7 @@ import { storage } from "../../storage";
 import { getEffectiveTenantId } from "../../middleware/tenantContext";
 import { insertClientDivisionSchema } from "@shared/schema";
 import type { Request } from "express";
-import { handleRouteError } from "../../lib/errors";
+import { handleRouteError, AppError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -20,14 +20,14 @@ router.get("/clients/:clientId/divisions", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { clientId } = req.params;
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
     
     const userId = getCurrentUserId(req);
@@ -62,14 +62,14 @@ router.post("/clients/:clientId/divisions", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { clientId } = req.params;
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
     
     const userId = getCurrentUserId(req);
@@ -78,7 +78,7 @@ router.post("/clients/:clientId/divisions", async (req, res) => {
     const canCreate = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
     if (!canCreate) {
-      return res.status(403).json({ error: "You do not have permission to create divisions" });
+      throw AppError.forbidden("You do not have permission to create divisions");
     }
     
     const data = insertClientDivisionSchema.parse({
@@ -91,7 +91,7 @@ router.post("/clients/:clientId/divisions", async (req, res) => {
     res.status(201).json(division);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
     return handleRouteError(res, error, "POST /clients/:clientId/divisions", req);
   }
@@ -101,7 +101,7 @@ router.patch("/divisions/:divisionId", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { divisionId } = req.params;
@@ -112,7 +112,7 @@ router.patch("/divisions/:divisionId", async (req, res) => {
     const canUpdate = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
     if (!canUpdate) {
-      return res.status(403).json({ error: "You do not have permission to update divisions" });
+      throw AppError.forbidden("You do not have permission to update divisions");
     }
     
     const updateSchema = insertClientDivisionSchema.partial().omit({ 
@@ -123,13 +123,13 @@ router.patch("/divisions/:divisionId", async (req, res) => {
     
     const division = await storage.updateClientDivision(divisionId, tenantId, data);
     if (!division) {
-      return res.status(404).json({ error: "Division not found" });
+      throw AppError.notFound("Division");
     }
     
     res.json(division);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
     return handleRouteError(res, error, "PATCH /divisions/:divisionId", req);
   }
@@ -139,14 +139,14 @@ router.get("/divisions/:divisionId/members", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { divisionId } = req.params;
     
     const division = await storage.getClientDivision(divisionId);
     if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
+      throw AppError.notFound("Division");
     }
     
     const userId = getCurrentUserId(req);
@@ -157,7 +157,7 @@ router.get("/divisions/:divisionId/members", async (req, res) => {
     if (!isPrivileged) {
       const isMember = await storage.isDivisionMember(divisionId, userId);
       if (!isMember) {
-        return res.status(403).json({ error: "You do not have access to this division" });
+        throw AppError.forbidden("You do not have access to this division");
       }
     }
     
@@ -172,14 +172,14 @@ router.post("/divisions/:divisionId/members", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { divisionId } = req.params;
     const { userIds } = req.body;
     
     if (!Array.isArray(userIds)) {
-      return res.status(400).json({ error: "userIds must be an array" });
+      throw AppError.badRequest("userIds must be an array");
     }
     
     const userId = getCurrentUserId(req);
@@ -188,18 +188,18 @@ router.post("/divisions/:divisionId/members", async (req, res) => {
     const canManage = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
     if (!canManage) {
-      return res.status(403).json({ error: "You do not have permission to manage division members" });
+      throw AppError.forbidden("You do not have permission to manage division members");
     }
     
     const division = await storage.getClientDivision(divisionId);
     if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
+      throw AppError.notFound("Division");
     }
     
     for (const uid of userIds) {
       const userToAdd = await storage.getUser(uid);
       if (!userToAdd || userToAdd.tenantId !== tenantId) {
-        return res.status(400).json({ error: `User ${uid} does not belong to this tenant` });
+        throw AppError.badRequest(`User ${uid} does not belong to this tenant`);
       }
     }
     
@@ -216,7 +216,7 @@ router.delete("/divisions/:divisionId/members/:userId", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { divisionId, userId: targetUserId } = req.params;
@@ -227,12 +227,12 @@ router.delete("/divisions/:divisionId/members/:userId", async (req, res) => {
     const canManage = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
     if (!canManage) {
-      return res.status(403).json({ error: "You do not have permission to remove division members" });
+      throw AppError.forbidden("You do not have permission to remove division members");
     }
     
     const division = await storage.getClientDivision(divisionId);
     if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
+      throw AppError.notFound("Division");
     }
     
     await storage.removeDivisionMember(divisionId, targetUserId);
@@ -247,14 +247,14 @@ router.get("/divisions/:divisionId/projects", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { divisionId } = req.params;
     
     const division = await storage.getClientDivision(divisionId);
     if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
+      throw AppError.notFound("Division");
     }
     
     const userId = getCurrentUserId(req);
@@ -264,7 +264,7 @@ router.get("/divisions/:divisionId/projects", async (req, res) => {
     if (!canView) {
       const isMember = await storage.isDivisionMember(divisionId, userId);
       if (!isMember) {
-        return res.status(403).json({ error: "You do not have access to this division" });
+        throw AppError.forbidden("You do not have access to this division");
       }
     }
     
@@ -283,14 +283,14 @@ router.get("/divisions/:divisionId/tasks", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
     if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
+      throw AppError.forbidden("Tenant context required");
     }
     
     const { divisionId } = req.params;
     
     const division = await storage.getClientDivision(divisionId);
     if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
+      throw AppError.notFound("Division");
     }
     
     const userId = getCurrentUserId(req);
@@ -300,7 +300,7 @@ router.get("/divisions/:divisionId/tasks", async (req, res) => {
     if (!canView) {
       const isMember = await storage.isDivisionMember(divisionId, userId);
       if (!isMember) {
-        return res.status(403).json({ error: "You do not have access to this division" });
+        throw AppError.forbidden("You do not have access to this division");
       }
     }
     

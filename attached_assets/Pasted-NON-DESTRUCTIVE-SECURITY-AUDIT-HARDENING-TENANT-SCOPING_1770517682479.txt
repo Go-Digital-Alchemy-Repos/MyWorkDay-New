@@ -1,0 +1,130 @@
+NON-DESTRUCTIVE SECURITY AUDIT + HARDENING — TENANT SCOPING CONSISTENCY (TENANCY_ENFORCEMENT=strict)
+(DigitalWorkDay / MyWorkDay)
+
+You are working in an existing multi-tenant production codebase. Do NOT remove endpoints. Do NOT change route paths or success response shapes. The goal is to audit and harden tenant isolation so every request is consistently scoped to the correct tenant/org, especially when TENANCY_ENFORCEMENT=strict is enabled.
+
+PRIMARY GOALS
+1) Perform a full audit of tenant scoping across ALL routes and data access paths.
+2) Normalize mixed patterns to one consistent approach that guarantees isolation.
+3) Ensure TENANCY_ENFORCEMENT=strict is truly strict: any missing tenant context or unscoped access must fail closed (403/400), not silently succeed.
+
+HARD RULES (NON-DESTRUCTIVE)
+- No breaking changes to success payload shapes.
+- Keep HTTP methods and route paths unchanged.
+- Preserve auth/permission semantics.
+- Prefer additive “guardrails” (middleware + shared helpers) and minimal edits to queries.
+- If any route cannot be safely corrected without a larger change, fail closed under strict mode and document the exception.
+
+PHASE 0 — DISCOVERY & BASELINE
+1) Identify the tenant model in the codebase:
+   - What is the tenant identifier? (tenantId / orgId / companyId / accountId)
+   - How is tenant context derived? (JWT claims, session, header, subdomain, path param)
+   - Where is it stored on request? (req.user.tenantId, req.tenantId, res.locals.tenantId, etc.)
+2) Locate tenancy-related infrastructure:
+   - TENANCY_ENFORCEMENT env usage and any enforcement middleware
+   - permission middleware that also scopes tenant
+   - database helpers (ORM wrappers, query builders) that auto-inject tenant filters
+3) Establish expected tenant resolution rules:
+   - For standard users: tenantId must come from authenticated principal (NOT from user-provided body/query)
+   - For superAdmin: tenant can be selected explicitly (e.g., via param/header) but must be validated + logged, and must use a dedicated capability check
+
+PHASE 1 — CREATE A SINGLE CANONICAL TENANCY CONTRACT
+4) Implement/confirm a canonical helper (minimal, reusable):
+   - getTenantContext(req) -> { tenantId, actorId, role, isSuperAdmin, ... }
+   - requireTenant(req, res, next) middleware:
+     - If TENANCY_ENFORCEMENT=strict:
+       - If tenantId missing/undefined => throw AppError.forbidden or badRequest (fail closed)
+     - If not strict:
+       - Keep current permissive behavior (but log warnings)
+   - forbidTenantOverride(req) for non-superAdmin:
+     - Blocks tenantId/orgId passed via body/query/params from influencing DB access
+
+5) Add “scoped query” helpers (only if repo lacks them):
+   - scopeWhereTenant(where, tenantId)
+   - assertTenantMatch(resourceTenantId, tenantId)
+   - These should be tiny helpers used to standardize patterns and reduce mistakes.
+
+PHASE 2 — FULL AUDIT (ROUTES + DATA ACCESS)
+6) Audit every route for tenant scoping consistency:
+   - Search for any DB query that:
+     - lacks tenantId filter on multi-tenant tables
+     - uses tenantId from request body/query instead of principal context
+     - uses mixed scoping (sometimes tenantId, sometimes not)
+     - performs joins without tenant constraints
+   - Create a route-by-route audit report (in your response summary) listing:
+     - file, route, risk level, and fix applied
+
+7) Identify scoping by table/category:
+   - List core multi-tenant entities (clients, projects, tasks, messages, attachments, invoices, etc.)
+   - For each entity, find create/read/update/delete paths and ensure each includes tenant scoping.
+
+8) Pay special attention to high-risk edge cases:
+   - “GET by id” endpoints (/:id) that fetch without tenant constraint
+   - “UPDATE/DELETE by id” endpoints missing tenant constraint
+   - “LIST” endpoints that filter in code after query (must be filtered in DB)
+   - relationship fetches (e.g., tasks by projectId) where projectId is tenant-scoped but query doesn’t verify tenant on the parent
+   - background job endpoints / webhooks (Stripe, Mailgun, etc.) that might bypass standard auth
+
+PHASE 3 — HARDENING CHANGES (MINIMAL, FAIL-CLOSED IN STRICT MODE)
+9) Apply consistent tenant scoping to queries:
+   - Update queries to always include tenantId in WHERE for multi-tenant tables:
+     - SELECT ... WHERE id = ? AND tenantId = ?
+     - UPDATE ... WHERE id = ? AND tenantId = ?
+     - DELETE ... WHERE id = ? AND tenantId = ?
+   - If using ORM (Prisma/Drizzle/Knex/etc.), use the equivalent safe filter approach.
+   - Avoid “two-step” patterns (fetch by id then check tenant) unless unavoidable; prefer single scoped query.
+
+10) Enforce requireTenant middleware consistently:
+   - Ensure all non-public, non-superAdmin routes run requireTenant (and auth) before hitting handlers.
+   - For routes that are tenant-agnostic by design (e.g., login, health, webhooks), explicitly annotate and ensure no tenant-scoped data is accessed without checks.
+
+11) SuperAdmin tenant selection rules
+   - For superAdmin routes that act on a tenant:
+     - Require explicit tenant selection via a single, documented mechanism (e.g., header `X-Tenant-Id` or path param).
+     - Validate tenant exists.
+     - Log/trace the selected tenantId with requestId.
+   - Ensure non-superAdmin cannot call these routes or spoof the selection.
+
+12) Strict mode behavior
+   - Under TENANCY_ENFORCEMENT=strict:
+     - Missing tenant context => reject
+     - Any attempt to pass tenantId in body/query by non-superAdmin => reject
+     - Any query that cannot be safely tenant-scoped immediately => reject the route (fail closed) and document it as technical debt
+
+PHASE 4 — AUTOMATED CHECKS (HIGH IMPACT)
+13) Add guardrail tests (minimal but meaningful)
+   - If test patterns exist, add:
+     - A test that requests a resource from tenant A using a tenant B user returns 404 or 403 (choose consistent behavior; prefer 404 to avoid leaking existence)
+     - A test that missing tenant context under strict mode rejects requests
+     - A test that tenant override attempts via body/query are rejected under strict mode
+
+14) Optional “scoping linter” script (only if repo already uses scripts for audits)
+   - Add a dev script that scans for unsafe patterns (e.g., `.findFirst({ where: { id }})` without tenantId)
+   - Keep it simple and non-blocking; output warnings.
+
+PHASE 5 — DOCS & CONFIG UPDATES
+15) Update docs to clearly define tenancy enforcement:
+   - What strict mode does
+   - How tenant context is derived
+   - Rules for superAdmin tenant selection
+   - Examples of safe query patterns
+
+16) Update docs/KNOWN_ISSUES.md
+   - Remove “mixed scoping patterns” note if resolved
+   - If any exceptions remain, list them with risk and remediation plan
+
+DELIVERABLES
+- A complete tenant scoping audit and fixes applied
+- TENANCY_ENFORCEMENT=strict truly fail-closed for missing or unsafe tenant context
+- Standardized middleware + helper usage to prevent regressions
+- Summary including:
+  - routes audited count
+  - issues found and fixed
+  - any remaining exceptions (and why)
+
+DO NOT
+- Do not change database schema.
+- Do not change authentication system.
+- Do not implement new tenancy architecture beyond minimal helpers/middleware.
+- Do not broaden permissions; only tighten isolation.
+

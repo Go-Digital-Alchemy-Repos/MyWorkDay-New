@@ -12,6 +12,7 @@ import {
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth } from "../../auth";
 import { requireTenantContext, TenantRequest } from "../../middleware/tenantContext";
+import { AppError, handleRouteError } from "../../lib/errors";
 
 const router = Router();
 
@@ -39,7 +40,7 @@ router.get("/:clientId/notes/categories", requireAuth, requireTenantContext, asy
   const { clientId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -50,8 +51,7 @@ router.get("/:clientId/notes/categories", requireAuth, requireTenantContext, asy
 
     res.json({ ok: true, categories });
   } catch (error: any) {
-    console.error("[client-notes] Error fetching categories:", error);
-    res.status(500).json({ ok: false, error: { code: "FETCH_FAILED", message: "Failed to fetch categories" } });
+    handleRouteError(res, error, "clientNotes.getCategories", req);
   }
 });
 
@@ -60,7 +60,7 @@ router.post("/:clientId/notes/categories", requireAuth, requireTenantContext, as
   const tenantId = tenantReq.tenant?.effectiveTenantId;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -78,10 +78,9 @@ router.post("/:clientId/notes/categories", requireAuth, requireTenantContext, as
     res.json({ ok: true, category });
   } catch (error: any) {
     if (error.code === "23505") {
-      return res.status(400).json({ ok: false, error: { code: "DUPLICATE_CATEGORY", message: "Category with this name already exists" } });
+      return handleRouteError(res, AppError.conflict("Category with this name already exists"), "clientNotes.createCategory", req);
     }
-    console.error("[client-notes] Error creating category:", error);
-    res.status(500).json({ ok: false, error: { code: "CREATE_FAILED", message: "Failed to create category" } });
+    handleRouteError(res, error, "clientNotes.createCategory", req);
   }
 });
 
@@ -91,7 +90,7 @@ router.put("/:clientId/notes/categories/:categoryId", requireAuth, requireTenant
   const { categoryId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -105,11 +104,11 @@ router.put("/:clientId/notes/categories/:categoryId", requireAuth, requireTenant
       ));
 
     if (!existing) {
-      return res.status(404).json({ ok: false, error: { code: "CATEGORY_NOT_FOUND", message: "Category not found" } });
+      throw AppError.notFound("Category");
     }
 
     if (existing.isSystem) {
-      return res.status(400).json({ ok: false, error: { code: "CANNOT_EDIT_SYSTEM", message: "Cannot edit system categories" } });
+      throw AppError.badRequest("Cannot edit system categories");
     }
 
     const [category] = await db.update(clientNoteCategories)
@@ -123,10 +122,9 @@ router.put("/:clientId/notes/categories/:categoryId", requireAuth, requireTenant
     res.json({ ok: true, category });
   } catch (error: any) {
     if (error.code === "23505") {
-      return res.status(400).json({ ok: false, error: { code: "DUPLICATE_CATEGORY", message: "Category with this name already exists" } });
+      return handleRouteError(res, AppError.conflict("Category with this name already exists"), "clientNotes.updateCategory", req);
     }
-    console.error("[client-notes] Error updating category:", error);
-    res.status(500).json({ ok: false, error: { code: "UPDATE_FAILED", message: "Failed to update category" } });
+    handleRouteError(res, error, "clientNotes.updateCategory", req);
   }
 });
 
@@ -136,7 +134,7 @@ router.delete("/:clientId/notes/categories/:categoryId", requireAuth, requireTen
   const { categoryId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -148,14 +146,13 @@ router.delete("/:clientId/notes/categories/:categoryId", requireAuth, requireTen
       ));
 
     if (!existing) {
-      return res.status(404).json({ ok: false, error: { code: "CATEGORY_NOT_FOUND", message: "Category not found" } });
+      throw AppError.notFound("Category");
     }
 
     if (existing.isSystem) {
-      return res.status(400).json({ ok: false, error: { code: "CANNOT_DELETE_SYSTEM", message: "Cannot delete system categories" } });
+      throw AppError.badRequest("Cannot delete system categories");
     }
 
-    // Update notes using this category to use "general" instead
     await db.update(clientNotes)
       .set({ categoryId: null, category: "general" })
       .where(and(
@@ -167,8 +164,7 @@ router.delete("/:clientId/notes/categories/:categoryId", requireAuth, requireTen
 
     res.json({ ok: true, message: "Category deleted successfully" });
   } catch (error: any) {
-    console.error("[client-notes] Error deleting category:", error);
-    res.status(500).json({ ok: false, error: { code: "DELETE_FAILED", message: "Failed to delete category" } });
+    handleRouteError(res, error, "clientNotes.deleteCategory", req);
   }
 });
 
@@ -178,7 +174,7 @@ router.get("/:clientId/notes", requireAuth, requireTenantContext, async (req: Re
   const { clientId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -187,7 +183,7 @@ router.get("/:clientId/notes", requireAuth, requireTenantContext, async (req: Re
     ).limit(1);
 
     if (!client.length) {
-      return res.status(404).json({ ok: false, error: { code: "CLIENT_NOT_FOUND", message: "Client not found" } });
+      throw AppError.notFound("Client");
     }
 
     const notes = await db.select({
@@ -251,8 +247,7 @@ router.get("/:clientId/notes", requireAuth, requireTenantContext, async (req: Re
 
     res.json({ ok: true, notes: notesWithVersionCount });
   } catch (error: any) {
-    console.error("[client-notes] Error fetching notes:", error);
-    res.status(500).json({ ok: false, error: { code: "FETCH_FAILED", message: "Failed to fetch notes" } });
+    handleRouteError(res, error, "clientNotes.getNotes", req);
   }
 });
 
@@ -263,7 +258,7 @@ router.post("/:clientId/notes", requireAuth, requireTenantContext, async (req: R
   const { clientId } = req.params;
 
   if (!tenantId || !userId) {
-    return res.status(400).json({ ok: false, error: { code: "CONTEXT_REQUIRED", message: "Tenant and user context required" } });
+    throw AppError.badRequest("Tenant and user context required");
   }
 
   try {
@@ -274,7 +269,7 @@ router.post("/:clientId/notes", requireAuth, requireTenantContext, async (req: R
     ).limit(1);
 
     if (!client.length) {
-      return res.status(404).json({ ok: false, error: { code: "CLIENT_NOT_FOUND", message: "Client not found" } });
+      throw AppError.notFound("Client");
     }
 
     const [note] = await db.insert(clientNotes)
@@ -290,8 +285,7 @@ router.post("/:clientId/notes", requireAuth, requireTenantContext, async (req: R
 
     res.json({ ok: true, note });
   } catch (error: any) {
-    console.error("[client-notes] Error creating note:", error);
-    res.status(500).json({ ok: false, error: { code: "CREATE_FAILED", message: "Failed to create note" } });
+    handleRouteError(res, error, "clientNotes.createNote", req);
   }
 });
 
@@ -301,7 +295,7 @@ router.get("/:clientId/notes/:noteId", requireAuth, requireTenantContext, async 
   const { clientId, noteId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -314,7 +308,7 @@ router.get("/:clientId/notes/:noteId", requireAuth, requireTenantContext, async 
       ));
 
     if (!note) {
-      return res.status(404).json({ ok: false, error: { code: "NOTE_NOT_FOUND", message: "Note not found" } });
+      throw AppError.notFound("Note");
     }
 
     const versions = await db.select()
@@ -344,8 +338,7 @@ router.get("/:clientId/notes/:noteId", requireAuth, requireTenantContext, async 
 
     res.json({ ok: true, note, versions, attachments });
   } catch (error: any) {
-    console.error("[client-notes] Error fetching note:", error);
-    res.status(500).json({ ok: false, error: { code: "FETCH_FAILED", message: "Failed to fetch note" } });
+    handleRouteError(res, error, "clientNotes.getNote", req);
   }
 });
 
@@ -356,7 +349,7 @@ router.put("/:clientId/notes/:noteId", requireAuth, requireTenantContext, async 
   const { clientId, noteId } = req.params;
 
   if (!tenantId || !userId) {
-    return res.status(400).json({ ok: false, error: { code: "CONTEXT_REQUIRED", message: "Tenant and user context required" } });
+    throw AppError.badRequest("Tenant and user context required");
   }
 
   try {
@@ -371,7 +364,7 @@ router.put("/:clientId/notes/:noteId", requireAuth, requireTenantContext, async 
       ));
 
     if (!existingNote) {
-      return res.status(404).json({ ok: false, error: { code: "NOTE_NOT_FOUND", message: "Note not found" } });
+      throw AppError.notFound("Note");
     }
 
     const [versionCount] = await db.select({ count: sql<number>`count(*)::int` })
@@ -404,8 +397,7 @@ router.put("/:clientId/notes/:noteId", requireAuth, requireTenantContext, async 
 
     res.json({ ok: true, note: updatedNote });
   } catch (error: any) {
-    console.error("[client-notes] Error updating note:", error);
-    res.status(500).json({ ok: false, error: { code: "UPDATE_FAILED", message: "Failed to update note" } });
+    handleRouteError(res, error, "clientNotes.updateNote", req);
   }
 });
 
@@ -415,7 +407,7 @@ router.delete("/:clientId/notes/:noteId", requireAuth, requireTenantContext, asy
   const { clientId, noteId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -428,15 +420,14 @@ router.delete("/:clientId/notes/:noteId", requireAuth, requireTenantContext, asy
       ));
 
     if (!existingNote) {
-      return res.status(404).json({ ok: false, error: { code: "NOTE_NOT_FOUND", message: "Note not found" } });
+      throw AppError.notFound("Note");
     }
 
     await db.delete(clientNotes).where(eq(clientNotes.id, noteId));
 
     res.json({ ok: true, message: "Note deleted successfully" });
   } catch (error: any) {
-    console.error("[client-notes] Error deleting note:", error);
-    res.status(500).json({ ok: false, error: { code: "DELETE_FAILED", message: "Failed to delete note" } });
+    handleRouteError(res, error, "clientNotes.deleteNote", req);
   }
 });
 
@@ -446,7 +437,7 @@ router.get("/:clientId/notes/:noteId/versions", requireAuth, requireTenantContex
   const { noteId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -472,8 +463,7 @@ router.get("/:clientId/notes/:noteId/versions", requireAuth, requireTenantContex
 
     res.json({ ok: true, versions });
   } catch (error: any) {
-    console.error("[client-notes] Error fetching versions:", error);
-    res.status(500).json({ ok: false, error: { code: "FETCH_FAILED", message: "Failed to fetch versions" } });
+    handleRouteError(res, error, "clientNotes.getVersions", req);
   }
 });
 

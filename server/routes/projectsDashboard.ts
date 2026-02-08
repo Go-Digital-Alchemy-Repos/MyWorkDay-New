@@ -2,7 +2,7 @@ import { Router, Request } from "express";
 import { DatabaseStorage } from "../storage";
 import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { UserRole, TaskWithRelations } from "@shared/schema";
-import { handleRouteError } from "../lib/errors";
+import { AppError, handleRouteError } from "../lib/errors";
 
 const router = Router();
 const storage = new DatabaseStorage();
@@ -66,8 +66,7 @@ router.get("/projects", async (req, res) => {
     } else if (isSuperUser(req)) {
       projects = await storage.getProjectsByWorkspace(workspaceId);
     } else {
-      console.error(`[v1/projects] User ${getCurrentUserId(req)} has no tenantId`);
-      return res.status(500).json({ error: "User tenant not configured" });
+      throw AppError.internal("User tenant not configured");
     }
 
     let filteredProjects = projects;
@@ -124,7 +123,7 @@ router.get("/projects/analytics/summary", async (req, res) => {
     } else if (isSuperUser(req)) {
       projects = await storage.getProjectsByWorkspace(workspaceId);
     } else {
-      return res.status(500).json({ error: "User tenant not configured" });
+      throw AppError.internal("User tenant not configured");
     }
 
     if (onlyActive) {
@@ -219,11 +218,11 @@ router.get("/projects/:projectId/analytics", async (req, res) => {
 
     const project = await storage.getProject(projectId);
     if (!project) {
-      return res.status(404).json({ error: "Project not found" });
+      throw AppError.notFound("Project");
     }
 
     if (tenantId && project.tenantId !== tenantId) {
-      return res.status(403).json({ error: "Access denied" });
+      throw AppError.forbidden("Access denied");
     }
 
     const tasks = await storage.getTasksByProject(projectId);
@@ -350,11 +349,11 @@ router.get("/projects/:projectId/forecast", async (req, res) => {
 
     const project = await storage.getProject(projectId);
     if (!project) {
-      return res.status(404).json({ error: "Project not found" });
+      throw AppError.notFound("Project");
     }
 
     if (tenantId && project.tenantId !== tenantId) {
-      return res.status(403).json({ error: "Access denied" });
+      throw AppError.forbidden("Access denied");
     }
 
     const tasks = await storage.getTasksByProject(projectId);
@@ -562,7 +561,7 @@ router.get("/projects/forecast/summary", async (req, res) => {
     } else if (isSuperUser(req)) {
       projects = await storage.getProjectsByWorkspace(workspaceId);
     } else {
-      return res.status(500).json({ error: "User tenant not configured" });
+      throw AppError.internal("User tenant not configured");
     }
 
     projects = projects.filter(p => p.status === "active");

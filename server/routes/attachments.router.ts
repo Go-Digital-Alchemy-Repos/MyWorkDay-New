@@ -2,7 +2,7 @@ import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { storage } from "../storage";
-import { handleRouteError } from "../lib/errors";
+import { AppError, handleRouteError } from "../lib/errors";
 import { config } from "../config";
 import { getCurrentUserId } from "./helpers";
 import {
@@ -73,7 +73,7 @@ router.get(
 
       const task = await storage.getTask(taskId);
       if (!task || task.projectId !== projectId) {
-        return res.status(404).json({ error: "Task not found" });
+        throw AppError.notFound("Task");
       }
 
       const attachments = await storage.getTaskAttachmentsByTask(taskId);
@@ -91,22 +91,19 @@ router.post(
       const { projectId, taskId } = req.params;
 
       if (!isS3Configured()) {
-        return res.status(503).json({
-          error:
-            "File storage is not configured. Please set AWS environment variables.",
-        });
+        throw new AppError(503, "INTERNAL_ERROR", "File storage is not configured. Please set AWS environment variables.");
       }
 
       const task = await storage.getTask(taskId);
       if (!task || task.projectId !== projectId) {
-        return res.status(404).json({ error: "Task not found" });
+        throw AppError.notFound("Task");
       }
 
       const data = presignRequestSchema.parse(req.body);
 
       const validation = validateFile(data.mimeType, data.fileSizeBytes);
       if (!validation.valid) {
-        return res.status(400).json({ error: validation.error });
+        throw AppError.badRequest(validation.error || "Invalid file");
       }
 
       const tempId = crypto.randomUUID();
@@ -162,7 +159,7 @@ router.post(
         attachment.taskId !== taskId ||
         attachment.projectId !== projectId
       ) {
-        return res.status(404).json({ error: "Attachment not found" });
+        throw AppError.notFound("Attachment");
       }
 
       if (attachment.uploadStatus === "complete") {
@@ -172,9 +169,7 @@ router.post(
       const exists = await checkObjectExists(attachment.storageKey);
       if (!exists) {
         await storage.deleteTaskAttachment(attachmentId);
-        return res
-          .status(400)
-          .json({ error: "Upload was not completed. Please try again." });
+        throw AppError.badRequest("Upload was not completed. Please try again.");
       }
 
       const updated = await storage.updateTaskAttachment(attachmentId, {
@@ -217,13 +212,11 @@ router.get(
         attachment.taskId !== taskId ||
         attachment.projectId !== projectId
       ) {
-        return res.status(404).json({ error: "Attachment not found" });
+        throw AppError.notFound("Attachment");
       }
 
       if (attachment.uploadStatus !== "complete") {
-        return res
-          .status(400)
-          .json({ error: "Attachment upload is not complete" });
+        throw AppError.badRequest("Attachment upload is not complete");
       }
 
       const url = await createPresignedDownloadUrl(attachment.storageKey);
@@ -246,7 +239,7 @@ router.delete(
         attachment.taskId !== taskId ||
         attachment.projectId !== projectId
       ) {
-        return res.status(404).json({ error: "Attachment not found" });
+        throw AppError.notFound("Attachment");
       }
 
       try {

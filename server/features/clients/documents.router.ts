@@ -11,6 +11,7 @@ import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import { requireAuth } from "../../auth";
 import { requireTenantContext, TenantRequest } from "../../middleware/tenantContext";
 import { createPresignedUploadUrl, createPresignedDownloadUrl, deleteS3Object } from "../../s3";
+import { AppError, handleRouteError } from "../../lib/errors";
 
 const router = Router();
 
@@ -48,7 +49,7 @@ router.get("/:clientId/documents/categories", requireAuth, requireTenantContext,
   const { clientId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -62,8 +63,7 @@ router.get("/:clientId/documents/categories", requireAuth, requireTenantContext,
 
     res.json({ ok: true, categories });
   } catch (error: any) {
-    console.error("[client-documents] Error fetching categories:", error);
-    res.status(500).json({ ok: false, error: { code: "FETCH_FAILED", message: "Failed to fetch categories" } });
+    handleRouteError(res, error, "clientDocuments.getCategories", req);
   }
 });
 
@@ -73,7 +73,7 @@ router.post("/:clientId/documents/categories", requireAuth, requireTenantContext
   const { clientId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -84,7 +84,7 @@ router.post("/:clientId/documents/categories", requireAuth, requireTenantContext
     ).limit(1);
 
     if (!client.length) {
-      return res.status(404).json({ ok: false, error: { code: "CLIENT_NOT_FOUND", message: "Client not found" } });
+      throw AppError.notFound("Client");
     }
 
     const [category] = await db.insert(clientDocumentCategories)
@@ -100,10 +100,9 @@ router.post("/:clientId/documents/categories", requireAuth, requireTenantContext
     res.json({ ok: true, category });
   } catch (error: any) {
     if (error.code === "23505") {
-      return res.status(400).json({ ok: false, error: { code: "DUPLICATE_CATEGORY", message: "Category with this name already exists for this client" } });
+      return handleRouteError(res, AppError.conflict("Category with this name already exists for this client"), "clientDocuments.createCategory", req);
     }
-    console.error("[client-documents] Error creating category:", error);
-    res.status(500).json({ ok: false, error: { code: "CREATE_FAILED", message: "Failed to create category" } });
+    handleRouteError(res, error, "clientDocuments.createCategory", req);
   }
 });
 
@@ -113,7 +112,7 @@ router.patch("/:clientId/documents/categories/:categoryId", requireAuth, require
   const { clientId, categoryId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -129,13 +128,12 @@ router.patch("/:clientId/documents/categories/:categoryId", requireAuth, require
       .returning();
 
     if (!category) {
-      return res.status(404).json({ ok: false, error: { code: "CATEGORY_NOT_FOUND", message: "Category not found" } });
+      throw AppError.notFound("Category");
     }
 
     res.json({ ok: true, category });
   } catch (error: any) {
-    console.error("[client-documents] Error updating category:", error);
-    res.status(500).json({ ok: false, error: { code: "UPDATE_FAILED", message: "Failed to update category" } });
+    handleRouteError(res, error, "clientDocuments.updateCategory", req);
   }
 });
 
@@ -145,7 +143,7 @@ router.delete("/:clientId/documents/categories/:categoryId", requireAuth, requir
   const { clientId, categoryId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -166,8 +164,7 @@ router.delete("/:clientId/documents/categories/:categoryId", requireAuth, requir
 
     res.json({ ok: true, message: "Category deleted successfully" });
   } catch (error: any) {
-    console.error("[client-documents] Error deleting category:", error);
-    res.status(500).json({ ok: false, error: { code: "DELETE_FAILED", message: "Failed to delete category" } });
+    handleRouteError(res, error, "clientDocuments.deleteCategory", req);
   }
 });
 
@@ -178,7 +175,7 @@ router.get("/:clientId/documents", requireAuth, requireTenantContext, async (req
   const { categoryId } = req.query;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -187,7 +184,7 @@ router.get("/:clientId/documents", requireAuth, requireTenantContext, async (req
     ).limit(1);
 
     if (!client.length) {
-      return res.status(404).json({ ok: false, error: { code: "CLIENT_NOT_FOUND", message: "Client not found" } });
+      throw AppError.notFound("Client");
     }
 
     let query = db.select({
@@ -241,8 +238,7 @@ router.get("/:clientId/documents", requireAuth, requireTenantContext, async (req
 
     res.json({ ok: true, documents: documentsWithUrls });
   } catch (error: any) {
-    console.error("[client-documents] Error fetching documents:", error);
-    res.status(500).json({ ok: false, error: { code: "FETCH_FAILED", message: "Failed to fetch documents" } });
+    handleRouteError(res, error, "clientDocuments.getDocuments", req);
   }
 });
 
@@ -253,7 +249,7 @@ router.post("/:clientId/documents/upload", requireAuth, requireTenantContext, as
   const { clientId } = req.params;
 
   if (!tenantId || !userId) {
-    return res.status(400).json({ ok: false, error: { code: "CONTEXT_REQUIRED", message: "Tenant and user context required" } });
+    throw AppError.badRequest("Tenant and user context required");
   }
 
   try {
@@ -264,7 +260,7 @@ router.post("/:clientId/documents/upload", requireAuth, requireTenantContext, as
     ).limit(1);
 
     if (!client.length) {
-      return res.status(404).json({ ok: false, error: { code: "CLIENT_NOT_FOUND", message: "Client not found" } });
+      throw AppError.notFound("Client");
     }
 
     const timestamp = Date.now();
@@ -297,8 +293,7 @@ router.post("/:clientId/documents/upload", requireAuth, requireTenantContext, as
       storageKey,
     });
   } catch (error: any) {
-    console.error("[client-documents] Error initiating upload:", error);
-    res.status(500).json({ ok: false, error: { code: "UPLOAD_INIT_FAILED", message: "Failed to initiate upload" } });
+    handleRouteError(res, error, "clientDocuments.initiateUpload", req);
   }
 });
 
@@ -308,7 +303,7 @@ router.post("/:clientId/documents/:documentId/complete", requireAuth, requireTen
   const { clientId, documentId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -322,13 +317,12 @@ router.post("/:clientId/documents/:documentId/complete", requireAuth, requireTen
       .returning();
 
     if (!document) {
-      return res.status(404).json({ ok: false, error: { code: "DOCUMENT_NOT_FOUND", message: "Document not found" } });
+      throw AppError.notFound("Document");
     }
 
     res.json({ ok: true, document });
   } catch (error: any) {
-    console.error("[client-documents] Error completing upload:", error);
-    res.status(500).json({ ok: false, error: { code: "COMPLETE_FAILED", message: "Failed to complete upload" } });
+    handleRouteError(res, error, "clientDocuments.completeUpload", req);
   }
 });
 
@@ -338,7 +332,7 @@ router.patch("/:clientId/documents/:documentId", requireAuth, requireTenantConte
   const { clientId, documentId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -354,13 +348,12 @@ router.patch("/:clientId/documents/:documentId", requireAuth, requireTenantConte
       .returning();
 
     if (!document) {
-      return res.status(404).json({ ok: false, error: { code: "DOCUMENT_NOT_FOUND", message: "Document not found" } });
+      throw AppError.notFound("Document");
     }
 
     res.json({ ok: true, document });
   } catch (error: any) {
-    console.error("[client-documents] Error updating document:", error);
-    res.status(500).json({ ok: false, error: { code: "UPDATE_FAILED", message: "Failed to update document" } });
+    handleRouteError(res, error, "clientDocuments.updateDocument", req);
   }
 });
 
@@ -370,7 +363,7 @@ router.delete("/:clientId/documents/:documentId", requireAuth, requireTenantCont
   const { clientId, documentId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -383,7 +376,7 @@ router.delete("/:clientId/documents/:documentId", requireAuth, requireTenantCont
       ));
 
     if (!document) {
-      return res.status(404).json({ ok: false, error: { code: "DOCUMENT_NOT_FOUND", message: "Document not found" } });
+      throw AppError.notFound("Document");
     }
 
     try {
@@ -396,8 +389,7 @@ router.delete("/:clientId/documents/:documentId", requireAuth, requireTenantCont
 
     res.json({ ok: true, message: "Document deleted successfully" });
   } catch (error: any) {
-    console.error("[client-documents] Error deleting document:", error);
-    res.status(500).json({ ok: false, error: { code: "DELETE_FAILED", message: "Failed to delete document" } });
+    handleRouteError(res, error, "clientDocuments.deleteDocument", req);
   }
 });
 
@@ -407,7 +399,7 @@ router.get("/:clientId/documents/:documentId/download", requireAuth, requireTena
   const { clientId, documentId } = req.params;
 
   if (!tenantId) {
-    return res.status(400).json({ ok: false, error: { code: "TENANT_REQUIRED", message: "Tenant context required" } });
+    throw AppError.tenantRequired();
   }
 
   try {
@@ -420,15 +412,14 @@ router.get("/:clientId/documents/:documentId/download", requireAuth, requireTena
       ));
 
     if (!document) {
-      return res.status(404).json({ ok: false, error: { code: "DOCUMENT_NOT_FOUND", message: "Document not found" } });
+      throw AppError.notFound("Document");
     }
 
     const downloadUrl = await createPresignedDownloadUrl(document.storageKey);
 
     res.json({ ok: true, downloadUrl, fileName: document.originalFileName });
   } catch (error: any) {
-    console.error("[client-documents] Error getting download URL:", error);
-    res.status(500).json({ ok: false, error: { code: "DOWNLOAD_FAILED", message: "Failed to get download URL" } });
+    handleRouteError(res, error, "clientDocuments.download", req);
   }
 });
 

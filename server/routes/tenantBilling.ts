@@ -4,6 +4,7 @@ import { tenants, systemSettings, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { UserRole } from "@shared/schema";
 import { decryptValue, isEncryptionAvailable } from "../lib/encryption";
+import { AppError, handleRouteError } from "../lib/errors";
 import Stripe from "stripe";
 
 const router = Router();
@@ -11,19 +12,14 @@ const router = Router();
 function requireTenantAdmin(req: any, res: any, next: any) {
   const user = req.user;
   if (!user) {
-    return res.status(401).json({ error: { code: "unauthorized", message: "Authentication required" } });
+    throw AppError.unauthorized("Authentication required");
   }
   
   const isSuperUser = user.role === UserRole.SUPER_USER;
   const isAdmin = user.role === UserRole.ADMIN;
   
   if (!isSuperUser && !isAdmin) {
-    return res.status(403).json({ 
-      error: { 
-        code: "forbidden", 
-        message: "Admin access required" 
-      } 
-    });
+    throw AppError.forbidden("Admin access required");
   }
   
   next();
@@ -75,9 +71,7 @@ router.get("/billing", requireTenantAdmin, async (req, res) => {
   try {
     const tenantData = await getTenantForBilling(req);
     if (!tenantData) {
-      return res.status(400).json({ 
-        error: { code: "tenant_required", message: "Tenant context required" } 
-      });
+      throw AppError.badRequest("Tenant context required");
     }
     
     const { tenant } = tenantData;
@@ -90,8 +84,7 @@ router.get("/billing", requireTenantAdmin, async (req, res) => {
       invoicesEnabled: !!tenant.stripeCustomerId,
     });
   } catch (error) {
-    console.error("Error fetching billing info:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to fetch billing info" } });
+    handleRouteError(res, error, "billing.get", req);
   }
 });
 
@@ -99,9 +92,7 @@ router.post("/billing/initialize", requireTenantAdmin, async (req, res) => {
   try {
     const tenantData = await getTenantForBilling(req);
     if (!tenantData) {
-      return res.status(400).json({ 
-        error: { code: "tenant_required", message: "Tenant context required" } 
-      });
+      throw AppError.badRequest("Tenant context required");
     }
     
     const { tenantId, tenant } = tenantData;
@@ -119,12 +110,7 @@ router.post("/billing/initialize", requireTenantAdmin, async (req, res) => {
     
     const stripe = await getStripeClient();
     if (!stripe) {
-      return res.status(400).json({ 
-        error: { 
-          code: "stripe_not_configured", 
-          message: "Stripe is not configured. Please contact the platform administrator." 
-        } 
-      });
+      throw AppError.badRequest("Stripe is not configured. Please contact the platform administrator.");
     }
     
     const [tenantSettings] = await db.select()
@@ -163,18 +149,10 @@ router.post("/billing/initialize", requireTenantAdmin, async (req, res) => {
       billingStatus: "none",
     });
   } catch (error: any) {
-    console.error("Error initializing billing:", error);
-    
     if (error.type?.startsWith("Stripe")) {
-      return res.status(400).json({ 
-        error: { 
-          code: "stripe_error", 
-          message: error.message || "Stripe error occurred" 
-        } 
-      });
+      return handleRouteError(res, AppError.badRequest(error.message || "Stripe error occurred"), "billing.initialize", req);
     }
-    
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to initialize billing" } });
+    handleRouteError(res, error, "billing.initialize", req);
   }
 });
 
@@ -182,30 +160,18 @@ router.post("/billing/portal-session", requireTenantAdmin, async (req, res) => {
   try {
     const tenantData = await getTenantForBilling(req);
     if (!tenantData) {
-      return res.status(400).json({ 
-        error: { code: "tenant_required", message: "Tenant context required" } 
-      });
+      throw AppError.badRequest("Tenant context required");
     }
     
     const { tenant } = tenantData;
     
     if (!tenant.stripeCustomerId) {
-      return res.status(400).json({ 
-        error: { 
-          code: "billing_not_initialized", 
-          message: "Billing has not been initialized. Please initialize billing first." 
-        } 
-      });
+      throw AppError.badRequest("Billing has not been initialized. Please initialize billing first.");
     }
     
     const stripe = await getStripeClient();
     if (!stripe) {
-      return res.status(400).json({ 
-        error: { 
-          code: "stripe_not_configured", 
-          message: "Stripe is not configured. Please contact the platform administrator." 
-        } 
-      });
+      throw AppError.badRequest("Stripe is not configured. Please contact the platform administrator.");
     }
     
     const allowedHosts = [
@@ -222,9 +188,7 @@ router.post("/billing/portal-session", requireTenantAdmin, async (req, res) => {
     );
     
     if (!host || !isAllowedHost) {
-      return res.status(400).json({ 
-        error: { code: "invalid_host", message: "Cannot determine valid return URL" } 
-      });
+      throw AppError.badRequest("Cannot determine valid return URL");
     }
     
     const protocol = req.protocol === "https" || host.endsWith(".replit.dev") || host.endsWith(".repl.co") 
@@ -239,18 +203,10 @@ router.post("/billing/portal-session", requireTenantAdmin, async (req, res) => {
     
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("Error creating portal session:", error);
-    
     if (error.type?.startsWith("Stripe")) {
-      return res.status(400).json({ 
-        error: { 
-          code: "stripe_error", 
-          message: error.message || "Stripe error occurred" 
-        } 
-      });
+      return handleRouteError(res, AppError.badRequest(error.message || "Stripe error occurred"), "billing.portal-session", req);
     }
-    
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to create portal session" } });
+    handleRouteError(res, error, "billing.portal-session", req);
   }
 });
 
@@ -258,9 +214,7 @@ router.get("/billing/invoices", requireTenantAdmin, async (req, res) => {
   try {
     const tenantData = await getTenantForBilling(req);
     if (!tenantData) {
-      return res.status(400).json({ 
-        error: { code: "tenant_required", message: "Tenant context required" } 
-      });
+      throw AppError.badRequest("Tenant context required");
     }
     
     const { tenant } = tenantData;
@@ -271,12 +225,7 @@ router.get("/billing/invoices", requireTenantAdmin, async (req, res) => {
     
     const stripe = await getStripeClient();
     if (!stripe) {
-      return res.status(400).json({ 
-        error: { 
-          code: "stripe_not_configured", 
-          message: "Stripe is not configured." 
-        } 
-      });
+      throw AppError.badRequest("Stripe is not configured.");
     }
     
     const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
@@ -305,18 +254,10 @@ router.get("/billing/invoices", requireTenantAdmin, async (req, res) => {
       hasMore: invoices.has_more,
     });
   } catch (error: any) {
-    console.error("Error fetching invoices:", error);
-    
     if (error.type?.startsWith("Stripe")) {
-      return res.status(400).json({ 
-        error: { 
-          code: "stripe_error", 
-          message: error.message || "Stripe error occurred" 
-        } 
-      });
+      return handleRouteError(res, AppError.badRequest(error.message || "Stripe error occurred"), "billing.invoices", req);
     }
-    
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to fetch invoices" } });
+    handleRouteError(res, error, "billing.invoices", req);
   }
 });
 
@@ -324,25 +265,19 @@ router.patch("/billing/email", requireTenantAdmin, async (req, res) => {
   try {
     const tenantData = await getTenantForBilling(req);
     if (!tenantData) {
-      return res.status(400).json({ 
-        error: { code: "tenant_required", message: "Tenant context required" } 
-      });
+      throw AppError.badRequest("Tenant context required");
     }
     
     const { tenantId, tenant } = tenantData;
     const { billingEmail } = req.body;
     
     if (!billingEmail || typeof billingEmail !== "string") {
-      return res.status(400).json({ 
-        error: { code: "invalid_email", message: "Valid email required" } 
-      });
+      throw AppError.badRequest("Valid email required");
     }
     
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(billingEmail)) {
-      return res.status(400).json({ 
-        error: { code: "invalid_email", message: "Invalid email format" } 
-      });
+      throw AppError.badRequest("Invalid email format");
     }
     
     await db.update(tenants)
@@ -363,8 +298,7 @@ router.patch("/billing/email", requireTenantAdmin, async (req, res) => {
     
     res.json({ success: true, billingEmail });
   } catch (error) {
-    console.error("Error updating billing email:", error);
-    res.status(500).json({ error: { code: "internal_error", message: "Failed to update billing email" } });
+    handleRouteError(res, error, "billing.email", req);
   }
 });
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { storage } from "../storage";
-import { handleRouteError } from "../lib/errors";
+import { handleRouteError, AppError } from "../lib/errors";
 import {
   insertTimeEntrySchema,
   insertActiveTimerSchema,
@@ -89,11 +89,7 @@ router.post("/timer/start", async (req, res) => {
       if (isSoftMode() && !existingTimer.tenantId) {
         addTenancyWarningHeader(res, "Existing timer has legacy null tenantId");
       }
-      return res.status(409).json({
-        error: "TIMER_ALREADY_RUNNING",
-        message: "You already have an active timer. Stop it before starting a new one.",
-        timer: existingTimer,
-      });
+      throw AppError.conflict("You already have an active timer. Stop it before starting a new one.");
     }
 
     const now = new Date();
@@ -169,12 +165,8 @@ router.post("/timer/pause", async (req, res) => {
       timer = await storage.getActiveTimerByUser(userId);
     }
     
-    if (!timer) {
-      return res.status(404).json({ error: "No active timer found" });
-    }
-    if (timer.status !== "running") {
-      return res.status(400).json({ error: "Timer is not running" });
-    }
+    if (!timer) throw AppError.notFound("No active timer found");
+    if (timer.status !== "running") throw AppError.badRequest("Timer is not running");
 
     const now = new Date();
     const lastStarted = timer.lastStartedAt || timer.createdAt;
@@ -228,12 +220,8 @@ router.post("/timer/resume", async (req, res) => {
       timer = await storage.getActiveTimerByUser(userId);
     }
     
-    if (!timer) {
-      return res.status(404).json({ error: "No active timer found" });
-    }
-    if (timer.status !== "paused") {
-      return res.status(400).json({ error: "Timer is not paused" });
-    }
+    if (!timer) throw AppError.notFound("No active timer found");
+    if (timer.status !== "paused") throw AppError.badRequest("Timer is not paused");
 
     const now = new Date();
     let updated;
@@ -283,9 +271,7 @@ router.patch("/timer/current", async (req, res) => {
       timer = await storage.getActiveTimerByUser(userId);
     }
     
-    if (!timer) {
-      return res.status(404).json({ error: "No active timer found" });
-    }
+    if (!timer) throw AppError.notFound("No active timer found");
 
     const allowedUpdates: Partial<ActiveTimer> = {};
     if ("clientId" in req.body) allowedUpdates.clientId = req.body.clientId;
@@ -336,9 +322,7 @@ router.post("/timer/stop", async (req, res) => {
       timer = await storage.getActiveTimerByUser(userId);
     }
     
-    if (!timer) {
-      return res.status(404).json({ error: "No active timer found" });
-    }
+    if (!timer) throw AppError.notFound("No active timer found");
 
     let finalElapsedSeconds = timer.elapsedSeconds;
     if (timer.status === "running") {
@@ -451,9 +435,7 @@ router.delete("/timer/current", async (req, res) => {
       timer = await storage.getActiveTimerByUser(userId);
     }
     
-    if (!timer) {
-      return res.status(404).json({ error: "No active timer found" });
-    }
+    if (!timer) throw AppError.notFound("No active timer found");
 
     if (timer.tenantId) {
       await storage.deleteActiveTimerWithTenant(timer.id, timer.tenantId);
@@ -663,9 +645,7 @@ router.get("/time-entries/:id", async (req, res) => {
       entry = await storage.getTimeEntry(req.params.id);
     }
     
-    if (!entry) {
-      return res.status(404).json({ error: "Time entry not found" });
-    }
+    if (!entry) throw AppError.notFound("Time entry");
     res.json(entry);
   } catch (error) {
     return handleRouteError(res, error, "GET /api/time-entries/:id", req);
@@ -761,9 +741,7 @@ router.patch("/time-entries/:id", async (req, res) => {
       entry = await storage.getTimeEntry(req.params.id);
     }
     
-    if (!entry) {
-      return res.status(404).json({ error: "Time entry not found" });
-    }
+    if (!entry) throw AppError.notFound("Time entry");
 
     const { startTime, endTime, durationSeconds, clientId, projectId, taskId, ...rest } = req.body;
 
@@ -773,30 +751,18 @@ router.patch("/time-entries/:id", async (req, res) => {
 
     if (finalProjectId) {
       const project = await storage.getProject(finalProjectId);
-      if (!project) {
-        return res.status(400).json({ error: "Project not found" });
-      }
-      if (project.workspaceId !== workspaceId) {
-        return res.status(403).json({ error: "Project does not belong to current workspace" });
-      }
-      if (finalClientId && project.clientId !== finalClientId) {
-        return res.status(400).json({ error: "Project does not belong to the selected client" });
-      }
+      if (!project) throw AppError.badRequest("Project not found");
+      if (project.workspaceId !== workspaceId) throw AppError.forbidden("Project does not belong to current workspace");
+      if (finalClientId && project.clientId !== finalClientId) throw AppError.badRequest("Project does not belong to the selected client");
     }
 
     if (finalTaskId) {
       const task = await storage.getTask(finalTaskId);
-      if (!task) {
-        return res.status(400).json({ error: "Task not found" });
-      }
-      if (task.projectId !== finalProjectId) {
-        return res.status(400).json({ error: "Task does not belong to the selected project" });
-      }
+      if (!task) throw AppError.badRequest("Task not found");
+      if (task.projectId !== finalProjectId) throw AppError.badRequest("Task does not belong to the selected project");
     }
 
-    if (durationSeconds !== undefined && durationSeconds <= 0) {
-      return res.status(400).json({ error: "Duration must be greater than zero" });
-    }
+    if (durationSeconds !== undefined && durationSeconds <= 0) throw AppError.badRequest("Duration must be greater than zero");
 
     const updates: any = { ...rest };
     if (clientId !== undefined) updates.clientId = clientId;
@@ -847,9 +813,7 @@ router.delete("/time-entries/:id", async (req, res) => {
       entry = await storage.getTimeEntry(req.params.id);
     }
     
-    if (!entry) {
-      return res.status(404).json({ error: "Time entry not found" });
-    }
+    if (!entry) throw AppError.notFound("Time entry");
 
     if (entry.tenantId) {
       await storage.deleteTimeEntryWithTenant(req.params.id, entry.tenantId);

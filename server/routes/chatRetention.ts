@@ -15,15 +15,16 @@ import { requireSuperUser, requireTenantContext } from "../middleware/tenantCont
 import { getStorageProvider, createS3ClientFromConfig, StorageNotConfiguredError } from "../storage/getStorageProvider";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { AppError, handleRouteError } from "../lib/errors";
 
 const router = Router();
 
 const requireTenantAdmin = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user) {
-    return res.status(401).json({ error: "Authentication required" });
+    throw AppError.unauthorized("Authentication required");
   }
   if ((req.user as any).role !== "admin" && (req.user as any).role !== "super_user") {
-    return res.status(403).json({ error: "Admin access required" });
+    throw AppError.forbidden("Admin access required");
   }
   next();
 };
@@ -42,8 +43,7 @@ router.get("/super/chat/retention", requireSuperUser, async (req, res) => {
 
     res.json({ retentionDays });
   } catch (error) {
-    console.error("[chatRetention] Error getting system retention settings:", error);
-    res.status(500).json({ error: "Failed to get retention settings" });
+    handleRouteError(res, error, "chatRetention.getSystemRetention", req);
   }
 });
 
@@ -52,7 +52,7 @@ router.patch("/super/chat/retention", requireSuperUser, async (req, res) => {
     const { retentionDays } = req.body;
 
     if (typeof retentionDays !== "number" || retentionDays < 1) {
-      return res.status(400).json({ error: "retentionDays must be a positive integer" });
+      throw AppError.badRequest("retentionDays must be a positive integer");
     }
 
     await db.update(systemSettings)
@@ -64,8 +64,7 @@ router.patch("/super/chat/retention", requireSuperUser, async (req, res) => {
 
     res.json({ success: true, retentionDays });
   } catch (error) {
-    console.error("[chatRetention] Error updating system retention settings:", error);
-    res.status(500).json({ error: "Failed to update retention settings" });
+    handleRouteError(res, error, "chatRetention.updateSystemRetention", req);
   }
 });
 
@@ -74,8 +73,7 @@ router.post("/super/chat/archive/run", requireSuperUser, async (req, res) => {
     const result = await runArchiveJob();
     res.json(result);
   } catch (error) {
-    console.error("[chatRetention] Error running archive job:", error);
-    res.status(500).json({ error: "Failed to run archive job" });
+    handleRouteError(res, error, "chatRetention.runArchive", req);
   }
 });
 
@@ -90,8 +88,7 @@ router.get("/super/chat/archive/stats", requireSuperUser, async (req, res) => {
 
     res.json(stats[0] || { totalMessages: 0, archivedMessages: 0, activeMessages: 0, deletedMessages: 0 });
   } catch (error) {
-    console.error("[chatRetention] Error getting archive stats:", error);
-    res.status(500).json({ error: "Failed to get archive statistics" });
+    handleRouteError(res, error, "chatRetention.archiveStats", req);
   }
 });
 
@@ -103,7 +100,7 @@ router.get("/tenant/chat/retention", requireAuth, requireTenantContext, async (r
   try {
     const tenantId = req.tenant?.effectiveTenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: "No tenant context" });
+      throw AppError.forbidden("No tenant context");
     }
 
     const tenantSettingsResult = await db.select({
@@ -124,8 +121,7 @@ router.get("/tenant/chat/retention", requireAuth, requireTenantContext, async (r
       isCustom: tenantRetention !== null && tenantRetention !== undefined,
     });
   } catch (error) {
-    console.error("[chatRetention] Error getting tenant retention settings:", error);
-    res.status(500).json({ error: "Failed to get retention settings" });
+    handleRouteError(res, error, "chatRetention.getTenantRetention", req);
   }
 });
 
@@ -133,7 +129,7 @@ router.patch("/tenant/chat/retention", requireAuth, requireTenantAdmin, async (r
   try {
     const tenantId = req.tenant?.effectiveTenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: "No tenant context" });
+      throw AppError.forbidden("No tenant context");
     }
 
     const { retentionDays, useSystemDefault } = req.body;
@@ -150,7 +146,7 @@ router.patch("/tenant/chat/retention", requireAuth, requireTenantAdmin, async (r
     }
 
     if (typeof retentionDays !== "number" || retentionDays < 1) {
-      return res.status(400).json({ error: "retentionDays must be a positive integer" });
+      throw AppError.badRequest("retentionDays must be a positive integer");
     }
 
     await db.update(tenantSettings)
@@ -162,8 +158,7 @@ router.patch("/tenant/chat/retention", requireAuth, requireTenantAdmin, async (r
 
     res.json({ success: true, retentionDays });
   } catch (error) {
-    console.error("[chatRetention] Error updating tenant retention settings:", error);
-    res.status(500).json({ error: "Failed to update retention settings" });
+    handleRouteError(res, error, "chatRetention.updateTenantRetention", req);
   }
 });
 
@@ -175,13 +170,13 @@ router.post("/tenant/chat/export/:threadType/:threadId", requireAuth, requireTen
   try {
     const tenantId = req.tenant?.effectiveTenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: "No tenant context" });
+      throw AppError.forbidden("No tenant context");
     }
 
     const { threadType, threadId } = req.params;
 
     if (!["channel", "dm"].includes(threadType)) {
-      return res.status(400).json({ error: "Invalid thread type. Must be 'channel' or 'dm'" });
+      throw AppError.badRequest("Invalid thread type. Must be 'channel' or 'dm'");
     }
 
     if (threadType === "channel") {
@@ -189,14 +184,14 @@ router.post("/tenant/chat/export/:threadType/:threadId", requireAuth, requireTen
         .where(and(eq(chatChannels.id, threadId), eq(chatChannels.tenantId, tenantId)))
         .limit(1);
       if (!channel.length) {
-        return res.status(404).json({ error: "Channel not found" });
+        throw AppError.notFound("Channel");
       }
     } else {
       const dm = await db.select().from(chatDmThreads)
         .where(and(eq(chatDmThreads.id, threadId), eq(chatDmThreads.tenantId, tenantId)))
         .limit(1);
       if (!dm.length) {
-        return res.status(404).json({ error: "DM thread not found" });
+        throw AppError.notFound("DM thread");
       }
     }
 
@@ -317,8 +312,7 @@ router.post("/tenant/chat/export/:threadType/:threadId", requireAuth, requireTen
       throw storageError;
     }
   } catch (error) {
-    console.error("[chatRetention] Error exporting thread:", error);
-    res.status(500).json({ error: "Failed to export thread" });
+    handleRouteError(res, error, "chatRetention.exportThread", req);
   }
 });
 

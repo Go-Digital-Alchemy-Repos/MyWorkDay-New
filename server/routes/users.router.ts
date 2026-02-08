@@ -5,7 +5,7 @@ import multer from "multer";
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq, and, isNull, sql } from "drizzle-orm";
-import { handleRouteError } from "../lib/errors";
+import { handleRouteError, AppError } from "../lib/errors";
 import { requireAuth } from "../auth";
 import { userCreateRateLimiter, inviteCreateRateLimiter } from "../middleware/rateLimit";
 import { getCurrentUserId, getCurrentWorkspaceId } from "./helpers";
@@ -32,7 +32,7 @@ const avatarUpload = multer({
 const requireAdmin: RequestHandler = (req, res, next) => {
   const user = req.user as Express.User | undefined;
   if (!user || (user.role !== "admin" && user.role !== "super_user")) {
-    return res.status(403).json({ error: "Admin access required" });
+    throw AppError.forbidden("Admin access required");
   }
   next();
 };
@@ -57,9 +57,7 @@ router.get("/tenant/users", async (req, res) => {
     const currentUser = req.user as any;
     const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
 
-    if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.tenantRequired();
 
     const tenantUsers = await storage.getUsersByTenant(tenantId);
     const activeUsers = tenantUsers.filter(u =>
@@ -78,16 +76,12 @@ router.post("/users", userCreateRateLimiter, requireAdmin, async (req, res) => {
     const { firstName, lastName, email, role, teamIds, clientIds } = req.body;
 
     if (!firstName || !lastName || !email) {
-      return res
-        .status(400)
-        .json({ error: "First name, last name, and email are required" });
+      throw AppError.badRequest("First name, last name, and email are required");
     }
 
     const existingUser = await storage.getUserByEmail(email);
     if (existingUser) {
-      return res
-        .status(400)
-        .json({ error: "User with this email already exists" });
+      throw AppError.badRequest("User with this email already exists");
     }
 
     const currentUser = req.user as any;
@@ -99,7 +93,7 @@ router.post("/users", userCreateRateLimiter, requireAdmin, async (req, res) => {
         email: currentUser?.email,
         role: currentUser?.role,
       });
-      return res.status(400).json({ error: "Tenant context required to create users" });
+      throw AppError.tenantRequired("Tenant context required to create users");
     }
 
     const user = await storage.createUserWithTenant({
@@ -164,7 +158,7 @@ router.patch("/users/me", requireAuth, async (req, res) => {
 
     const parseResult = updateProfileSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: "Invalid input", details: parseResult.error.issues });
+      throw AppError.badRequest("Invalid input", parseResult.error.issues);
     }
 
     const { firstName, lastName, name, avatarUrl } = parseResult.data;
@@ -181,7 +175,7 @@ router.patch("/users/me", requireAuth, async (req, res) => {
     }
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: "No valid fields to update" });
+      throw AppError.badRequest("No valid fields to update");
     }
 
     if (avatarUrl !== undefined && user.avatarUrl && user.avatarUrl !== avatarUrl) {
@@ -226,7 +220,7 @@ router.post("/users/me/change-password", requireAuth, async (req, res) => {
 
     const parseResult = changePasswordSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
+      throw AppError.badRequest("Validation error", parseResult.error.issues);
     }
 
     const { currentPassword, newPassword } = parseResult.data;
@@ -239,13 +233,13 @@ router.post("/users/me/change-password", requireAuth, async (req, res) => {
     }
 
     if (!fullUser || !fullUser.passwordHash) {
-      return res.status(400).json({ error: "Cannot verify current password" });
+      throw AppError.badRequest("Cannot verify current password");
     }
 
     const { comparePasswords, hashPassword } = await import("../auth");
     const isValid = await comparePasswords(currentPassword, fullUser.passwordHash);
     if (!isValid) {
-      return res.status(401).json({ error: "Current password is incorrect" });
+      throw AppError.unauthorized("Current password is incorrect");
     }
 
     const passwordHash = await hashPassword(newPassword);
@@ -287,7 +281,7 @@ router.patch("/users/me/ui-preferences", requireAuth, async (req, res) => {
 
     const parseResult = uiPreferencesSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
+      throw AppError.badRequest("Validation error", parseResult.error.issues);
     }
 
     const prefs = await storage.upsertUserUiPreferences(user.id, tenantId, parseResult.data);
@@ -307,19 +301,13 @@ router.patch("/users/:id", requireAdmin, async (req, res) => {
     const currentUser = req.user as any;
     const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
 
-    if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required to update users" });
-    }
+    if (!tenantId) throw AppError.tenantRequired("Tenant context required to update users");
 
     const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
-    if (!targetUser) {
-      return res.status(404).json({ error: "User not found in your organization" });
-    }
+    if (!targetUser) throw AppError.notFound("User not found in your organization");
 
     const user = await storage.updateUser(id, updates);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (!user) throw AppError.notFound("User");
     res.json(user);
   } catch (error) {
     return handleRouteError(res, error, "PATCH /api/users/:id", req);
@@ -341,30 +329,24 @@ router.post("/users/:id/reset-password", requireAdmin, async (req, res) => {
     const currentUser = req.user as any;
     const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
 
-    if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.tenantRequired();
 
     const parseResult = resetPasswordSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: "Validation error", details: parseResult.error.issues });
+      throw AppError.badRequest("Validation error", parseResult.error.issues);
     }
 
     const { password, mustChangeOnNextLogin } = parseResult.data;
 
     const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
-    if (!targetUser) {
-      return res.status(404).json({ error: "User not found in your organization" });
-    }
+    if (!targetUser) throw AppError.notFound("User not found in your organization");
 
     const { hashPassword } = await import("../auth");
     const passwordHash = await hashPassword(password);
 
     const updatedUser = await storage.setUserPasswordWithMustChange(id, tenantId, passwordHash, mustChangeOnNextLogin);
 
-    if (!updatedUser) {
-      return res.status(500).json({ error: "Failed to update password" });
-    }
+    if (!updatedUser) throw AppError.internal("Failed to update password");
 
     await storage.invalidateUserSessions(id);
 
@@ -385,14 +367,10 @@ router.post("/users/:id/activate", requireAdmin, async (req, res) => {
     const currentUser = req.user as any;
     const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
 
-    if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.tenantRequired();
 
     const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
-    if (!targetUser) {
-      return res.status(404).json({ error: "User not found in your organization" });
-    }
+    if (!targetUser) throw AppError.notFound("User not found in your organization");
 
     const updatedUser = await storage.updateUser(id, { isActive: true });
 
@@ -410,18 +388,14 @@ router.post("/users/:id/deactivate", requireAdmin, async (req, res) => {
     const currentUser = req.user as any;
     const tenantId = req.tenant?.effectiveTenantId || currentUser?.tenantId;
 
-    if (!tenantId) {
-      return res.status(400).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.tenantRequired();
 
     if (id === currentUser.id) {
-      return res.status(400).json({ error: "You cannot deactivate your own account" });
+      throw AppError.badRequest("You cannot deactivate your own account");
     }
 
     const targetUser = await storage.getUserByIdAndTenant(id, tenantId);
-    if (!targetUser) {
-      return res.status(404).json({ error: "User not found in your organization" });
-    }
+    if (!targetUser) throw AppError.notFound("User not found in your organization");
 
     const updatedUser = await storage.updateUser(id, { isActive: false });
 
@@ -492,14 +466,10 @@ router.post("/invitations/for-user", requireAdmin, async (req, res) => {
   try {
     const { userId, expiresInDays, sendEmail } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
+    if (!userId) throw AppError.badRequest("userId is required");
 
     const user = await storage.getUser(userId);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (!user) throw AppError.notFound("User");
 
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date();
@@ -561,12 +531,7 @@ router.get("/settings/mailgun", requireAdmin, async (req, res) => {
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes("Encryption key")) {
-      return res.status(500).json({
-        error: {
-          code: "ENCRYPTION_KEY_MISSING",
-          message: "Encryption key not configured. Please contact administrator."
-        }
-      });
+      return handleRouteError(res, AppError.internal("Encryption key not configured. Please contact administrator."), "GET /api/settings/mailgun", req);
     }
     return handleRouteError(res, error, "GET /api/settings/mailgun", req);
   }
@@ -613,12 +578,7 @@ router.put("/settings/mailgun", requireAdmin, async (req, res) => {
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes("Encryption key")) {
-      return res.status(500).json({
-        error: {
-          code: "ENCRYPTION_KEY_MISSING",
-          message: "Encryption key not configured. Please contact administrator."
-        }
-      });
+      return handleRouteError(res, AppError.internal("Encryption key not configured. Please contact administrator."), "PUT /api/settings/mailgun", req);
     }
     return handleRouteError(res, error, "PUT /api/settings/mailgun", req);
   }
@@ -633,7 +593,7 @@ router.post("/settings/mailgun/test", requireAdmin, async (req, res) => {
 
     if (!settings?.apiKey) {
       console.log(`[mailgun] TEST - no API key configured`);
-      return res.status(400).json({ error: "Mailgun not configured" });
+      throw AppError.badRequest("Mailgun not configured");
     }
 
     console.log(`[mailgun] TEST - sending test email to domain=${settings.domain}`);
@@ -652,17 +612,15 @@ router.post("/v1/me/avatar", requireAuth, avatarUpload.single("file"), async (re
     const user = req.user as any;
 
     if (!isS3Configured()) {
-      return res.status(503).json({ error: "S3 storage is not configured" });
+      throw new AppError(503, "INTERNAL_ERROR", "S3 storage is not configured");
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: "No file provided" });
-    }
+    if (!req.file) throw AppError.badRequest("No file provided");
 
     const mimeType = req.file.mimetype;
     const validation = validateAvatar(mimeType, req.file.size);
     if (!validation.valid) {
-      return res.status(400).json({ error: validation.error });
+      throw AppError.badRequest(validation.error || "Invalid avatar file");
     }
 
     const storageKey = generateAvatarKey(user.tenantId || null, user.id, req.file.originalname);
@@ -772,14 +730,12 @@ router.post("/v1/me/agreement/accept", requireAuth, async (req, res) => {
     const user = req.user as any;
     const tenantId = user.tenantId;
 
-    if (!tenantId) {
-      return res.status(400).json({ error: "No tenant context" });
-    }
+    if (!tenantId) throw AppError.tenantRequired("No tenant context");
 
     const { agreementId, version } = req.body;
 
     if (!agreementId || typeof version !== "number") {
-      return res.status(400).json({ error: "agreementId and version are required" });
+      throw AppError.badRequest("agreementId and version are required");
     }
 
     let activeAgreements = await db.select()
@@ -803,20 +759,13 @@ router.post("/v1/me/agreement/accept", requireAuth, async (req, res) => {
     }
 
     if (activeAgreements.length === 0) {
-      return res.status(404).json({
-        error: "Agreement not found or not active",
-        code: "AGREEMENT_NOT_FOUND"
-      });
+      throw AppError.notFound("Agreement not found or not active");
     }
 
     const activeAgreement = activeAgreements[0];
 
     if (activeAgreement.version !== version) {
-      return res.status(409).json({
-        error: "Agreement version mismatch. Please refresh and review the latest version.",
-        code: "VERSION_MISMATCH",
-        currentVersion: activeAgreement.version,
-      });
+      throw AppError.conflict("Agreement version mismatch. Please refresh and review the latest version.");
     }
 
     const existingAcceptances = await db.select()

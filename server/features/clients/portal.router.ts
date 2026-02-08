@@ -6,7 +6,7 @@ import { UserRole, ClientAccessLevel } from "@shared/schema";
 import type { Request, Response, NextFunction } from "express";
 import { randomBytes, createHash } from "crypto";
 import { hashPassword } from "../../auth";
-import { handleRouteError } from "../../lib/errors";
+import { handleRouteError, AppError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -46,7 +46,7 @@ router.get("/:clientId/users", async (req, res) => {
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(clientId, tenantId);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
     }
     
@@ -66,7 +66,7 @@ router.post("/:clientId/users/invite", async (req, res) => {
     
     // Validate request
     if (!contactId) {
-      return res.status(400).json({ error: "Contact ID is required" });
+      throw AppError.badRequest("Contact ID is required");
     }
     
     // Verify client belongs to tenant
@@ -75,17 +75,17 @@ router.post("/:clientId/users/invite", async (req, res) => {
       : await storage.getClient(clientId);
     
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
     
     // Get the contact
     const contact = await storage.getClientContact(contactId);
     if (!contact || contact.clientId !== clientId) {
-      return res.status(404).json({ error: "Contact not found" });
+      throw AppError.notFound("Contact");
     }
     
     if (!contact.email) {
-      return res.status(400).json({ error: "Contact must have an email address" });
+      throw AppError.badRequest("Contact must have an email address");
     }
     
     // Check if user already exists with this email
@@ -99,7 +99,7 @@ router.post("/:clientId/users/invite", async (req, res) => {
       );
       
       if (existingAccess) {
-        return res.status(409).json({ error: "User already has access to this client" });
+        throw AppError.conflict("User already has access to this client");
       }
       
       // Grant access to existing user
@@ -167,13 +167,13 @@ router.patch("/:clientId/users/:userId", async (req, res) => {
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(clientId, tenantId);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
     }
     
     const access = await storage.updateClientUserAccess(clientId, userId, { accessLevel });
     if (!access) {
-      return res.status(404).json({ error: "Client user access not found" });
+      throw AppError.notFound("Client user access");
     }
     
     res.json(access);
@@ -192,7 +192,7 @@ router.delete("/:clientId/users/:userId", async (req, res) => {
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(clientId, tenantId);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
     }
     
@@ -213,22 +213,22 @@ router.get("/register/validate", async (req, res) => {
     const { token, invite: inviteId } = req.query;
     
     if (!token || !inviteId) {
-      return res.status(400).json({ error: "Token and invite ID are required" });
+      throw AppError.badRequest("Token and invite ID are required");
     }
     
     const tokenHash = hashToken(token as string);
     const invite = await storage.getClientInvite(inviteId as string);
     
     if (!invite) {
-      return res.status(404).json({ error: "Invitation not found" });
+      throw AppError.notFound("Invitation");
     }
     
     if (invite.tokenPlaceholder !== tokenHash) {
-      return res.status(403).json({ error: "Invalid token" });
+      throw AppError.forbidden("Invalid token");
     }
     
     if (invite.status !== "pending") {
-      return res.status(410).json({ error: "Invitation is no longer valid" });
+      throw new AppError(410, "CONFLICT", "Invitation is no longer valid");
     }
     
     // Get contact info for registration form
@@ -253,32 +253,32 @@ router.post("/register/complete", async (req, res) => {
     const { token, inviteId, password, firstName, lastName } = req.body;
     
     if (!token || !inviteId || !password) {
-      return res.status(400).json({ error: "Token, invite ID, and password are required" });
+      throw AppError.badRequest("Token, invite ID, and password are required");
     }
     
     if (password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
+      throw AppError.badRequest("Password must be at least 8 characters");
     }
     
     const tokenHash = hashToken(token);
     const invite = await storage.getClientInvite(inviteId);
     
     if (!invite) {
-      return res.status(404).json({ error: "Invitation not found" });
+      throw AppError.notFound("Invitation");
     }
     
     if (invite.tokenPlaceholder !== tokenHash) {
-      return res.status(403).json({ error: "Invalid token" });
+      throw AppError.forbidden("Invalid token");
     }
     
     if (invite.status !== "pending") {
-      return res.status(410).json({ error: "Invitation is no longer valid" });
+      throw new AppError(410, "CONFLICT", "Invitation is no longer valid");
     }
     
     // Get client for tenant context
     const client = await storage.getClient(invite.clientId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
     
     // Hash password
@@ -331,7 +331,7 @@ router.post("/register/complete", async (req, res) => {
     });
   } catch (error: any) {
     if (error?.message?.includes("unique") || error?.code === "23505") {
-      return res.status(409).json({ error: "User with this email already exists" });
+      throw AppError.conflict("User with this email already exists");
     }
     return handleRouteError(res, error, "POST /register/complete", req);
   }

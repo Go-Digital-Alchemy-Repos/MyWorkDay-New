@@ -139,14 +139,29 @@ export function formatZodErrors(error: ZodError): Record<string, string[]> {
 export function validateBody<T>(
   body: unknown,
   schema: z.ZodSchema<T>,
-  res: Response
+  res: Response,
+  req?: Request
 ): T | null {
   const result = schema.safeParse(body);
   if (!result.success) {
-    res.status(422).json({
-      error: "Validation failed",
+    const details = result.error.errors.map((e) => ({
+      path: e.path.join("."),
+      message: e.message,
+    }));
+    const requestId = req?.requestId || "unknown";
+    res.status(400).json({
+      ok: false,
+      requestId,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed",
+        status: 400,
+        requestId,
+        details,
+      },
+      message: "Validation failed",
       code: "VALIDATION_ERROR",
-      details: formatZodErrors(result.error),
+      details,
     });
     return null;
   }
@@ -159,14 +174,29 @@ export function validateBody<T>(
 export function validateQuery<T>(
   query: unknown,
   schema: z.ZodSchema<T>,
-  res: Response
+  res: Response,
+  req?: Request
 ): T | null {
   const result = schema.safeParse(query);
   if (!result.success) {
-    res.status(422).json({
-      error: "Validation failed",
+    const details = result.error.errors.map((e) => ({
+      path: e.path.join("."),
+      message: e.message,
+    }));
+    const requestId = req?.requestId || "unknown";
+    res.status(400).json({
+      ok: false,
+      requestId,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed",
+        status: 400,
+        requestId,
+        details,
+      },
+      message: "Validation failed",
       code: "VALIDATION_ERROR",
-      details: formatZodErrors(result.error),
+      details,
     });
     return null;
   }

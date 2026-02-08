@@ -20,7 +20,7 @@ import {
 } from "../../realtime/events";
 import { UserRole } from "@shared/schema";
 import type { Request } from "express";
-import { handleRouteError } from "../../lib/errors";
+import { handleRouteError, AppError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -55,7 +55,7 @@ router.get("/", async (req, res) => {
       return res.json(clients);
     }
     
-    return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
+    throw AppError.tenantRequired("Tenant context required - user not associated with a tenant");
   } catch (error) {
     return handleRouteError(res, error, "GET /", req);
   }
@@ -71,7 +71,7 @@ router.get("/hierarchy/list", async (req, res) => {
     
     if (!tenantId) {
       console.error(`[GET /api/v1/clients/hierarchy/list] No tenant context, requestId=${requestId}, userId=${req.user?.id}`);
-      return res.status(400).json({ error: "Tenant context required" });
+      throw AppError.tenantRequired();
     }
     
     const clients = await storage.getClientsByTenantWithHierarchy(tenantId);
@@ -89,7 +89,7 @@ router.get("/:id", async (req, res) => {
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(req.params.id, tenantId);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
       const clientWithContacts = await storage.getClientWithContacts(req.params.id);
       return res.json(clientWithContacts);
@@ -98,12 +98,12 @@ router.get("/:id", async (req, res) => {
     if (isSuperUser(req)) {
       const client = await storage.getClientWithContacts(req.params.id);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
       return res.json(client);
     }
     
-    return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
+    throw AppError.tenantRequired("Tenant context required - user not associated with a tenant");
   } catch (error) {
     return handleRouteError(res, error, "GET /:id", req);
   }
@@ -125,7 +125,7 @@ router.post("/", async (req, res) => {
     } else if (isSuperUser(req)) {
       client = await storage.createClient(data);
     } else {
-      return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
+      throw AppError.tenantRequired("Tenant context required - user not associated with a tenant");
     }
 
     emitClientCreated(
@@ -143,7 +143,7 @@ router.post("/", async (req, res) => {
     res.status(201).json(client);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
     return handleRouteError(res, error, "POST /", req);
   }
@@ -159,11 +159,11 @@ router.patch("/:id", async (req, res) => {
     } else if (isSuperUser(req)) {
       client = await storage.updateClient(req.params.id, req.body);
     } else {
-      return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
+      throw AppError.tenantRequired("Tenant context required - user not associated with a tenant");
     }
     
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
 
     emitClientUpdated(client.id, client.workspaceId, req.body);
@@ -183,22 +183,22 @@ router.delete("/:id", async (req, res) => {
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(req.params.id, tenantId);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
       workspaceId = client.workspaceId;
       const deleted = await storage.deleteClientWithTenant(req.params.id, tenantId);
       if (!deleted) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
     } else if (isSuperUser(req)) {
       const client = await storage.getClient(req.params.id);
       if (!client) {
-        return res.status(404).json({ error: "Client not found" });
+        throw AppError.notFound("Client");
       }
       workspaceId = client.workspaceId;
       await storage.deleteClient(req.params.id);
     } else {
-      return res.status(400).json({ error: "Tenant context required - user not associated with a tenant" });
+      throw AppError.tenantRequired("Tenant context required - user not associated with a tenant");
     }
 
     emitClientDeleted(req.params.id, workspaceId);
@@ -226,7 +226,7 @@ router.post("/:clientId/contacts", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
 
     const data = insertClientContactSchema.parse({
@@ -253,7 +253,7 @@ router.post("/:clientId/contacts", async (req, res) => {
     res.status(201).json(contact);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
     return handleRouteError(res, error, "POST /:clientId/contacts", req);
   }
@@ -263,7 +263,7 @@ router.patch("/:clientId/contacts/:contactId", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
 
     const contact = await storage.updateClientContact(
@@ -271,7 +271,7 @@ router.patch("/:clientId/contacts/:contactId", async (req, res) => {
       req.body,
     );
     if (!contact) {
-      return res.status(404).json({ error: "Contact not found" });
+      throw AppError.notFound("Contact");
     }
 
     emitClientContactUpdated(
@@ -291,7 +291,7 @@ router.delete("/:clientId/contacts/:contactId", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
 
     await storage.deleteClientContact(req.params.contactId);
@@ -325,12 +325,12 @@ router.post("/:clientId/invites", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
 
     const contact = await storage.getClientContact(req.body.contactId);
     if (!contact || contact.clientId !== req.params.clientId) {
-      return res.status(404).json({ error: "Contact not found" });
+      throw AppError.notFound("Contact");
     }
 
     const data = insertClientInviteSchema.parse({
@@ -357,7 +357,7 @@ router.post("/:clientId/invites", async (req, res) => {
     res.status(201).json(invite);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      throw AppError.badRequest("Validation failed", error.errors);
     }
     return handleRouteError(res, error, "POST /:clientId/invites", req);
   }
@@ -367,7 +367,7 @@ router.delete("/:clientId/invites/:inviteId", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
     if (!client) {
-      return res.status(404).json({ error: "Client not found" });
+      throw AppError.notFound("Client");
     }
 
     await storage.deleteClientInvite(req.params.inviteId);

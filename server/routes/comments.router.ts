@@ -142,11 +142,11 @@ router.delete("/comments/:id", async (req, res) => {
     const currentUserId = getCurrentUserId(req);
     const existingComment = await storage.getComment(req.params.id);
     if (!existingComment) {
-      return res.status(404).json({ error: "Comment not found" });
+      throw AppError.notFound("Comment");
     }
     
     if (existingComment.userId !== currentUserId) {
-      return res.status(403).json({ error: "You can only delete your own comments" });
+      throw AppError.forbidden("You can only delete your own comments");
     }
 
     await storage.deleteComment(req.params.id);
@@ -161,7 +161,7 @@ router.post("/comments/:id/resolve", async (req, res) => {
     const currentUserId = getCurrentUserId(req);
     const existingComment = await storage.getComment(req.params.id);
     if (!existingComment) {
-      return res.status(404).json({ error: "Comment not found" });
+      throw AppError.notFound("Comment");
     }
 
     const comment = await storage.resolveComment(req.params.id, currentUserId);
@@ -175,7 +175,7 @@ router.post("/comments/:id/unresolve", async (req, res) => {
   try {
     const existingComment = await storage.getComment(req.params.id);
     if (!existingComment) {
-      return res.status(404).json({ error: "Comment not found" });
+      throw AppError.notFound("Comment");
     }
 
     const comment = await storage.unresolveComment(req.params.id);

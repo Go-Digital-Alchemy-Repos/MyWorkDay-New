@@ -131,18 +131,14 @@ router.get("/clients/:id", async (req, res) => {
     
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(req.params.id, tenantId);
-      if (!client) {
-        return res.status(404).json({ error: "Client not found" });
-      }
+      if (!client) throw AppError.notFound("Client");
       const clientWithContacts = await storage.getClientWithContacts(req.params.id);
       return res.json(clientWithContacts);
     }
     
     if (isSuperUser(req)) {
       const client = await storage.getClientWithContacts(req.params.id);
-      if (!client) {
-        return res.status(404).json({ error: "Client not found" });
-      }
+      if (!client) throw AppError.notFound("Client");
       return res.json(client);
     }
     
@@ -229,19 +225,13 @@ router.delete("/clients/:id", async (req, res) => {
     
     if (tenantId) {
       const client = await storage.getClientByIdAndTenant(req.params.id, tenantId);
-      if (!client) {
-        return res.status(404).json({ error: "Client not found" });
-      }
+      if (!client) throw AppError.notFound("Client");
       workspaceId = client.workspaceId;
       const deleted = await storage.deleteClientWithTenant(req.params.id, tenantId);
-      if (!deleted) {
-        return res.status(404).json({ error: "Client not found" });
-      }
+      if (!deleted) throw AppError.notFound("Client");
     } else if (isSuperUser(req)) {
       const client = await storage.getClient(req.params.id);
-      if (!client) {
-        return res.status(404).json({ error: "Client not found" });
-      }
+      if (!client) throw AppError.notFound("Client");
       workspaceId = client.workspaceId;
       await storage.deleteClient(req.params.id);
     } else {
@@ -272,9 +262,7 @@ router.get("/clients/:clientId/contacts", async (req, res) => {
 router.post("/clients/:clientId/contacts", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const data = insertClientContactSchema.parse({
       ...req.body,
@@ -306,17 +294,13 @@ router.post("/clients/:clientId/contacts", async (req, res) => {
 router.patch("/clients/:clientId/contacts/:contactId", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const contact = await storage.updateClientContact(
       req.params.contactId,
       req.body,
     );
-    if (!contact) {
-      return res.status(404).json({ error: "Contact not found" });
-    }
+    if (!contact) throw AppError.notFound("Contact");
 
     emitClientContactUpdated(
       contact.id,
@@ -334,9 +318,7 @@ router.patch("/clients/:clientId/contacts/:contactId", async (req, res) => {
 router.delete("/clients/:clientId/contacts/:contactId", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     await storage.deleteClientContact(req.params.contactId);
 
@@ -368,14 +350,10 @@ router.get("/clients/:clientId/invites", async (req, res) => {
 router.post("/clients/:clientId/invites", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const contact = await storage.getClientContact(req.body.contactId);
-    if (!contact || contact.clientId !== req.params.clientId) {
-      return res.status(404).json({ error: "Contact not found" });
-    }
+    if (!contact || contact.clientId !== req.params.clientId) throw AppError.notFound("Contact");
 
     const data = insertClientInviteSchema.parse({
       ...req.body,
@@ -407,9 +385,7 @@ router.post("/clients/:clientId/invites", async (req, res) => {
 router.delete("/clients/:clientId/invites/:inviteId", async (req, res) => {
   try {
     const client = await storage.getClient(req.params.clientId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     await storage.deleteClientInvite(req.params.inviteId);
 
@@ -443,9 +419,7 @@ router.post("/clients/:clientId/projects", async (req, res) => {
     const { clientId } = req.params;
 
     const client = await storage.getClient(clientId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const data = insertProjectSchema.parse({
       ...req.body,
@@ -472,16 +446,12 @@ router.post("/clients/:clientId/projects", async (req, res) => {
 router.get("/v1/clients/:clientId/divisions", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
     
     const { clientId } = req.params;
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
     
     const userId = getCurrentUserId(req);
     const user = await storage.getUser(userId);
@@ -513,24 +483,18 @@ router.get("/v1/clients/:clientId/divisions", async (req, res) => {
 router.post("/v1/clients/:clientId/divisions", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
     
     const { clientId } = req.params;
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
     
     const userId = getCurrentUserId(req);
     const user = await storage.getUser(userId);
     const canCreate = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
-    if (!canCreate) {
-      return res.status(403).json({ error: "You do not have permission to create divisions" });
-    }
+    if (!canCreate) throw AppError.forbidden("You do not have permission to create divisions");
     
     const data = insertClientDivisionSchema.parse({
       ...req.body,
@@ -548,9 +512,7 @@ router.post("/v1/clients/:clientId/divisions", async (req, res) => {
 router.patch("/v1/divisions/:divisionId", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
     
     const { divisionId } = req.params;
     
@@ -558,9 +520,7 @@ router.patch("/v1/divisions/:divisionId", async (req, res) => {
     const user = await storage.getUser(userId);
     const canUpdate = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
-    if (!canUpdate) {
-      return res.status(403).json({ error: "You do not have permission to update divisions" });
-    }
+    if (!canUpdate) throw AppError.forbidden("You do not have permission to update divisions");
     
     const updateSchema = insertClientDivisionSchema.partial().omit({ 
       tenantId: true, 
@@ -569,9 +529,7 @@ router.patch("/v1/divisions/:divisionId", async (req, res) => {
     const data = updateSchema.parse(req.body);
     
     const division = await storage.updateClientDivision(divisionId, tenantId, data);
-    if (!division) {
-      return res.status(404).json({ error: "Division not found" });
-    }
+    if (!division) throw AppError.notFound("Division");
     
     res.json(division);
   } catch (error) {
@@ -582,16 +540,12 @@ router.patch("/v1/divisions/:divisionId", async (req, res) => {
 router.get("/v1/divisions/:divisionId/members", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
     
     const { divisionId } = req.params;
     
     const division = await storage.getClientDivision(divisionId);
-    if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
-    }
+    if (!division || division.tenantId !== tenantId) throw AppError.notFound("Division");
     
     const userId = getCurrentUserId(req);
     const user = await storage.getUser(userId);
@@ -599,9 +553,7 @@ router.get("/v1/divisions/:divisionId/members", async (req, res) => {
     
     if (!isAdmin) {
       const isMember = await storage.isDivisionMember(divisionId, userId);
-      if (!isMember) {
-        return res.status(403).json({ error: "You do not have access to this division" });
-      }
+      if (!isMember) throw AppError.forbidden("You do not have access to this division");
     }
     
     const members = await storage.getDivisionMembers(divisionId);
@@ -614,35 +566,25 @@ router.get("/v1/divisions/:divisionId/members", async (req, res) => {
 router.post("/v1/divisions/:divisionId/members", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
     
     const { divisionId } = req.params;
     const { userIds } = req.body;
     
-    if (!Array.isArray(userIds)) {
-      return res.status(400).json({ error: "userIds must be an array" });
-    }
+    if (!Array.isArray(userIds)) throw AppError.badRequest("userIds must be an array");
     
     const userId = getCurrentUserId(req);
     const user = await storage.getUser(userId);
     const canManage = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
-    if (!canManage) {
-      return res.status(403).json({ error: "You do not have permission to manage division members" });
-    }
+    if (!canManage) throw AppError.forbidden("You do not have permission to manage division members");
     
     const division = await storage.getClientDivision(divisionId);
-    if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
-    }
+    if (!division || division.tenantId !== tenantId) throw AppError.notFound("Division");
     
     for (const uid of userIds) {
       const userToAdd = await storage.getUser(uid);
-      if (!userToAdd || userToAdd.tenantId !== tenantId) {
-        return res.status(400).json({ error: `User ${uid} does not belong to this tenant` });
-      }
+      if (!userToAdd || userToAdd.tenantId !== tenantId) throw AppError.badRequest(`User ${uid} does not belong to this tenant`);
     }
     
     await storage.setDivisionMembers(divisionId, tenantId, userIds);
@@ -657,9 +599,7 @@ router.post("/v1/divisions/:divisionId/members", async (req, res) => {
 router.delete("/v1/divisions/:divisionId/members/:userId", async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
     
     const { divisionId, userId: targetUserId } = req.params;
     
@@ -667,14 +607,10 @@ router.delete("/v1/divisions/:divisionId/members/:userId", async (req, res) => {
     const user = await storage.getUser(currentUserId);
     const canManage = user?.role === 'super_user' || user?.role === 'tenant_admin' || user?.role === 'tenant_employee';
     
-    if (!canManage) {
-      return res.status(403).json({ error: "You do not have permission to remove division members" });
-    }
+    if (!canManage) throw AppError.forbidden("You do not have permission to remove division members");
     
     const division = await storage.getClientDivision(divisionId);
-    if (!division || division.tenantId !== tenantId) {
-      return res.status(404).json({ error: "Division not found" });
-    }
+    if (!division || division.tenantId !== tenantId) throw AppError.notFound("Division");
     
     await storage.removeDivisionMember(divisionId, targetUserId);
     res.json({ success: true });
@@ -702,16 +638,12 @@ const updateClientNoteSchema = z.object({
 router.get("/clients/:clientId/notes", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { clientId } = req.params;
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const notes = await db.select({
       id: clientNotes.id,
@@ -765,17 +697,13 @@ router.get("/clients/:clientId/notes", requireAuth, async (req, res) => {
 router.post("/clients/:clientId/notes", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { clientId } = req.params;
     const data = createClientNoteSchema.parse(req.body);
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const userId = getCurrentUserId(req);
     
@@ -810,18 +738,14 @@ router.post("/clients/:clientId/notes", requireAuth, async (req, res) => {
 router.put("/clients/:clientId/notes/:noteId", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { clientId, noteId } = req.params;
     const data = updateClientNoteSchema.parse(req.body);
     const editorUserId = getCurrentUserId(req);
 
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const [existingNote] = await db.select().from(clientNotes)
       .where(and(
@@ -830,9 +754,7 @@ router.put("/clients/:clientId/notes/:noteId", requireAuth, async (req, res) => 
         eq(clientNotes.tenantId, tenantId)
       ));
     
-    if (!existingNote) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!existingNote) throw AppError.notFound("Note");
 
     const [latestVersion] = await db.select({ 
       maxVersion: sql<number>`COALESCE(MAX(${clientNoteVersions.versionNumber}), 0)` 
@@ -872,16 +794,12 @@ router.put("/clients/:clientId/notes/:noteId", requireAuth, async (req, res) => 
 router.get("/clients/:clientId/notes/:noteId/versions", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { clientId, noteId } = req.params;
 
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const [existingNote] = await db.select().from(clientNotes)
       .where(and(
@@ -890,9 +808,7 @@ router.get("/clients/:clientId/notes/:noteId/versions", requireAuth, async (req,
         eq(clientNotes.tenantId, tenantId)
       ));
     
-    if (!existingNote) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!existingNote) throw AppError.notFound("Note");
 
     const versions = await db.select({
       id: clientNoteVersions.id,
@@ -943,16 +859,12 @@ router.get("/clients/:clientId/notes/:noteId/versions", requireAuth, async (req,
 router.delete("/clients/:clientId/notes/:noteId", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { clientId, noteId } = req.params;
 
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const [existingNote] = await db.select().from(clientNotes)
       .where(and(
@@ -961,9 +873,7 @@ router.delete("/clients/:clientId/notes/:noteId", requireAuth, async (req, res) 
         eq(clientNotes.tenantId, tenantId)
       ));
     
-    if (!existingNote) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!existingNote) throw AppError.notFound("Note");
 
     await db.delete(clientNotes).where(eq(clientNotes.id, noteId));
 
@@ -980,16 +890,12 @@ router.delete("/clients/:clientId/notes/:noteId", requireAuth, async (req, res) 
 router.get("/clients/:clientId/note-categories", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { clientId } = req.params;
     
     const client = await storage.getClientByIdAndTenant(clientId, tenantId);
-    if (!client) {
-      return res.status(404).json({ error: "Client not found" });
-    }
+    if (!client) throw AppError.notFound("Client");
 
     const categories = await db.select()
       .from(clientNoteCategories)
@@ -1005,14 +911,10 @@ router.get("/clients/:clientId/note-categories", requireAuth, async (req, res) =
 router.post("/clients/:clientId/note-categories", requireAuth, async (req, res) => {
   try {
     const tenantId = getEffectiveTenantId(req);
-    if (!tenantId) {
-      return res.status(403).json({ error: "Tenant context required" });
-    }
+    if (!tenantId) throw AppError.forbidden("Tenant context required");
 
     const { name, color } = req.body;
-    if (!name || typeof name !== "string") {
-      return res.status(400).json({ error: "Name is required" });
-    }
+    if (!name || typeof name !== "string") throw AppError.badRequest("Name is required");
 
     const [category] = await db.insert(clientNoteCategories).values({
       tenantId,

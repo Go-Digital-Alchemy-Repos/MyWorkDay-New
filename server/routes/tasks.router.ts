@@ -388,19 +388,16 @@ router.post("/tasks", async (req, res) => {
       if (!tenantId) {
         const project = await storage.getProject(data.projectId);
         if (!project) {
-          return res.status(404).json({ error: "Project not found", requestId });
+          throw AppError.notFound("Project");
         }
       } else {
         const project = await storage.getProjectByIdAndTenant(data.projectId, tenantId);
         if (!project) {
           const projectExists = await storage.getProject(data.projectId);
           if (projectExists) {
-            return res.status(403).json({ 
-              error: "Access denied: project belongs to a different tenant",
-              requestId 
-            });
+            throw AppError.forbidden("Access denied: project belongs to a different tenant");
           }
-          return res.status(404).json({ error: "Project not found", requestId });
+          throw AppError.notFound("Project");
         }
       }
     }
@@ -408,10 +405,7 @@ router.post("/tasks", async (req, res) => {
     if (data.sectionId && data.projectId) {
       const section = await storage.getSection(data.sectionId);
       if (!section || section.projectId !== data.projectId) {
-        return res.status(400).json({ 
-          error: "Invalid section: section not found or does not belong to this project",
-          requestId 
-        });
+        throw AppError.badRequest("Invalid section: section not found or does not belong to this project");
       }
     }
     
@@ -499,13 +493,10 @@ router.post("/tasks/:taskId/childtasks", async (req, res) => {
     const tenantId = getEffectiveTenantId(req);
     const parentTask = await storage.getTask(parentTaskId);
     if (!parentTask) {
-      return res.status(404).json({ error: "Parent task not found", requestId });
+      throw AppError.notFound("Parent task");
     }
     if (parentTask.parentTaskId) {
-      return res.status(400).json({
-        error: "Cannot create subtask of a subtask (max depth is 2 levels)",
-        requestId,
-      });
+      throw AppError.badRequest("Cannot create subtask of a subtask (max depth is 2 levels)");
     }
 
     const body = { ...req.body };
@@ -1001,7 +992,7 @@ router.post("/subtasks/:id/assignees", async (req, res) => {
     res.status(201).json(assignee);
   } catch (error: any) {
     if (error?.code === '23505') {
-      return res.status(409).json({ error: "User already assigned to subtask" });
+      throw AppError.conflict("User already assigned to subtask");
     }
     return handleRouteError(res, error, "POST /api/subtasks/:subtaskId/assignees", req);
   }

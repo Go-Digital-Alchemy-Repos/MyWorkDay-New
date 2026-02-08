@@ -2,7 +2,7 @@ import { Router, Request } from "express";
 import { DatabaseStorage } from "../storage";
 import { getEffectiveTenantId } from "../middleware/tenantContext";
 import { UserRole, User, TaskWithRelations } from "@shared/schema";
-import { handleRouteError } from "../lib/errors";
+import { AppError, handleRouteError } from "../lib/errors";
 
 const router = Router();
 const storage = new DatabaseStorage();
@@ -39,7 +39,7 @@ interface EmployeeWorkload {
 router.get("/workload/tasks-by-employee", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
@@ -130,7 +130,7 @@ router.get("/workload/tasks-by-employee", async (req, res) => {
 router.get("/workload/employee/:userId/tasks", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
@@ -139,7 +139,7 @@ router.get("/workload/employee/:userId/tasks", async (req, res) => {
 
     const user = await storage.getUser(userId);
     if (!user || user.tenantId !== tenantId) {
-      return res.status(404).json({ error: "User not found" });
+      throw AppError.notFound("User");
     }
 
     const allTasks = await storage.getTasksByUser(userId);
@@ -212,7 +212,7 @@ router.get("/workload/employee/:userId/tasks", async (req, res) => {
 router.get("/workload/unassigned", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
@@ -259,7 +259,7 @@ router.get("/workload/unassigned", async (req, res) => {
 router.get("/workload/by-status", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
@@ -300,7 +300,7 @@ router.get("/workload/by-status", async (req, res) => {
 router.get("/workload/by-priority", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);
@@ -342,7 +342,7 @@ router.get("/workload/by-priority", async (req, res) => {
 router.get("/workload/summary", async (req, res) => {
   try {
     if (!isAdmin(req)) {
-      return res.status(403).json({ error: "Admin access required" });
+      throw AppError.forbidden("Admin access required");
     }
 
     const tenantId = getEffectiveTenantId(req);

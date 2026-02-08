@@ -3,7 +3,7 @@ import { z } from "zod";
 import { storage } from "../../storage";
 import { getEffectiveTenantId } from "../../middleware/tenantContext";
 import type { Request } from "express";
-import { handleRouteError } from "../../lib/errors";
+import { handleRouteError, AppError } from "../../lib/errors";
 
 function getCurrentUserId(req: Request): string {
   return req.user?.id || "demo-user-id";
@@ -51,7 +51,7 @@ router.patch("/notifications/:id/read", async (req, res) => {
     
     const notification = await storage.markNotificationRead(id, userId, tenantId);
     if (!notification) {
-      return res.status(404).json({ error: "Notification not found" });
+      throw AppError.notFound("Notification");
     }
     
     res.json(notification);
@@ -154,7 +154,7 @@ router.patch("/notifications/preferences", async (req, res) => {
     
     const parsed = updatePreferencesSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid preferences", details: parsed.error.errors });
+      throw AppError.badRequest("Invalid preferences", parsed.error.errors);
     }
     
     const prefs = await storage.upsertNotificationPreferences(userId, {

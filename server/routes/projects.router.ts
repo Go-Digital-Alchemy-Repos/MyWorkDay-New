@@ -500,7 +500,7 @@ router.patch("/projects/:projectId/tasks/reorder", async (req: Request, res: Res
   try {
     const { moves } = req.body;
     if (!Array.isArray(moves)) {
-      return res.status(400).json({ error: "moves must be an array" });
+      throw AppError.badRequest("moves must be an array");
     }
 
     for (const move of moves) {
@@ -512,22 +512,16 @@ router.patch("/projects/:projectId/tasks/reorder", async (req: Request, res: Res
         await storage.moveTask(taskId, toSectionId, toIndex);
       } else if (itemType === "childTask") {
         if (!parentTaskId) {
-          return res.status(400).json({
-            error: "parentTaskId required for child task reordering",
-          });
+          throw AppError.badRequest("parentTaskId required for child task reordering");
         }
         await storage.reorderChildTasks(parentTaskId, taskId, toIndex);
       } else if (itemType === "subtask") {
         if (!parentTaskId) {
-          return res
-            .status(400)
-            .json({ error: "parentTaskId required for subtask moves" });
+          throw AppError.badRequest("parentTaskId required for subtask moves");
         }
         const subtask = await storage.getSubtask(taskId);
         if (!subtask || subtask.taskId !== parentTaskId) {
-          return res
-            .status(400)
-            .json({ error: "Subtask does not belong to specified parent" });
+          throw AppError.badRequest("Subtask does not belong to specified parent");
         }
         await storage.moveSubtask(taskId, toIndex);
       }
