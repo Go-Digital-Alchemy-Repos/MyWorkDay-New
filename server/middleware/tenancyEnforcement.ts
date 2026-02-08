@@ -19,6 +19,7 @@
  */
 import { Request, Response, NextFunction } from "express";
 import { tenancyHealthTracker } from "./tenancyHealthTracker";
+import { AppError } from "../lib/errors";
 
 export type TenancyEnforcementMode = "off" | "soft" | "strict";
 
@@ -390,8 +391,9 @@ export function ensureInsertTenantId(
 }
 
 /**
- * Middleware generator for enforcing tenant context on routes
- * Use this to wrap routes that require tenant isolation
+ * @deprecated Use requireTenantContext from './tenantContext' instead.
+ * This version is a factory function (returns middleware) while the canonical
+ * version in tenantContext.ts is a direct middleware. Kept for backward compatibility.
  */
 export function requireTenantContext() {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -409,12 +411,7 @@ export function requireTenantContext() {
 
     if (!user?.tenantId) {
       if (mode === "strict") {
-        return res.status(403).json({
-          error: {
-            code: "NO_TENANT_CONTEXT",
-            message: "This operation requires tenant context",
-          },
-        });
+        return next(AppError.tenantRequired("This operation requires tenant context"));
       }
 
       logTenancyWarning(

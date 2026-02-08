@@ -154,7 +154,7 @@ router.patch("/:id", async (req, res) => {
         ...data,
         updatedAt: new Date(),
       })
-      .where(eq(schema.projectTemplates.id, req.params.id))
+      .where(and(eq(schema.projectTemplates.id, req.params.id), eq(schema.projectTemplates.tenantId, tenantId)))
       .returning();
 
     res.json(template);
@@ -191,7 +191,7 @@ router.delete("/:id", async (req, res) => {
     }
 
     await db.delete(schema.projectTemplates)
-      .where(eq(schema.projectTemplates.id, req.params.id));
+      .where(and(eq(schema.projectTemplates.id, req.params.id), eq(schema.projectTemplates.tenantId, tenantId)));
 
     res.json({ success: true });
   } catch (error) {

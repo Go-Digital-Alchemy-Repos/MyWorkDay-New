@@ -17,6 +17,7 @@ import { UserRole } from "@shared/schema";
 import { db } from "../db";
 import { tenants } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { AppError } from "../lib/errors";
 
 const TENANT_DEBUG = process.env.TENANT_CONTEXT_DEBUG === "true";
 
@@ -67,7 +68,7 @@ export async function tenantContextMiddleware(req: Request, res: Response, next:
       // Super users can access any tenant (active or inactive) for pre-provisioning
       const [tenant] = await db.select().from(tenants).where(eq(tenants.id, effectiveTenantId));
       if (!tenant) {
-        return res.status(404).json({ error: "Tenant not found" });
+        throw AppError.notFound("Tenant");
       }
       // Note: Super users are NOT blocked by tenant status - they can pre-provision inactive tenants
     }
@@ -102,11 +103,11 @@ export function requireSuperUser(req: Request, res: Response, next: NextFunction
   const user = req.user as any;
 
   if (!user) {
-    return res.status(401).json({ error: "Authentication required" });
+    return next(AppError.unauthorized("Authentication required"));
   }
 
   if (user.role !== UserRole.SUPER_USER) {
-    return res.status(403).json({ error: "Super user access required" });
+    return next(AppError.forbidden("Super user access required"));
   }
 
   next();
@@ -133,7 +134,7 @@ export function requireTenantContext(req: Request, res: Response, next: NextFunc
   const user = req.user as any;
   
   if (!user) {
-    return res.status(401).json({ error: "Authentication required" });
+    return next(AppError.unauthorized("Authentication required"));
   }
 
   const isSuperUser = user.role === UserRole.SUPER_USER;
@@ -144,7 +145,7 @@ export function requireTenantContext(req: Request, res: Response, next: NextFunc
 
   if (!req.tenant?.effectiveTenantId) {
     console.error(`[tenantContext] User ${user.id} has no tenantId configured`);
-    return res.status(500).json({ error: "User tenant not configured" });
+    return next(AppError.tenantRequired("User tenant not configured"));
   }
 
   next();
@@ -218,12 +219,9 @@ export function requireTenantIdForCreateMiddleware(entityType: string) {
       next();
     } catch (error) {
       if (error instanceof TenantContextError) {
-        return res.status(400).json({ 
-          error: error.message,
-          code: error.code,
-        });
+        return next(AppError.tenantRequired(error.message));
       }
-      throw error;
+      next(error);
     }
   };
 }

@@ -64,6 +64,9 @@ MyWorkDay is an Asana-inspired project management application aimed at streamlin
 
 ### Security Hardening
 - **Tenancy Enforcement**: `server/middleware/tenancyEnforcement.ts` with three modes: `off` (development), `soft` (log warnings), `strict` (block cross-tenant access). Validates ownership on read, insert, update, and delete operations.
+- **Defense-in-Depth Tenant Scoping**: All mutating queries (UPDATE/DELETE) include `tenantId` in WHERE clauses alongside record IDs, even when preceded by a tenant-scoped SELECT. Applied across CRM routes (contacts, notes, files, access, approvals), client documents/notes, and templates.
+- **Standardized Error Envelope**: All API errors use `AppError` class producing `StandardErrorEnvelope` format: `{ ok, requestId, error: { code, message, status, requestId, details }, message, code }`. Tenant guard middleware (`requireTenantContext`, `requireSuperUser`) uses `next(AppError.xxx())` pattern for consistent error handling.
+- **Canonical requireTenantContext**: Primary implementation in `server/middleware/tenantContext.ts`. Duplicate in `tenancyEnforcement.ts` is deprecated (factory pattern, unused by routes).
 - **Rate Limiting**: Applied to auth endpoints (login, bootstrap, invite, forgot-password), file uploads, internal chat sends, and CRM client messaging. Configurable via environment variables. Uses in-memory store with email-based and IP-based limits. Middleware: `server/middleware/rateLimit.ts`.
 - **Secret Redaction**: All error logs automatically redact passwords, API keys, tokens, and database URLs before storage.
 

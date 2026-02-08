@@ -385,7 +385,7 @@ router.delete("/:clientId/documents/:documentId", requireAuth, requireTenantCont
       console.warn("[client-documents] Failed to delete S3 object:", e);
     }
 
-    await db.delete(clientDocuments).where(eq(clientDocuments.id, documentId));
+    await db.delete(clientDocuments).where(and(eq(clientDocuments.id, documentId), eq(clientDocuments.tenantId, tenantId)));
 
     res.json({ ok: true, message: "Document deleted successfully" });
   } catch (error: any) {

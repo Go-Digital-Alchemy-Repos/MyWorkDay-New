@@ -160,7 +160,7 @@ router.delete("/:clientId/notes/categories/:categoryId", requireAuth, requireTen
         eq(clientNotes.tenantId, tenantId)
       ));
 
-    await db.delete(clientNoteCategories).where(eq(clientNoteCategories.id, categoryId));
+    await db.delete(clientNoteCategories).where(and(eq(clientNoteCategories.id, categoryId), eq(clientNoteCategories.tenantId, tenantId)));
 
     res.json({ ok: true, message: "Category deleted successfully" });
   } catch (error: any) {
@@ -423,7 +423,7 @@ router.delete("/:clientId/notes/:noteId", requireAuth, requireTenantContext, asy
       throw AppError.notFound("Note");
     }
 
-    await db.delete(clientNotes).where(eq(clientNotes.id, noteId));
+    await db.delete(clientNotes).where(and(eq(clientNotes.id, noteId), eq(clientNotes.tenantId, tenantId)));
 
     res.json({ ok: true, message: "Note deleted successfully" });
   } catch (error: any) {

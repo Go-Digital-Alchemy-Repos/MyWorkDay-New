@@ -303,19 +303,16 @@ router.patch("/crm/contacts/:id", requireAuth, async (req: Request, res: Respons
 
     const [existing] = await db.select()
       .from(clientContacts)
-      .where(eq(clientContacts.id, id))
+      .where(and(eq(clientContacts.id, id), eq(clientContacts.tenantId, tenantId)))
       .limit(1);
     if (!existing) return sendError(res, AppError.notFound("Contact"), req);
-
-    const client = await verifyClientTenancy(existing.clientId, tenantId);
-    if (!client) return sendError(res, AppError.forbidden("Access denied"), req);
 
     const data = validateBody(req.body, updateClientContactSchema, res);
     if (!data) return;
 
     const [updated] = await db.update(clientContacts)
       .set({ ...data, updatedAt: new Date() })
-      .where(eq(clientContacts.id, id))
+      .where(and(eq(clientContacts.id, id), eq(clientContacts.tenantId, tenantId)))
       .returning();
 
     res.json(updated);
@@ -333,14 +330,11 @@ router.delete("/crm/contacts/:id", requireAuth, async (req: Request, res: Respon
 
     const [existing] = await db.select()
       .from(clientContacts)
-      .where(eq(clientContacts.id, id))
+      .where(and(eq(clientContacts.id, id), eq(clientContacts.tenantId, tenantId)))
       .limit(1);
     if (!existing) return sendError(res, AppError.notFound("Contact"), req);
 
-    const client = await verifyClientTenancy(existing.clientId, tenantId);
-    if (!client) return sendError(res, AppError.forbidden("Access denied"), req);
-
-    await db.delete(clientContacts).where(eq(clientContacts.id, id));
+    await db.delete(clientContacts).where(and(eq(clientContacts.id, id), eq(clientContacts.tenantId, tenantId)));
 
     res.json({ success: true });
   } catch (error) {
@@ -477,8 +471,8 @@ router.delete("/crm/notes/:id", requireAuth, async (req: Request, res: Response)
       return sendError(res, AppError.forbidden("Only the author or an admin can delete this note"), req);
     }
 
-    await db.delete(clientNoteVersions).where(eq(clientNoteVersions.noteId, id));
-    await db.delete(clientNotes).where(eq(clientNotes.id, id));
+    await db.delete(clientNoteVersions).where(and(eq(clientNoteVersions.noteId, id), eq(clientNoteVersions.tenantId, tenantId)));
+    await db.delete(clientNotes).where(and(eq(clientNotes.id, id), eq(clientNotes.tenantId, tenantId)));
 
     res.json({ success: true });
   } catch (error) {
@@ -984,7 +978,7 @@ router.patch("/crm/files/:id", requireAuth, async (req: Request, res: Response) 
 
     const [updated] = await db.update(clientFiles)
       .set(data)
-      .where(eq(clientFiles.id, id))
+      .where(and(eq(clientFiles.id, id), eq(clientFiles.tenantId, tenantId)))
       .returning();
 
     res.json(updated);
@@ -1010,7 +1004,7 @@ router.delete("/crm/files/:id", requireAuth, async (req: Request, res: Response)
       .limit(1);
     if (!existing) return sendError(res, AppError.notFound("File"), req);
 
-    await db.delete(clientFiles).where(eq(clientFiles.id, id));
+    await db.delete(clientFiles).where(and(eq(clientFiles.id, id), eq(clientFiles.tenantId, tenantId)));
 
     res.json({ success: true });
   } catch (error) {
@@ -1106,7 +1100,7 @@ router.delete("/crm/access/:id", requireAdmin, async (req: Request, res: Respons
       .limit(1);
     if (!existing) return sendError(res, AppError.notFound("Access record"), req);
 
-    await db.delete(userClientAccess).where(eq(userClientAccess.id, id));
+    await db.delete(userClientAccess).where(and(eq(userClientAccess.id, id), eq(userClientAccess.tenantId, tenantId)));
 
     res.json({ success: true });
   } catch (error) {
@@ -1319,7 +1313,7 @@ router.patch("/crm/approvals/:id", requireAuth, async (req: Request, res: Respon
         respondedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(approvalRequests.id, id))
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.tenantId, tenantId)))
       .returning();
 
     try {
@@ -1585,7 +1579,7 @@ router.post("/crm/conversations/:conversationId/messages", requireAuth, clientMe
 
     await db.update(clientConversations)
       .set({ updatedAt: new Date() })
-      .where(eq(clientConversations.id, conversationId));
+      .where(and(eq(clientConversations.id, conversationId), eq(clientConversations.tenantId, tenantId)));
 
     res.status(201).json(message);
   } catch (error) {
