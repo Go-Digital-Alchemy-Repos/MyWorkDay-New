@@ -4,20 +4,26 @@ This document tracks known issues, technical debt, and areas for improvement.
 
 ## High Priority
 
-### 1. Large Route File (routes.ts)
-**File**: `server/routes.ts`  
-**Size**: ~3,700 lines  
-**Impact**: Maintainability, code navigation difficulty
+### 1. ~~Large Route File (routes.ts)~~ (Resolved)
+**Status**: Refactored as of February 2026
 
-**Description**: The main routes file contains most API endpoints in a single file. While functional, this makes it harder to navigate and understand the codebase.
+**Description**: `server/routes.ts` has been refactored from ~3,700 lines to ~80 lines (thin aggregator). All route handlers have been extracted into domain-specific Router modules under `server/routes/`:
 
-**Recommended Action**: Consider splitting into domain modules when undertaking significant refactoring. The current structure has been deemed "safe" to avoid breaking changes, but should be addressed during a dedicated refactoring sprint.
+**Extracted modules**:
+- `workspaces.router.ts` — Workspace CRUD, members
+- `teams.router.ts` — Team CRUD, members
+- `tags.router.ts` — Tag CRUD, task-tag associations
+- `comments.router.ts` — Comment CRUD, resolve/unresolve, mention notifications
+- `activity.router.ts` — Activity log endpoints
+- `attachments.router.ts` — Attachment presign/upload/download, CRM flags
+- `tasks.router.ts` — Task CRUD, subtasks, assignees (previously extracted)
+- `projects.router.ts` — Project CRUD, sections, members (previously extracted)
+- `clients.router.ts` — Client CRUD, contacts, notes, divisions (previously extracted)
+- `users.router.ts` — User CRUD, invitations, profile, settings (previously extracted)
+- `timeTracking.router.ts` — Timer, time entries, calendar (previously extracted)
+- `crm.router.ts` — CRM pipeline, approvals, messaging, portal (previously extracted)
 
-**Sections that could be extracted**:
-- Tasks routes (~600 lines)
-- Timer/Time entries routes (~400 lines)
-- Client (CRM) routes (~400 lines)
-- Section routes (~200 lines)
+`server/routes/superAdmin.ts` was already a thin aggregator delegating to `server/routes/modules/super-admin/`.
 
 ---
 

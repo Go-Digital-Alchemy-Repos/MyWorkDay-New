@@ -1,0 +1,116 @@
+NON-DESTRUCTIVE MAINTAINABILITY UPDATE — REFACTOR OVERSIZED ROUTING FILES INTO FEATURE MODULES
+(DigitalWorkDay / MyWorkDay)
+
+You are working in an existing production codebase. Do NOT break behavior. Do NOT remove any endpoints. Do NOT change route paths, HTTP methods, request/response shapes, auth behavior, middleware order, or validation rules. This is a structural refactor only.
+
+PRIMARY GOAL
+Refactor two oversized routing files into a feature-based routing/module structure for maintainability:
+- server/routes.ts
+- server/routes/superAdmin.ts
+
+Keep exports and wiring stable so the app runs exactly the same after refactor.
+
+PHASE 0 — BASELINE SAFETY CHECKS (DO FIRST)
+1) Create a “route inventory” before refactor:
+   - Enumerate every route in server/routes.ts and server/routes/superAdmin.ts:
+     - method, path, middlewares (in order), handler function name, and any per-route config
+   - Save this as a temporary checklist (in your response notes) so you can confirm parity after refactor.
+2) Identify shared dependencies:
+   - auth/permissions middleware
+   - validation schemas
+   - controllers/handlers
+   - any constants used for paths/prefixes
+   - any router-level middleware (router.use(...)) and their order
+
+PHASE 1 — TARGET MODULE STRUCTURE
+3) Create a feature-module routing folder structure (match existing repo conventions, ESM):
+   - server/routes/index.ts               (aggregator)
+   - server/routes/features/             (new)
+     - auth.routes.ts                    (if applicable)
+     - users.routes.ts                   (accounts/profile/users)
+     - clients.routes.ts                 (CRM/clients)
+     - projects.routes.ts                (projects/portfolio/tasks if applicable)
+     - tasks.routes.ts                   (tasks/subtasks/time logs if applicable)
+     - messaging.routes.ts               (chat/messages/channels if applicable)
+     - files.routes.ts                   (uploads/S3/R2 attachments)
+     - billing.routes.ts                 (stripe/orders/payments if applicable)
+     - admin.routes.ts                   (admin functions not superAdmin)
+     - health.routes.ts                  (health checks / status)
+   - server/routes/superAdmin/           (new)
+     - index.ts                          (aggregator for superAdmin)
+     - tenants.routes.ts                 (tenancy/orgs/companies)
+     - rolesPermissions.routes.ts        (roles, perms)
+     - featureFlags.routes.ts            (feature toggles)
+     - system.routes.ts                  (system ops, logs, background jobs)
+     - users.routes.ts                   (superAdmin user management)
+     - security.routes.ts                (rate limit, audit, etc., if present)
+
+IMPORTANT:
+- Only create modules that match what exists today. If “messaging” doesn’t exist, don’t invent it.
+- If the app has clear domain names already, mirror them (use the terminology already used in code).
+
+PHASE 2 — MOVE ROUTES WITHOUT CHANGING BEHAVIOR
+4) Extract routes from server/routes.ts into feature modules:
+   - For each logical group, move the route definitions into the matching file in server/routes/features/
+   - Keep:
+     - exact route strings
+     - exact middleware arrays and order
+     - exact handler references (import the same handler functions)
+     - exact export behavior (Router instance)
+   - Avoid circular dependencies: feature modules should import handlers/middleware from existing locations, not from server/routes.ts.
+
+5) Refactor server/routes/superAdmin.ts similarly:
+   - Create server/routes/superAdmin/index.ts that exports a Router
+   - Move route groups into separate module files under server/routes/superAdmin/
+   - Preserve:
+     - the base prefix used by superAdmin routes (if there is one)
+     - any router-level middleware (e.g., requireSuperAdmin) applied exactly once, at the same place in the pipeline
+
+PHASE 3 — AGGREGATION / WIRING
+6) Replace original “big” files with thin aggregators:
+   - server/routes.ts becomes a small file that:
+     - creates Router
+     - mounts each feature router with the same prefixes used previously
+     - applies any router.use(...) middleware exactly as before
+     - exports the Router (or mounts it into app) exactly as before
+   - server/routes/superAdmin.ts should either:
+     A) remain as a thin re-export to server/routes/superAdmin/index.ts, OR
+     B) become a thin wrapper that imports from the new location
+   Goal: minimize impact on imports elsewhere.
+
+7) Ensure import paths remain stable:
+   - If other modules import `server/routes/superAdmin.ts`, do not break them.
+   - If you relocate it, keep the old file as a compatibility shim that re-exports the new router.
+
+PHASE 4 — QUALITY GUARDRAILS
+8) Post-refactor parity verification
+   - Re-generate the route inventory after changes and compare:
+     - same count of routes
+     - same method/path pairs
+     - same middleware order
+   - If the project has a way to print routes at startup, use it. Otherwise, add a DEV-ONLY debug log guarded by NODE_ENV !== 'production' (only if necessary).
+
+9) Lint/build/test
+   - Run existing lint, typecheck, and tests.
+   - Fix only issues introduced by the refactor (imports, formatting, ESM named exports, etc.).
+
+PHASE 5 — DOCUMENTATION
+10) Add a short internal doc note (optional but recommended)
+   - In Docs Library (or docs/), add a brief note:
+     - new routes folder structure
+     - where to add routes by feature going forward
+   Keep it short and factual.
+
+DELIVERABLES
+- Feature-based routing modules created
+- Thin aggregators replacing oversized files
+- No behavior changes (paths, middleware, responses, auth)
+- A summary listing:
+  - files created/modified
+  - route parity confirmation (counts + any notes)
+
+DO NOT
+- Do not rename endpoints or change URL structures.
+- Do not change validation or handler logic.
+- Do not “improve” auth/permissions logic as part of this task.
+- Do not introduce new frameworks.

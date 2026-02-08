@@ -1,0 +1,130 @@
+NON-DESTRUCTIVE CONSISTENCY + SECURITY UPDATE — STANDARDIZE ERROR RESPONSES + ENFORCE REQUEST VALIDATION
+(DigitalWorkDay / MyWorkDay)
+
+You are working in an existing production codebase. Do NOT break existing features. Do NOT remove endpoints. Prefer additive changes and compatibility where possible. The goal is to normalize error shapes and validation without changing successful response shapes or route paths.
+
+PRIMARY GOALS
+1) Standardize API error responses to a single documented shape using AppError (or the project’s existing equivalent).
+2) Enforce request validation for POST/PATCH endpoints using validateBody() (and validateParams/validateQuery where appropriate).
+3) Improve documentation so it matches real behavior after the changes.
+
+HARD RULES (NON-DESTRUCTIVE)
+- Do not change success response shapes.
+- Do not change route paths or HTTP methods.
+- Do not change auth/permission behavior.
+- Keep error status codes consistent with current intent (400/401/403/404/409/422/429/500).
+- If some clients may depend on legacy error fields, keep backwards compatibility (e.g., include legacy fields in addition to the new standardized fields) unless the repo already guarantees the new shape.
+
+PHASE 0 — DISCOVERY & INVENTORY (DO FIRST)
+1) Locate existing error & validation infrastructure:
+   - AppError class / error factory (e.g., AppError.badRequest, unauthorized, forbidden, notFound, conflict, validationError, tooManyRequests)
+   - global Express error handler middleware (where res.status().json(...) happens)
+   - validateBody() (and any validateQuery/validateParams), and schema library (Zod/Yup/Joi/etc.)
+2) Identify current inconsistent patterns:
+   - routes returning res.status(...).json({ error: "..." }) vs { message: ... } vs { errors: [...] }
+   - thrown errors not being mapped properly
+   - missing validateBody() on POST/PATCH routes
+3) Create a quick route validation checklist:
+   - list all POST and PATCH endpoints
+   - mark which already use validateBody()
+
+PHASE 1 — DEFINE THE CANONICAL ERROR SHAPE (APPERROR OUTPUT)
+4) Establish a single standardized error response shape (match repo terminology):
+   REQUIRED fields (minimum):
+   - error: {
+       code: string,          // e.g., "BAD_REQUEST", "VALIDATION_ERROR"
+       message: string,       // human readable
+       status: number,        // HTTP status
+       requestId?: string,    // if request id exists
+       details?: any,         // optional structured metadata (validation issues, etc.)
+     }
+   NOTES:
+   - If the codebase already has an existing shape, use that shape (do NOT invent a new one).
+   - If docs already define “AppError responses”, align implementation to that.
+
+5) Update the global error handler to always return the canonical shape for:
+   - AppError instances
+   - schema validation errors (Zod/etc.)
+   - unknown errors (500)
+   Ensure:
+   - consistent status mapping
+   - safe message for 500s (“Internal Server Error” in production) while logging the actual error server-side
+   - optional inclusion of stack only in non-production (if existing pattern allows)
+
+6) Backward compatibility layer (only if needed)
+   - If you find existing clients expect { message } or { error: "string" }, preserve by including:
+     - message at top-level OR errorMessage OR legacyError
+   - Prefer a configuration flag like ERROR_SHAPE_VERSION=2 only if the repo already supports versioning.
+   - Otherwise, keep it simple: return the new canonical error object but include one legacy field so old clients don’t break.
+
+PHASE 2 — ENFORCE VALIDATION FOR POST/PATCH (AND FIX INCOMPLETE VALIDATION)
+7) Enforce validateBody() for ALL POST and PATCH routes
+   - For every POST/PATCH endpoint lacking validateBody(), add it.
+   - Use the existing schema definitions if they exist; otherwise create minimal schemas per route in the established location (do NOT inline huge schemas in routes unless that’s already the style).
+   - Ensure middleware order is consistent:
+     auth/permission -> validateBody -> handler
+     (or validate before auth if the repo prefers; follow existing pattern)
+
+8) Add validateParams() / validateQuery() where clearly missing and low-risk
+   - For routes with required IDs in params (/:id), ensure params are validated (UUID/cuid/nanoid/int as appropriate).
+   - For common query params (pagination: page/limit, sort), validate and normalize.
+   Keep changes minimal—focus on POST/PATCH first per request.
+
+9) Validation error mapping
+   - Ensure validation failures return a consistent status and shape (typically 400 or 422).
+   - Ensure validation details are included in `error.details` in a consistent format:
+     - e.g., { issues: [{ path, message, expected?, received? }] }
+   - Do NOT leak sensitive data (passwords, tokens) in error details.
+
+PHASE 3 — ROUTE CLEANUP TO USE AppError CONSISTENTLY
+10) Normalize route error handling patterns
+   - Replace ad-hoc res.status(...).json({ ...error... }) with:
+     - throw new AppError(...)
+     - or return next(AppError.xxx(...))
+   - Where handlers currently throw generic Errors for known cases (not found, conflict), convert to AppError equivalents.
+   - Keep HTTP status codes aligned with existing behavior unless clearly incorrect.
+
+11) Ensure async error propagation is correct
+   - If the repo uses an async wrapper (e.g., asyncHandler), use it consistently.
+   - If not, ensure thrown errors in async routes are caught and forwarded to the global error handler.
+
+PHASE 4 — DOCS ALIGNMENT (REQUIRED)
+12) Update documentation to match the standardized shape
+   - Update the API error response docs (Docs Library / docs/).
+   - Replace any examples showing inconsistent shapes.
+   - Explicitly state:
+     - canonical error object shape
+     - typical status codes
+     - validation error format
+     - requestId inclusion (if present)
+
+13) Update docs/KNOWN_ISSUES.md
+   - Remove or adjust entries that claim inconsistent error shapes once fixed
+   - If any endpoints remain inconsistent due to risk, document them explicitly as exceptions and why.
+
+PHASE 5 — TESTING & SAFETY
+14) Add minimal tests (if test patterns exist)
+   - One test verifying validation error shape on a POST route with invalid body
+   - One test verifying AppError (e.g., notFound) returns canonical shape
+   - One test verifying unknown error returns 500 canonical shape (message sanitized in production mode if applicable)
+
+15) Verification checklist
+   - Confirm ALL POST/PATCH routes now include validateBody()
+   - Confirm all errors returned are canonical shape
+   - Confirm no success responses changed
+   - Confirm lint/typecheck/tests pass
+
+DELIVERABLES
+- Standardized error response output via AppError + global error handler
+- validateBody() enforced for all POST/PATCH routes (plus params/query where reasonable)
+- Updated docs showing canonical error shape + validation examples
+- Summary listing:
+  - files modified/added
+  - POST/PATCH validation coverage achieved
+  - any remaining exceptions and rationale
+
+DO NOT
+- Do not change the database schema.
+- Do not change route URLs or method signatures.
+- Do not rewrite the app architecture.
+- Do not introduce a new validation library if one already exists.

@@ -28,9 +28,21 @@ import clientsRouter from "./clients.router";
 import projectsRouter from "./projects.router";
 import usersRouter from "./users.router";
 import crmRouter from "./crm.router";
+import workspacesRouter from "./workspaces.router";
+import teamsRouter from "./teams.router";
+import tagsRouter from "./tags.router";
+import commentsRouter from "./comments.router";
+import activityRouter from "./activity.router";
+import attachmentsRouter from "./attachments.router";
 
 const router = Router();
 
+router.use(workspacesRouter);
+router.use(teamsRouter);
+router.use(tagsRouter);
+router.use(commentsRouter);
+router.use(activityRouter);
+router.use(attachmentsRouter);
 router.use(usersRouter);
 router.use(crmRouter);
 router.use(projectsRouter);
