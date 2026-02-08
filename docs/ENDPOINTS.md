@@ -480,4 +480,4 @@ File upload endpoints use `multipart/form-data`:
 - `POST /api/v1/super/tenants/:tenantId/brand-assets`
 
 ### Rate Limiting
-Currently no rate limiting is implemented. Consider adding for production.
+Rate limiting is implemented using `express-rate-limit` with dual-layer IP and email-based protection. It covers authentication, administrative, chat, CRM messaging, and file upload endpoints. Uses in-memory storage (counters reset on restart, not shared across instances). See `docs/SECURITY_RATE_LIMITS.md` for full details.

@@ -34,10 +34,12 @@ This document tracks known issues and planned improvements identified during the
 
 ### Security
 
-- [ ] **Rate limiting** - No rate limiting currently implemented
-  - Add rate limiting middleware for auth endpoints
-  - Add rate limiting for file uploads
-  - Consider per-tenant rate limits
+- [x] **Rate limiting** - Implemented (in-memory, see `docs/SECURITY_RATE_LIMITS.md`)
+  - [x] Rate limiting middleware for auth endpoints (login, bootstrap, invite, forgot-password)
+  - [x] Rate limiting for file uploads and admin endpoints (invite/user creation)
+  - [x] Rate limiting for chat and CRM client messaging
+  - [ ] Consider per-tenant rate limits
+  - [ ] Consider Redis-backed storage for multi-instance deployments
 
 - [ ] **CSRF protection** - Currently relying on SameSite cookies
   - Consider adding CSRF tokens for sensitive operations

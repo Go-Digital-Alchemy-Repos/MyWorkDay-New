@@ -110,12 +110,14 @@ npx vitest run
 
 ---
 
-### 8. No Rate Limiting
-**Impact**: Security, reliability
+### 8. ~~No Rate Limiting~~ (Resolved)
+**Status**: Implemented as of January 2026
 
-**Description**: No rate limiting is currently implemented for API endpoints.
+**Description**: Rate limiting is fully implemented using `express-rate-limit` with a custom dual-layer (IP + email) strategy. It protects authentication endpoints (login, bootstrap, invite, forgot-password), administrative endpoints (invite creation, user creation), application endpoints (chat messages, CRM client messages), and file uploads.
 
-**Recommended Action**: Add rate limiting middleware (e.g., express-rate-limit) for production deployments.
+**Caveat**: Rate limiting uses **in-memory storage** (JavaScript `Map` objects). Counters are not shared across multiple server instances and reset on server restart. For multi-instance deployments, consider migrating to Redis-backed storage.
+
+**Details**: See `docs/SECURITY_RATE_LIMITS.md` for full endpoint coverage, configuration, and architecture.
 
 ---
 
@@ -147,6 +149,6 @@ Updated `docs/ENDPOINTS.md` with:
 
 ## Notes
 
-- **Last Updated**: January 2026
+- **Last Updated**: February 2026
 - **Review Frequency**: Monthly or when undertaking major changes
 - When addressing any issue, update this document to track progress.

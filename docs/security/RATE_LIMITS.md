@@ -1,15 +1,20 @@
 # Security Rate Limiting
 
-This document describes the rate limiting implementation for brute-force protection on authentication endpoints.
+This document describes the rate limiting implementation for brute-force protection and abuse prevention.
+
+> **Note**: The canonical, most complete rate limiting documentation is `docs/SECURITY_RATE_LIMITS.md`. This file is a summary.
 
 ## Overview
 
-Rate limiting protects authentication endpoints from:
+Rate limiting protects endpoints from:
 - **Brute-force attacks**: Prevents automated password guessing
 - **Credential stuffing**: Limits attempts using stolen credential lists
 - **Resource exhaustion**: Protects server resources from abuse
+- **Spam/abuse**: Prevents bulk invite/user creation and chat flooding
 
 ## Protected Endpoints
+
+### Authentication Endpoints
 
 | Endpoint | Description | IP Limit | Email Limit |
 |----------|-------------|----------|-------------|
@@ -17,6 +22,22 @@ Rate limiting protects authentication endpoints from:
 | `POST /api/v1/auth/bootstrap-register` | First user registration | 5/min | N/A |
 | `POST /api/v1/auth/platform-invite/accept` | Platform invite acceptance | 10/min | N/A |
 | `POST /api/v1/auth/forgot-password` | Password reset request (when implemented) | 5/min | 3/min |
+
+### Administrative Endpoints
+
+| Endpoint | Description | IP Limit |
+|----------|-------------|----------|
+| `POST /api/invitations` | Invite creation | 20/min |
+| `POST /api/users` | User creation | 10/min |
+
+### Application Endpoints
+
+| Endpoint | Description | IP Limit |
+|----------|-------------|----------|
+| `POST /api/v1/chat/channels/:id/messages` | Channel message send | 30/10s |
+| `POST /api/v1/chat/dm/:id/messages` | DM message send | 30/10s |
+| `POST /api/v1/crm/clients/:id/messages` | CRM client message send | 20/10s |
+| `POST /api/v1/uploads/*` | File uploads | 30/min |
 
 ## Configuration
 

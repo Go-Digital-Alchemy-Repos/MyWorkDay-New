@@ -34,6 +34,7 @@ Rate limiting protects endpoints from:
 |----------|-------------|----------|
 | `POST /api/v1/chat/channels/:id/messages` | Channel message send | 30/10s |
 | `POST /api/v1/chat/dm/:id/messages` | DM message send | 30/10s |
+| `POST /api/v1/crm/clients/:id/messages` | CRM client message send | 20/10s |
 | `POST /api/v1/uploads/*` | File uploads | 30/min |
 
 ## Configuration
@@ -105,6 +106,13 @@ RATE_LIMIT_USER_CREATE_MAX_IP=10
 ```bash
 RATE_LIMIT_CHAT_SEND_WINDOW_MS=10000
 RATE_LIMIT_CHAT_SEND_MAX_IP=30
+```
+
+### CRM Client Message Rate Limits
+
+```bash
+RATE_LIMIT_CLIENT_MSG_WINDOW_MS=10000
+RATE_LIMIT_CLIENT_MSG_MAX_IP=20
 ```
 
 ### Debug Logging

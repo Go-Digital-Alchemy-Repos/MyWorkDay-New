@@ -1,0 +1,108 @@
+NON-DESTRUCTIVE INFRA + SECURITY UPDATE — REDIS-BACKED RATE LIMITING (MULTI-INSTANCE SAFE)
+
+You are working in the existing DigitalWorkDay / MyWorkDay (DigitalWorkDay app) codebase. Do NOT remove or rewrite working features. Do NOT refactor unrelated modules. Implement the smallest, safest set of changes to move rate limit storage from in-memory to a shared store (Redis) for production stability in multi-instance deployments.
+
+PRIMARY GOAL
+Harden existing API rate limiting so it remains consistent across multiple app instances by using Redis (or another shared store) in production. Keep a safe fallback for local/dev.
+
+ASSUMPTIONS
+- Codebase is Node/Express (ESM) with existing rate limiting middleware already wired (currently in-memory).
+- We want minimal surface-area changes: preserve existing limits, keys, route coverage, and behavior unless necessary.
+
+PHASE 0 — DISCOVERY (DO THIS FIRST)
+1) Locate current rate limiting implementation:
+   - Identify where middleware is created and applied (e.g., server bootstrap, router layer, per-route).
+   - Identify current library (e.g., express-rate-limit, rate-limiter-flexible, custom Map-based).
+   - Identify keying strategy (IP, userId, API key, session, combination) and any “skip” logic (health checks, internal calls, tests).
+2) Record existing configuration:
+   - windowMs / max / standardHeaders / legacyHeaders / message format
+   - which routes are covered
+   - how errors are returned (status code, shape)
+
+Do not change current behavior unless required to support Redis.
+
+PHASE 1 — IMPLEMENT REDIS SHARED STORE
+3) Add Redis support as a shared store
+   Choose one approach based on what the repo already uses:
+   A) If using `express-rate-limit`:
+      - Install: `rate-limit-redis` and `redis` (ESM friendly).
+      - Configure express-rate-limit to use Redis store via `RedisStore`.
+   B) If using `rate-limiter-flexible` or custom logic:
+      - Use its Redis store integration (preferred for flexibility), or replace only the storage layer while keeping the same limits and keying.
+
+Prefer approach A if the code already uses express-rate-limit. Minimize rework.
+
+4) Create a dedicated Redis client module (ESM)
+   - Add something like `server/lib/redis.ts` (or match repo conventions).
+   - Use a singleton client pattern to avoid multiple connections.
+   - Read config from env:
+     - REDIS_URL (recommended), OR (REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD)
+     - REDIS_TLS=true/false if needed by hosting provider
+   - Include robust connection handling:
+     - log once on connect/reconnect (use existing logger if present)
+     - do not crash on dev if Redis is missing, unless explicitly enabled
+
+5) Feature flags + environment behavior
+   - Add an env toggle: RATE_LIMIT_STORE=memory|redis (default: memory in dev/test, redis in production if REDIS_URL present)
+   - In production:
+     - If RATE_LIMIT_STORE=redis but Redis is unavailable, FAIL FAST at startup (throw and exit) to avoid silently running “unprotected” or inconsistent.
+   - In dev:
+     - If Redis env vars are missing, continue using memory store automatically (no crashes).
+   - In test:
+     - Default to memory store unless tests explicitly configure Redis.
+
+6) Wire Redis store into the existing rate limiter creation
+   - Keep current limits and route coverage unchanged.
+   - Swap only the backing store/counters:
+     - Use Redis store with a unique key prefix like `dwd:ratelimit:` to avoid collisions.
+   - Ensure keying strategy remains identical to current behavior (IP/userId/etc.).
+   - Ensure headers behavior is the same (standard/legacy headers) unless already inconsistent.
+
+PHASE 2 — OPERATIONAL HARDENING
+7) Add graceful shutdown
+   - On server shutdown signal, quit Redis client cleanly if it exists.
+
+8) Add optional Docker compose for local development (ONLY IF REPO HAS DOCKER PATTERNS)
+   - If the repo already uses docker-compose, add a `redis` service and document usage.
+   - If not, do not introduce Docker; just document “run Redis locally” with simple instructions.
+
+PHASE 3 — TESTING & VALIDATION
+9) Add/extend tests (minimal but meaningful)
+   - If the repo has testing patterns, add tests that verify:
+     - limiter increments across requests
+     - store selection logic (redis vs memory) is correct
+   - Prefer to mock Redis client if test suite doesn’t run services.
+   - If integration tests exist and can run Redis, add a single integration test behind an env flag.
+
+10) Manual validation checklist (document in PR notes / Docs Library)
+   - Start app with RATE_LIMIT_STORE=memory: behavior unchanged
+   - Start app with RATE_LIMIT_STORE=redis + valid REDIS_URL: limiter works
+   - Start app with RATE_LIMIT_STORE=redis + invalid REDIS_URL in production: app fails fast
+   - Confirm limits apply consistently across multiple node processes (can simulate by running two instances locally using same Redis)
+
+PHASE 4 — DOCS & CONFIG UPDATES (NON-DESTRUCTIVE)
+11) Update docs to reflect the new production-ready store
+   - Update rate limiting docs:
+     - “In production, counters are stored in Redis for multi-instance consistency.”
+     - “In dev/test, defaults to in-memory unless configured.”
+   - Update docs/KNOWN_ISSUES.md:
+     - Remove/adjust any “in-memory only” note once Redis is implemented (or keep as “dev uses memory”).
+12) Update environment template(s)
+   - Add REDIS_URL and RATE_LIMIT_STORE to `.env.example` (or the repo’s config doc).
+   - Provide short explanation and safe defaults.
+
+DELIVERABLES
+- Minimal code changes that preserve current behavior and only change the backing store.
+- Explicit list of files modified and packages added.
+- Short summary: what was implemented, how it behaves in dev vs prod, how to configure.
+
+DO NOT
+- Do not change existing limits, key strategy, or route coverage unless absolutely necessary.
+- Do not refactor unrelated server or auth modules.
+- Do not introduce Redis as a dependency for tests unless the repo already runs services in CI.
+
+IMPLEMENTATION NOTES (GUIDANCE)
+- Prefer `express-rate-limit` + `rate-limit-redis` if already using express-rate-limit.
+- Use a predictable prefix (`dwd:ratelimit:`) and ensure key composition is stable.
+- Use ESM-compatible imports everywhere.
+- Follow the repo’s lint/format rules and keep UI / API response shapes unchanged.
