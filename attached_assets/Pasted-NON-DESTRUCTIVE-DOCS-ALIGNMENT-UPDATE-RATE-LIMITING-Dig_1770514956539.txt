@@ -1,0 +1,53 @@
+NON-DESTRUCTIVE DOCS ALIGNMENT UPDATE — RATE LIMITING (DigitalWorkDay)
+
+You are working in the existing DigitalWorkDay codebase. Do NOT remove or rewrite working code. Do NOT refactor unrelated files. Make the smallest, safest changes necessary to align documentation with current reality.
+
+GOAL
+docs/KNOWN_ISSUES.md currently says “No rate limiting is currently implemented for API endpoints,” but other documentation indicates rate limiting exists. Update docs to remove the mismatch and accurately reflect the current implementation, including an explicit note if rate limiting is implemented but in-memory only.
+
+TASKS
+1) Verify current state of rate limiting in code
+   - Search the server/API for any rate limiting middleware, guards, or utilities (e.g., express-rate-limit, custom middleware, per-route limits, IP/user-based throttling).
+   - Identify:
+     a) whether rate limiting is actually active in runtime (wired into the request pipeline),
+     b) what endpoints it applies to (all API, auth only, specific routes),
+     c) what storage/backing it uses (in-memory map, Redis, database, etc.),
+     d) environment behavior differences (dev vs prod).
+
+2) Verify current docs claim about rate limiting
+   - Locate the “expanded rate limiting documentation” referenced elsewhere in the docs (anything in /docs, README, Docs Library, SECURITY, ARCHITECTURE, etc.).
+   - Extract the specific claims that conflict with docs/KNOWN_ISSUES.md.
+
+3) Update docs/KNOWN_ISSUES.md to align
+   - Replace the incorrect statement “No rate limiting is currently implemented for API endpoints,” with accurate language based on what you found in step 1.
+   - If the implementation is in-memory, add an explicit note like:
+     - “Rate limiting is implemented, but currently uses in-memory storage (not shared across instances).”
+     - Include the practical impact: multi-instance deployments won’t share counters; restarts reset counters.
+   - If rate limiting is not actually wired in code, then:
+     - Update the other docs to match reality OR
+     - Add a Known Issue entry stating the docs are ahead of implementation and rate limiting is planned/not active.
+   - Keep the Known Issues section concise, factual, and dated (add a short “Last updated: <today’s date>” line in the doc header or near the entry if there’s an existing pattern).
+
+4) Cross-link and clarify
+   - In docs/KNOWN_ISSUES.md, add a brief pointer to the main rate-limiting doc location (e.g., “See docs/<rate limiting doc> for details.”).
+   - In the rate limiting doc, ensure it also states the same “in-memory only” caveat if applicable. Do not duplicate long explanations—just one short consistent note.
+
+5) Validation
+   - Run a quick grep/search to confirm there are no remaining doc statements claiming “no rate limiting” if rate limiting exists.
+   - Ensure documentation is internally consistent and does not contradict itself.
+
+OUTPUT REQUIREMENTS
+- Provide a clear summary of:
+  - what you found in code (active/inactive, scope, storage),
+  - what you changed in docs,
+  - exact files modified.
+- Keep changes non-destructive and minimal.
+- If any uncertainty exists (e.g., rate limiting doc claims exist but code wiring is unclear), prefer documenting the truth as verified by code and explicitly note any gap.
+
+FILES TO TOUCH (as needed, minimal)
+- docs/KNOWN_ISSUES.md (required)
+- The primary rate limiting documentation file (only if it lacks the “in-memory only” clarification or contains conflicting language)
+
+DO NOT
+- Do not change rate limiting logic in code for this task (this is a documentation alignment update).
+- Do not reorganize docs folders or rewrite unrelated documentation.
